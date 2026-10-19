@@ -5,6 +5,16 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('near-bracket hold skips optional forge trips but keeps emergency supplies and farming available',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
+  a.resourceHold={active:true};a.goal={slot:'cape',missing:[]};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true}),null);
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:0}),catalog(),clock,{enabled:true}),'town_shop');
+  a.goal.slot='weapon';assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true}),'town_forge');
+  a.goal={slot:'cape',missing:[{id:'ore'}]};a.farm={map:'field',started:clock};
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true}),'finish_farm');
+  a.farm=null;a.last.farm=0;assert.notEqual(A.chooseTask(m,state(),catalog(),clock,{enabled:true}),'farm');
+});
 test('95 percent bag threshold and proactive potion restock keep a cooldown',()=>{
   const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;
   a.bagUsage=[94,100];const policy={enabled:true,crystalBudget:0};

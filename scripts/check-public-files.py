@@ -12,6 +12,7 @@ ALLOWED = {
     'autonomy.js', 'autonomy.test.js', 'game-catalog.js', 'server-availability.js',
     'ui-resilience.js', 'ui-resilience.test.js',
     'game-telemetry.js', 'game-telemetry.test.js',
+    'progression.js', 'progression.test.js', 'session-hygiene.js', 'session-hygiene.test.js',
     'telegram-alerts.js', 'telegram-alerts.test.js',
     'sigil-agent.service', 'sigil-supervisor.service', 'sigil-telegram.service',
     'sigil-viewer.service',

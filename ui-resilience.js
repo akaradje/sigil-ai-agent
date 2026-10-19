@@ -18,7 +18,7 @@ function update(mem,s,now=Date.now()) {
   if(report.blocked) {
     h.safeIdle=true;h.healthySince=null;h.badSince??=now;
     // Stop immediately, notify after a sustained observation rather than a loading frame.
-    const expectedReload=mem.positionRecovery?.pending&&now-mem.positionRecovery.at<90000;
+    const expectedReload=mem.positionRecovery?.pending&&now-mem.positionRecovery.at<90000||mem.sessionHygiene?.pending&&now-mem.sessionHygiene.pending.at<90000;
     if(!h.notified&&!expectedReload&&now-h.badSince>=15000){emit('ui_changed');h.notified=true;}
   }else {
     h.badSince=null;

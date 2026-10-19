@@ -19,6 +19,8 @@ const nativeKey = (...args) => new Promise((resolve,reject)=>execFile('/usr/bin/
 const IQ = require('./game-intelligence');
 const UI = require('./ui-resilience');
 const Telemetry = require('./game-telemetry');
+const Progression = require('./progression');
+const Hygiene = require('./session-hygiene');
 const Autonomy = require('./autonomy');
 const Catalog = require('./game-catalog');
 const {createAvailability}=require('./server-availability');
@@ -51,6 +53,7 @@ function loadEnv() {
 }
 const ENV = { ...loadEnv(), ...process.env };
 const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
+autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
 const availability=createAvailability({url:ENV.GAME_HEALTH_URL||''});
 availability.probe().catch(()=>{});
 setInterval(()=>{const wasDown=availability.blocked();availability.probe().then(()=>{if(wasDown&&!availability.blocked()){catalogWasConnected=false;catalogRetry=0;}}).catch(()=>{});},60000);
@@ -166,6 +169,7 @@ async function perceive(withShot) {
   UI.update(memory,state);
   if(previous!==memory.uiHealth.safeIdle||sequence!==memory.autonomy?.sequence)saveMemory();
   if(autonomyPolicy.enabled)Autonomy.update(memory,state,catalog,Date.now(),autonomyPolicy.goldReserve);
+  Progression.updateCatchUp(memory,state,catalog);
   const out={state,buttons:state.buttons,controls:state.controls};
   if(withShot) { try { const buf=await reqBuf('/screenshot'); if(buf.length>2000)out.shot=buf.toString('base64'); } catch {} }
   return out;
@@ -191,6 +195,9 @@ async function uiClick(c) {
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
+  const spending=Progression.forgeDecision(fresh,st,memory,catalog);
+  if(!spending.allowed)throw Error('Secondary equipment spending held before bracket/catalog recheck');
+  if(spending.forge&&['craft','upg','refine'].includes(fresh.act))memory.forgeIntent={at:Date.now(),slot:spending.slot,character:st.name};
   if(memory.uiHealth.login&&!/^(▶\s*)?Play$/i.test(fresh.label))throw Error('login permits only verified Play');
   await req(`/click?x=${fresh.x}&y=${fresh.y}`);log('UI '+fresh.label);
 }
@@ -238,7 +245,9 @@ try {const cached=JSON.parse(fs.readFileSync(catalogFile,'utf8'));catalog=Catalo
 let catalogWasConnected=false;
 async function refreshCatalog(s) {
   const connected=Boolean(s.name),reconnected=connected&&!catalogWasConnected;catalogWasConnected=connected;
-  if(!autonomyPolicy.enabled||!connected||Date.now()<catalogRetry||(!reconnected&&catalog&&Date.now()-catalog.at<6*3600000))return;
+  const pending=memory.bracketPolicy?.recheck;
+  if(pending&&!pending.started){pending.started=Date.now();catalogRetry=0;}
+  if(!autonomyPolicy.enabled||!connected||Date.now()<catalogRetry||(!pending&&!reconnected&&catalog&&Date.now()-catalog.at<6*3600000))return;
   catalogRetry=Date.now()+5*60000;
   try {
     const data=JSON.parse(await evalIn(Catalog.CATALOG_EXPRESSION));catalog=Catalog.validateCatalog(data);
@@ -541,6 +550,10 @@ async function runCycle() {
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
     IQ.updateMetrics(memory,p.state);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
+    if(Hygiene.eligible(memory,p.state,catalog,Date.now(),autonomyPolicy.sessionRefreshHours)){
+      Hygiene.prepare(memory);Autonomy.event(Autonomy.init(memory),'session_refreshing',{});saveMemory();
+      await evalIn("setTimeout(()=>location.reload(),100);'town browser refresh scheduled'");return;
+    }
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
@@ -732,6 +745,8 @@ setInterval(async()=>{
   try {
     const s=(await perceive(false)).state;
     const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
+    Hygiene.observe(memory,raw);
+    if(Hygiene.completed(memory,s)){Autonomy.event(Autonomy.init(memory),'session_refreshed',{});saveMemory();}
     if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){
       memory.positionRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'position_recovered',{});saveMemory();
     }

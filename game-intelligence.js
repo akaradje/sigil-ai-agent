@@ -112,6 +112,7 @@ function readUI() {
 // The local adapter accepts GET expressions; retain line boundaries but omit
 // indentation/comment-only lines to stay below ordinary HTTP header limits.
 const PERCEPTION = '('+readUI.toString().split('\n').filter(l=>!l.trimStart().startsWith('//')).map(l=>l.trim()).join('\n')+')()';
+const {bracketHold}=require('./progression');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
@@ -387,4 +388,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   }
   return {run,open,close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor};
+module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};

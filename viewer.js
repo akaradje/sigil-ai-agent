@@ -102,6 +102,10 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">Level / refine cap</div><div class="v" id="cap">–</div></div>
         <div class="cell"><div class="k">Measured EXP / min</div><div class="v" id="expRate">–</div></div>
         <div class="cell"><div class="k">Estimated target bar time / samples</div><div class="v" id="ttk">–</div></div>
+        <div class="cell"><div class="k">Resource hold</div><div class="v" id="resourceHold" style="font-size:14px">–</div></div>
+        <div class="cell"><div class="k">Top 10 cutoff / trend</div><div class="v" id="catchup" style="font-size:14px">–</div></div>
+        <div class="cell"><div class="k">ETA range · conditional estimate</div><div class="v" id="eta" style="font-size:14px">–</div></div>
+        <div class="cell"><div class="k">Browser session age</div><div class="v" id="sessionAge" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
@@ -155,6 +159,15 @@ async function tickState() {
     $('expRate').textContent=a.expPerMinute??'กำลังวัด';
     const t=j.strategy?.combatTelemetry?.current;
     $('ttk').textContent=t?.count?t.medianSeconds+'s / '+t.count:'รอหลอดเลือดครบ';
+    const hold=a.resourceHold;
+    $('resourceHold').textContent=hold?.active?(hold.awaitingCatalog?'พักอุปกรณ์รอง · รอตรวจสูตรใหม่':'พักอุปกรณ์รองก่อน Lv'+hold.nextLevel)+' · พบ '+(hold.unlocks?.length||0)+' รายการปลดล็อก':'ใช้นโยบายอัปเกรดปกติ';
+    const c=j.strategy?.catchUp?.current,trend={waiting:'รอข้อมูล',uncertain:'ยังแยกความเร็วคู่แข่งไม่ได้',closing:'กำลังตีตื้น',falling:'คู่แข่งโตเร็วกว่า',flat:'EXP ตัวเรายังไม่เพิ่ม',top10:'ติด Top 10 แล้ว','cap-tie':'ต้องตรวจเกณฑ์เสมอที่เพดาน'};
+    const fresh=c&&Date.now()-c.rankAt<20*60000;
+    $('catchup').textContent=fresh&&c.cutoff?c.cutoff.name+' Lv'+c.cutoff.level+' · '+trend[c.status]+' · ข้อมูล '+Math.floor((Date.now()-c.rankAt)/60000)+' นาที':'รอตารางอันดับสด';
+    const eta=fresh&&(c.etaMovingMinutes||c.etaStaticMinutes);
+    $('eta').textContent=eta?eta.map(n=>n>10080?'>7 วัน':Math.ceil(n)+' นาที').join('–')+(c.etaMovingMinutes?' · หากอัตราโตคงเดิม':' · ถ้าเส้นตัดหยุดโต'):'ข้อมูลไม่พอคำนวณ';
+    const session=j.strategy?.sessionHygiene;
+    $('sessionAge').textContent=Number.isFinite(session?.ageHours)?session.ageHours.toFixed(1)+' ชม. · '+(session.pending?'กำลังกู้เซสชัน':'รอจบธุระในเมืองเมื่อครบอายุ'):'รอข้อมูลอายุหน้าเกม';
     $('budget').textContent=(a.premium?.spent||0)+' / '+(a.premium?.reserved||0);
     $('craft').textContent=a.goal?a.goal.name+' · '+(a.craftProgress??0)+'% ของวัตถุดิบ':a.gearCapped?'อุปกรณ์ถึงเพดานที่ตรวจแล้ว':'ยังไม่มีสูตรเป้าหมาย';
     $('craftbar').style.width=Math.max(0,Math.min(100,a.craftProgress||0))+'%';

@@ -11,6 +11,24 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('catch-up trend notifications need two fresh leaderboard samples and survive restart without repeats',()=>{
+  let e=new AlertEngine({},start),s=sample();
+  const set=(status,at)=>{s.agent.strategy={catchUp:{character:s.agent.state.name,current:{status,at,rankAt:at,cutoff:{name:'Rival',level:66},etaMovingMinutes:status==='closing'?[80,120]:null}}};};
+  set('uncertain',start);e.observe(s,start);assert.equal(e.db.pending.length,0);
+  set('closing',start+20*MIN);e.observe(s,start+20*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('catchup:')).length,0);
+  set('closing',start+25*MIN);e.observe(s,start+25*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('catchup:')).length,1);
+  assert.ok(e.db.pending.some(p=>/กำลังตีตื้น/.test(p.text)));
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+30*MIN);
+  set('closing',start+30*MIN);e.observe(s,start+30*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('catchup:')).length,0);
+});
+test('session refresh has one durable completion event and a stuck-refresh incident',()=>{
+  const e=new AlertEngine({},start),s=sample();s.agent.strategy={sessionHygiene:{pending:{at:start}},autonomy:{events:[{id:1,type:'session_refreshing',detail:{}}]}};
+  e.observe(s,start);assert.ok(e.db.pending.some(p=>/กำลังรีเฟรชเซสชัน/.test(p.text)));
+  e.observe(s,start+3*MIN);assert.ok(e.db.pending.some(p=>p.incident==='session-refresh'));
+  s.agent.strategy.sessionHygiene.pending=null;s.agent.strategy.autonomy.events.push({id:2,type:'session_refreshed',detail:{}});
+  e.observe(s,start+4*MIN);assert.ok(e.db.pending.some(p=>/รีเฟรชเซสชันสำเร็จ/.test(p.text)));
+  assert.equal(e.db.pending.filter(p=>p.incident==='session-refresh').length,0);
+});
 test('UI incident reaches the outbox even when player name is unreadable, and recovery is deduplicated',()=>{
   const e=new AlertEngine({},start),s=sample({name:''});
   s.agent.strategy={uiHealth:{safeIdle:true,character:'ExampleHero'},autonomy:{events:[{id:1,type:'ui_changed',detail:{missing:['hp','level']}}]}};

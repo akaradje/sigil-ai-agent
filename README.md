@@ -153,6 +153,33 @@ Bag servicing starts at 95% capacity (95/100), with more frequent checks near fu
 starts at ten or fewer, uses verified gold prices and the reserve, and does not buy premium buffs.
 Native automatic learned skills and the game's existing CBT bonus remain responsible for buffs.
 
+## Bracket planning, catch-up estimates and session refresh
+
+- Levels ending in 9 with EXP above 50% pause secondary crafting, tier upgrades and refinements.
+  Verified primary-weapon work and survival purchases remain available. Secondary-only material
+  detours return to native EXP progression while the hold is active; ordinary drops are still kept.
+  This is a level-bracket
+  policy, not a claim that every tenth level unlocks a tier. Actual unlocks come from the catalog;
+  same-tier higher-level gear is considered when core stats improve without regression. On crossing
+  the bracket, a forced catalog refresh must succeed before secondary spending resumes. The policy
+  does not apply at a verified character cap. The click boundary also enforces it for LLM tools.
+- Dashboard catch-up telemetry records the current level-rank cutoff and real cumulative EXP.
+  A rival's hidden in-level EXP is an interval, not zero. Stationary-cutoff ETA is labelled as a
+  conditional range; moving-cutoff ETA appears only when observed growth bounds establish closing.
+  Own wall-clock growth includes trips and downtime. Rival growth requires at least 20 minutes of
+  fresh leaderboard history; stale, wrong-character/category and cap-tie data cannot invent an ETA.
+  Telegram stores the cutoff and reports a changed trend after two new leaderboard samples, with
+  deduplication and a 30-minute notification cooldown. Existing rank/Top10 notifications remain.
+- `SESSION_REFRESH_HOURS` defaults to 6 and is clamped to 6–8. Browser `performance.timeOrigin`
+  supplies session age, which survives agent restarts. Refresh waits for an ordinary completed town
+  trip, a freshly verified bag below 95% and at least 20 of each potion. Storage and the gold-priced
+  shop may service these prerequisites with existing safeguards; unresolved inventory, insufficient
+  reserves or unsafe UI defer optional refresh and return to play. It never forces a town trip merely
+  because the session is old. Refresh intent and the return route persist before normal page reload.
+  Successful recovery requires a newer browser session, valid position and observed native gameplay;
+  Telegram reports start, completion or a recovery stalled beyond two minutes. This is preventive
+  maintenance, not evidence of a diagnosed memory leak or a guarantee against all crashes.
+
 The same read-only telemetry detects coordinates outside validated live map dimensions. New game
 inputs pause while the fault is present; after 30 seconds it permits a normal browser reload, then
 verified Play/quest recovery. Reload attempts persist across restarts, with a ten-minute cooldown and

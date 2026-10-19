@@ -1,5 +1,7 @@
 'use strict';
 const {resolveCap,bottlenecks,farmOptions}=require('./game-catalog');
+const Progression=require('./progression');
+const Hygiene=require('./session-hygiene');
 const MIN=60000;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
@@ -32,18 +34,22 @@ function progressionGoal(catalog,state,a,reserve) {
   }
   if(upgrades.length)return upgrades.find(g=>!g.missing.length)||upgrades[0];
   // Craft a missing highest-tier slot once, rather than repeatedly rolling items already owned.
-  for(const slot of ['weapon','wing','armor','head','shield','cape','boots','ring','amulet']) {
+  const crafts=[];
+  for(const slot of ['weapon','armor','head','shield','cape','boots','wing','ring','amulet']) {
     const current=own.find(w=>w.slot===slot)?.gear;
-    const candidates=catalog.gear.filter(g=>g.slot===slot&&g.craft&&allowed(g)&&(!current||g.tier>current.tier));
-    const target=candidates.sort((a,b)=>b.tier-a.tier||(b.stats.matk||0)-(a.stats.matk||0))[0];
+    const core=['matk','int','def','mdef','hp'];
+    const candidates=catalog.gear.filter(g=>g.slot===slot&&g.craft&&allowed(g)&&(!current||g.tier>current.tier||g.tier===current.tier&&g.lv>current.lv&&
+      core.every(k=>(g.stats[k]||0)>=(current.stats[k]||0))&&core.some(k=>(g.stats[k]||0)>(current.stats[k]||0))));
+    const target=candidates.sort((a,b)=>b.tier-a.tier||b.lv-a.lv||(b.stats.matk||0)-(a.stats.matk||0))[0];
     if(!target||a.crafted[target.id]||a.inventory.gear.some(g=>gearForName(catalog,g.text+' '+g.art)?.id===target.id))continue;
-    return {kind:'craft',target:target.id,name:target.name,slot,cost:target.craft,
-      missing:bottlenecks(target.craft,a.inventory.items,Math.max(0,(state.gold||0)-reserve))};
+    crafts.push({kind:'craft',target:target.id,name:target.name,slot,cost:target.craft,
+      missing:bottlenecks(target.craft,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
-  return null;
+  return crafts.find(g=>!g.missing.length)||crafts[0]||null;
 }
 function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   const a=init(mem);if(!state.name)return a;
+  a.resourceHold=Progression.updateBracket(mem,state,catalog,now);
   if(a.farm?.trial&&(state.dead||state.hp&&state.hp[0]/state.hp[1]<0.4))a.farm.abort=true;
   if(a.trip&&now-a.trip.at<5*MIN&&a.blocked==='Town trip timed out')a.blocked=null;
   a.cap=resolveCap(state,catalog);a.zone=state.zone;a.crystals=state.crystals;a.gold=state.gold;
@@ -59,7 +65,7 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   const need=a.goal?.cost?.mats||{},owned=a.inventory?.items||{};
   const total=Object.values(need).reduce((s,n)=>s+n,0),have=Object.entries(need).reduce((s,[id,n])=>s+Math.min(n,owned[id]||0),0);
   a.craftProgress=total?Math.floor(have/total*100):null;
-  a.mode=a.trip?'town-service':a.goal?.missing?.length?'farm-materials':a.goal?'craft-upgrade':a.cap.atCap&&a.gearCapped?'stockpiling':a.cap.atCap?'endgame-forge':'leveling';
+  a.mode=a.trip?'town-service':a.resourceHold?.active?'pre-bracket-stockpiling':a.goal?.missing?.length?'farm-materials':a.goal?'craft-upgrade':a.cap.atCap&&a.gearCapped?'stockpiling':a.cap.atCap?'endgame-forge':'leveling';
   const cumulative=lv=>Array.from({length:Math.max(0,lv-1)},(_,i)=>catalog.expByLevel?.[i+1]||0).reduce((s,n)=>s+n,0);
   const active=!a.trip&&!state.panelOpen&&!state.menuOpen&&!state.mapOpen&&!state.dead&&(!mem.uiHealth?.safeIdle)&&(/\bon\b/.test(state.autoHunt||'')||state.autoQuestRunning);
   const absolute=state.exp==null?null:cumulative(level(state))+(state.exp/100)*(catalog.expByLevel?.[level(state)]||0);
@@ -67,7 +73,7 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   if(absolute!=null&&a.expSample&&norm(a.expSample.zone)===norm(state.zone)&&now-a.expSample.at>=MIN) {
     const elapsed=(now-a.expSample.at)/MIN,delta=absolute-a.expSample.value;
     if(delta>=0) {
-      a.expPerMinute=Math.round(delta/elapsed);const map=catalog.maps.find(m=>norm(m.name)===norm(state.zone));
+      a.expPerMinute=Math.round(delta/elapsed);a.expRateAt=now;a.expRateZone=state.zone;const map=catalog.maps.find(m=>norm(m.name)===norm(state.zone));
       if(map){const old=a.farmRates[map.id],fresh=old&&now-old.at<30*MIN;
         a.farmRates[map.id]={expPerMinute:fresh?Math.round((old.expPerMinute+a.expPerMinute)/2):a.expPerMinute,
           minutes:(fresh?old.minutes||0:0)+elapsed,level:level(state),at:now};}
@@ -86,6 +92,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
   if(a.trip)return 'town';
   if(a.resume)return 'autonomy_wait';
+  if(a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
   if(a.farm?.trial&&(a.farm.abort||s.hp[0]/s.hp[1]<0.4||(mem.deaths||[]).some(t=>t>=a.farm.started)))return 'finish_farm';
   if(a.farm?.trial&&now-a.farm.started>3*MIN) {
     const rate=a.farmRates[a.farm.map];
@@ -99,9 +106,9 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
     return due('town_storage',5*MIN)?'town_storage':null;
   }
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
-  if(a.goal&&!a.goal.missing.length&&due('forge',MIN))return 'town_forge';
-  if(due('forge',15*MIN))return 'town_forge';
-  if((a.goal?.missing?.length||a.cap?.atCap)&&!a.farm&&due('farm',10*MIN))return 'farm';
+  if(a.goal&&!a.goal.missing.length&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
+  if(!a.resourceHold?.active&&due('forge',15*MIN))return 'town_forge';
+  if((a.goal?.missing?.length||a.cap?.atCap)&&(!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
   if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now))return 'farm_trial';
   if(a.farm)return 'autonomy_wait';
   return null;
@@ -179,7 +186,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function forge(s) {
     const goal=a.goal,catalog=getCatalog();
-    if(goal&&!goal.missing.length) {
+    if(goal&&!goal.missing.length&&(!a.resourceHold?.active||goal.slot==='weapon')) {
       await pick(c=>c.act==='smtab'&&c.key===(goal.kind==='upgrade'?'up':'craft'));
       if(goal.kind==='craft') {
         const g=catalog.gear.find(g=>g.id===goal.target);
@@ -200,7 +207,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     await pick(c=>c.act==='smtab'&&c.key==='refine');s=await state();
     const rows=s.smithRows.filter(r=>r.act==='refine'&&(r.worn||a.worn.some(w=>w.uid===r.key)));
     a.gearCapped=rows.length>=a.worn.length&&a.worn.length>=8&&rows.every(r=>r.max);
-    const row=rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null).sort((x,y)=>x.refine-y.refine)[0];
+    const row=rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))).sort((x,y)=>x.refine-y.refine)[0];
     if(!row)return;
     const fee=Number(row.costText.replace(/,/g,'').match(/\d+/)?.[0]);
     if(!fee||s.gold-fee<policy.goldReserve)throw Error('refine fee/reserve not confirmed');
@@ -221,10 +228,29 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function town(s) {
     const trip=a.trip;
-    if(now()-trip.at>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
+    if(now()-(trip.hygiene?.started||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(!townMap)return;
-    if(trip.phase==='return'){await resume(trip);return;}
+    if(trip.phase==='return'){
+      if(Hygiene.due(mem,now(),policy.sessionRefreshHours||6)&&!trip.hygiene?.failed) {
+        const h=trip.hygiene ||= {started:now(),shopAttempts:0};
+        if(h.ready&&now()-h.readyAt<90000)return; // agent refreshes only after independent safety checks
+        if(h.ready){h.failed=true;mem.sessionHygiene.deferred='Refresh safety checks did not pass';}
+        else {
+          await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);const bag=await state();
+          if(!bag.inventoryComplete||!bag.bagUsage)throw Error('Pre-refresh inventory not verified');
+          h.bagUsage=bag.bagUsage;
+          if(bag.bagUsage[0]>=Math.floor(bag.bagUsage[1]*0.95)) {
+            if(!h.storageTried){h.storageTried=true;trip.kind='storage';trip.phase='town';return;}
+            h.failed=true;mem.sessionHygiene.deferred='Bag could not be safely serviced';
+          }else if(bag.hpPotions<20||bag.mpPotions<20||bag.hpPotions==null||bag.mpPotions==null) {
+            if(h.shopAttempts++<3){trip.kind='shop';trip.phase='town';return;}
+            h.failed=true;mem.sessionHygiene.deferred='Potion replenishment not verified';
+          }else {h.ready=true;h.readyAt=now();save();return;}
+        }
+      }
+      await resume(trip);return;
+    }
     const panel={forge:'smith',storage:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
       await close();await key('m');await sleep(400);await pick(c=>c.bm==='here',true);
@@ -248,7 +274,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         a.blocked=null;a.last.inventory=0;trip.deposits=(trip.deposits||0)+1;
       }
       a.blocked=trip.deposits?null:'No verified spare non-caster gear to deposit';
-      if(a.goal&&!a.goal.missing.length){trip.kind='forge';return;}
+      if(!trip.hygiene&&a.goal&&!a.goal.missing.length&&(!a.resourceHold?.active||a.goal.slot==='weapon')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
       for(const [field,id] of [['hpPotions','mega_potion'],['mpPotions','mega_ether']]) {
@@ -315,6 +341,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       a.last[task]=now();a.lastResult={task,ok:true,at:now()};save();
     } catch(e) {
+      if(a.trip?.hygiene){a.trip.hygiene.failed=true;a.trip.phase='return';mem.sessionHygiene.deferred=e.message;}
       if(task==='town'&&a.trip?.kind==='forge') {a.last.inventory=0;a.last.equipment=0;a.trip.phase='return';}
       a.failures||={};a.failures[task]=now();a.lastResult={task,ok:false,error:e.message,at:now()};save();log('autonomy '+task+': '+e.message);
     } finally {await close();save();}

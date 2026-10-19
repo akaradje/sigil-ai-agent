@@ -108,12 +108,28 @@ class AlertEngine {
     // Declines update the baseline silently, so a later genuine recovery can be reported.
     this.db.levelRanking = r;
   }
+  observeCatchUp(agent,now) {
+    const data=agent?.strategy?.catchUp,c=data?.current;
+    if(!c||data.character!==agent.state?.name||now-c.at>2*MIN||c.at>now+MIN||!Number.isFinite(c.rankAt)||now-c.rankAt>20*MIN||c.rankAt>now+MIN)return;
+    let t=this.db.catchUp;
+    if(!t||t.character!==data.character)t=this.db.catchUp={character:data.character,at:0};
+    if(c.rankAt<=t.at)return;
+    t.at=c.rankAt;t.current={...c};
+    t.candidate=t.candidate?.status===c.status?{status:c.status,count:t.candidate.count+1}:{status:c.status,count:1};
+    if(!['closing','falling','flat'].includes(c.status)||t.candidate.count<2||t.announced===c.status||now-(t.notifiedAt||0)<30*MIN)return;
+    const labels={closing:'กำลังตีตื้น',falling:'เส้น Top 10 โตเร็วกว่าตัวเรา',flat:'EXP ตัวเรายังไม่เพิ่ม'};
+    const eta=c.etaMovingMinutes?.every(Number.isFinite)?` · ETA โดยประมาณ ${c.etaMovingMinutes.join('–')} นาที`:'';
+    this.enqueue(`catchup:${data.character}:${c.rankAt}`,`📊 ${labels[c.status]} · อันดับ 10: ${c.cutoff?.name||'?'} Lv${c.cutoff?.level||'?'}${eta}`);
+    t.announced=c.status;t.notifiedAt=now;
+  }
   observeAutonomy(agent) {
     const a=agent?.strategy?.autonomy;if(!a)return;
     const d=this.db;d.autonomySeen ||= {};
     const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      session_refreshing:()=>`🔄 จัดกระเป๋าและตรวจยาในเมืองแล้ว กำลังรีเฟรชเซสชันตามรอบอายุ`,
+      session_refreshed:()=>`✅ รีเฟรชเซสชันสำเร็จ ตรวจตำแหน่งและกลับมาเล่นต่อแล้ว`,
       position_invalid:()=>`⚠️ ตำแหน่งตัวละครอยู่นอกขอบแผนที่ต่อเนื่อง กำลังกู้ด้วยการโหลดหน้าเกมใหม่`,
       position_recovered:()=>`✅ โหลดเกมใหม่และตรวจพบตำแหน่งกลับเข้าแผนที่แล้ว กลับมาเล่นต่อ`,
       ui_changed:e=>`⚠️ UI Structure Changed: เข้าสู่ Safe Idle หยุดคำสั่งใช้ทรัพยากร คงการฟาร์มเดิมที่เกมกำลังรัน · อ่านไม่ได้: ${(e.missing||[]).join(', ')}`,
@@ -134,6 +150,10 @@ class AlertEngine {
     const d = this.db;
     // Schema incidents must still reach Telegram when the HUD name cannot be read.
     this.observeAutonomy(sample.agent);
+    this.observeCatchUp(sample.agent,now);
+    const pendingRefresh=sample.agent?.strategy?.sessionHygiene?.pending;
+    this.condition('session-refresh',Boolean(pendingRefresh&&now-pendingRefresh.at>2*MIN),now,0,
+      '⚠️ รีเฟรชตามรอบแล้วแต่ยังยืนยันการกลับมาเล่นไม่ได้เกิน 2 นาที',true,false);
     const s = normalize(sample.agent);
     this.condition('agent', !s, now, 90_000, '🚨 อ่านสถานะบอต/เกมไม่ได้เกิน 90 วินาที', true);
     if (sample.supervisorOk != null) this.condition('supervisor', !sample.supervisorOk, now, 90_000,

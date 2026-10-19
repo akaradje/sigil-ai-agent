@@ -6,6 +6,7 @@ function readPublicState() {
   if(!g||!p||!w)return {available:false};
   const number=x=>Number.isFinite(x)?x:null;
   return {available:true,running:!!g.running,ready:!!g.ready,loading:!!g.mapLoad||!!g.fade,
+    sessionStartedAt:typeof performance==='object'&&Number.isFinite(performance.timeOrigin)?performance.timeOrigin:null,
     map:typeof p.map==='string'?p.map:null,world:typeof w.id==='string'?w.id:null,
     x:number(p.x),y:number(p.y),width:number(w.w),height:number(w.h),
     targetId:['string','number'].includes(typeof p.target)?String(p.target).slice(0,100):null};
