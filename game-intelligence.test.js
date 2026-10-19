@@ -3,6 +3,12 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const IQ=require('./game-intelligence');
 const healthy=()=>({name:'Hero',job:'Mage',lv:'Lv 44',jobLv:'Job 40 MAX',hp:[900,1800],gold:49000,exp:40,quest:'Train to Lv 47',autoQuestRunning:true,controls:[]});
+test('ranking deadline stays due during town trips while respecting failure backoff',()=>{
+  const now=1800000000000,m=IQ.freshMemory();m.last.rank=now-300001;m.autonomy={trip:{kind:'forge'}};
+  assert.equal(IQ.rankDue(m,now),true);
+  m.failures.rank={at:now-1000,count:2};assert.equal(IQ.rankDue(m,now),false);
+  assert.equal(IQ.rankDue(m,now+120000),true);
+});
 function preparedMemory() {
   const m=IQ.freshMemory();m.bossBuild=Object.fromEntries(['fire_bolt','lightning_bolt','blaze','jupiter_thunder','meteor_fall'].map(k=>[k,{result:'already evolved'}]));return m;
 }

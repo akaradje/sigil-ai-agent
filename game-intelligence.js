@@ -86,6 +86,7 @@ function readUI() {
 }
 const PERCEPTION = '('+readUI.toString()+')()';
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
+function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
@@ -359,4 +360,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   }
   return {run,open,close};
 }
-module.exports={PERCEPTION,readUI,n,freshMemory,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor};
+module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor};

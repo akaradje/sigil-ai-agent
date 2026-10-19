@@ -522,12 +522,14 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(autonomyPolicy.enabled&&!critical.includes(planned)&&IQ.rankDue(memory)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3) {
+      actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}
+      return;
+    }
     if(automatic&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
       if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
       const routine=['stats','skills','rank','combat','configure'];
-      if(automatic==='autonomy_wait'&&memory.autonomy?.farm&&Date.now()-(memory.last.rank||0)>300000) {
-        actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}
-      }else if(automatic==='autonomy_wait'&&routine.includes(planned))await runPolicy(p.state);
+      if(automatic==='autonomy_wait'&&routine.includes(planned))await runPolicy(p.state);
       else {actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}
       return;
     }
