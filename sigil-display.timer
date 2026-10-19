@@ -1,0 +1,12 @@
+[Unit]
+Description=Ensure the Sigil virtual display remains available
+
+[Timer]
+OnBootSec=15s
+OnCalendar=*-*-* *:*:00,30
+AccuracySec=1s
+Persistent=true
+Unit=sigil-display.service
+
+[Install]
+WantedBy=timers.target

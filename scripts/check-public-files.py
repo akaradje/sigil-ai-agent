@@ -14,6 +14,7 @@ ALLOWED = {
     'sigil-agent.service', 'sigil-supervisor.service', 'sigil-telegram.service',
     'sigil-viewer.service',
     'sigil-harness.service',
+    'sigil-display.service', 'sigil-display.timer',
     'docs/harness-api.md', 'scripts/check-public-files.py',
     'uptime-worker/README.md', 'uptime-worker/monitor.mjs',
     'uptime-worker/monitor.test.mjs', 'uptime-worker/wrangler.toml',

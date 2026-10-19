@@ -131,3 +131,9 @@ a narrowly scoped sudoers rule, validate that rule with `visudo`, then opt into
 `HARNESS_RESTART_SYSTEMD=1`. Do not grant general passwordless shell/systemctl access.
 A pre-existing 16-character viewer link can be retained explicitly with
 `VIEWER_ALLOW_LEGACY_TOKEN=1`; new deployments should generate a token of at least 24 characters.
+
+Enable `sigil-display.timer` for a display fallback after reboot or display failure. Its service
+first probes DISPLAY :99 and skips startup when an existing X server is healthy; it never kills
+or replaces that display. Otherwise it starts Xvfb without a TCP listener and waits for X clients
+before the harness starts. Install Xvfb/xdotool, select the correct service user and adjust the
+display geometry for your browser. This requires access only from trusted local processes.
