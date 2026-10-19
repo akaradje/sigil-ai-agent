@@ -85,7 +85,7 @@ function readUI() {
     if(matches.length===1)matches[0].open=kind;
   }
   return {name:txt('pName'),job:txt('pJob'),lv:txt('pLv'),jobLv:txt('pJl'),hp,mp,
-    gold:number(txt('gold')),crystals:number(txt('crys')),quest,questProgress,jobQuestProgress,autoQuestMode,zone:txt('zone'),zoneLv:txt('zoneLv'),
+    gold:number(txt('gold')),crystals:number(txt('crys')),onlineText:txt('onlineN'),quest,questProgress,jobQuestProgress,autoQuestMode,zone:txt('zone'),zoneLv:txt('zoneLv'),
     target:txt('tgName'),targetHP:txt('tgTxt'),targetHpRatio:parseFloat($('tgFill')?.style.width||'')/100,bossMechanic:txt('bossMech'),tension:number(txt('tenTxt')),weak:txt('tgElem'),exp:number(txt('expTxt')),jobExp:number(txt('jexpTxt')),
     expText:txt('expTxt')+(panel==='stats'&&/EXP\s+MAX/.test(document.querySelector('#pbody .bars .exp')?.textContent||'')?' EXP MAX':''),jobExpText:txt('jexpTxt'),cbtText:txt('cbtPill'),vipText:txt('vipTag'),
     cbtClaimed:panel==='cbt'?/This account has it|บัญชีนี้รับแล้ว/i.test(body):null,
@@ -117,6 +117,30 @@ const DNA=require('./strategy-dna');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
+function combatSnapshot(s,now=Date.now()) {
+  if(!['bag','equip'].includes(s.panel)||!s.panelOpen||!s.name||!s.job||!s.lv)return null;
+  const lines=String(s.panelText||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const anchors=lines.flatMap((x,i)=>/^(Gear Power|Equipment Power|พลังอุปกรณ์)$/i.test(x)?[i]:[]);
+  if(anchors.length!==1)return null;
+  const i=anchors[0];
+  if(lines[i-3]!==s.name||lines[i-2]!==s.job||lines[i-1]!==s.lv)return null;
+  const value=lines[i+1];
+  if(!/^(?:\d{1,3}(?:,\d{3})+|\d+)$/.test(value||''))return null;
+  const power=Number(value.replace(/,/g,''));if(!Number.isSafeInteger(power)||power<0)return null;
+  const stats={};
+  for(const [j,key] of ['ATK','MATK','DEF','MDEF','HP','ASPD'].entries()){
+    const text=lines[i+3+j*2]||'';
+    if(lines[i+2+j*2]!==key||!/^\d[\d,]*(?:\.\d+)?(?:[+-]\d[\d,]*(?:\.\d+)?)?$/.test(text))continue;
+    const n=Number(text.replace(/,/g,'').match(/^\d+(?:\.\d+)?/)[0]);if(Number.isFinite(n)&&n>=0)stats[key]=n;
+  }
+  return {character:s.name,job:s.job,level:n(s.lv),power,stats,at:now,source:'equipment-ui'};
+}
+function rememberCombat(mem,s,now=Date.now()) {
+  const value=combatSnapshot(s,now);if(!value)return false;
+  const old=mem.combatSummary;
+  if(old&&now-old.at<60000&&JSON.stringify({...old,at:0})===JSON.stringify({...value,at:0}))return false;
+  mem.combatSummary=value;return true;
+}
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
   const sample={t:now,lv:n(s.lv),jl:n(s.jobLv),job:s.job,gold:s.gold,exp:s.exp,quest:s.questProgress||s.quest,zone:s.zone};
@@ -401,4 +425,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   }
   return {run,open,close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};
+module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};

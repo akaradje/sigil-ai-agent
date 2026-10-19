@@ -60,6 +60,22 @@ test('dashboard distinguishes a canary, a verified patch and a confirmed restore
   assert.equal(healingView(deployment('ROLLED_BACK'), null, health(), NOW).current.kind, 'unconfirmed');
   assert.equal(healingView(deployment('ROLLBACK_FAILED'), null, health(BEFORE), NOW).current.kind, 'unconfirmed');
 });
+test('combat and population cards distinguish online users from level ranking and label cached statistics',()=>{
+  const vm=require('node:vm'),nodes=new Map();
+  const context={$:id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id);},Date};
+  vm.runInNewContext(PAGE.slice(PAGE.indexOf('function renderCombat'),PAGE.indexOf('const healingLabels')),context);
+  const s={name:'Hero',lv:'Lv 67',job:'Starweaver',onlineText:'9 online'};
+  context.renderPopulation(s,{kind:'lv',character:'Hero',at:Date.now(),rows:Array(50).fill({})});
+  context.renderRanking({rank:10,rankAt:Date.now()},s.lv);
+  assert.equal(nodes.get('onlinePlayers').textContent,'9 คน');assert.equal(nodes.get('currentRank').textContent,'#10');
+  assert.match(nodes.get('rankScope').textContent,/50 รายชื่อ/);assert.match(nodes.get('top10Gap').textContent,/อยู่ใน Top 10/);
+  const c={source:'equipment-ui',character:'Hero',job:'Starweaver',level:67,power:1234,stats:{MATK:1397,ATK:394,DEF:277},at:Date.now()-1000};
+  context.renderCombat(c,s);assert.equal(nodes.get('combatPower').textContent,'1,234');assert.match(nodes.get('combatStats').textContent,/MATK 1,397/);
+  context.renderCombat({...c,level:59,at:Date.now()-3600000},s);assert.match(nodes.get('combatAge').textContent,/ข้อมูลล่าสุดที่บันทึกไว้/);
+  context.renderCombat({...c,character:'Other'},s);assert.equal(nodes.get('combatPower').textContent,'–');
+  context.renderPopulation({...s,onlineText:'ออนไลน์ 0 คน'},null);assert.equal(nodes.get('onlinePlayers').textContent,'0 คน');
+  context.renderPopulation({...s,onlineText:'9.5 online'},null);assert.equal(nodes.get('onlinePlayers').textContent,'–');
+});
 
 test('dashboard never presents stale, mismatched or missing health as an active successful patch', () => {
   assert.equal(healingView(deployment(), null, health(BEFORE), NOW).current.kind, 'unconfirmed');

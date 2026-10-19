@@ -358,3 +358,12 @@ finalizes an unfinished report as failed; after a host reboot the next run also 
 unfinished ledger record. The dashboard retains the most recent 30 daily results and shows the
 next scheduled run. The completed manual test format with real Telegram receipts remains supported;
 quiet daily results instead require evidence that both expected test messages were suppressed.
+
+The dashboard separates the HUD's current online population from the overall level leaderboard;
+a leaderboard rank is never capped by the online count. The table may display only its leading
+rows, so the displayed row count is not a total account count. Combat cards show the game's own
+**Gear Power** equipment score and the displayed MATK/ATK/DEF/MDEF/HP/ASPD totals. They do not invent
+a combined combat-power formula or add equipment bonuses a second time. The agent records these
+only from the visible self-character Bag/Gear screen during ordinary observation, then keeps the
+snapshot after the panel closes. Time/level labels identify cached observations; unknown or
+other-character data stays blank. Reading statistics never opens or leaves a panel on screen.

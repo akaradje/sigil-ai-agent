@@ -173,6 +173,7 @@ function knowledge(state={}) {
 async function perceive(withShot) {
   const raw = await evalIn(P.state);
   let state; try { state=JSON.parse(raw); } catch { throw Error('invalid perception'); }
+  if(IQ.rememberCombat(memory,state))saveMemory();
   healingState={dead:Boolean(state.dead)};
   const previous=memory.uiHealth?.safeIdle,sequence=memory.autonomy?.sequence;
   UI.update(memory,state);

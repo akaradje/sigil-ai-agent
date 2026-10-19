@@ -237,8 +237,11 @@ const PAGE = `<!doctype html>
           <div class="bar hp"><i id="hpb" style="width:0%"></i></div></div>
         <div class="cell"><div class="k">MP</div><div class="v" id="mp">–</div>
           <div class="bar mp"><i id="mpb" style="width:0%"></i></div></div>
-        <div class="cell"><div class="k">อันดับปัจจุบัน · เลเวล</div><div class="v" id="currentRank">–</div><div class="detail" id="rankAge">รอตารางอันดับสด</div></div>
+        <div class="cell"><div class="k">อันดับเลเวลรวม</div><div class="v" id="currentRank">–</div><div class="detail" id="rankAge">รอตารางอันดับสด</div><div class="detail" id="rankScope">อันดับรวม ไม่จำกัดคนออนไลน์</div></div>
         <div class="cell"><div class="k">ระยะห่างจาก Top 10</div><div class="v" id="top10Gap">–</div><div class="detail" id="top10ExpGap">รอตารางอันดับสด</div></div>
+        <div class="cell"><div class="k">พลังต่อสู้ · พลังอุปกรณ์</div><div class="v" id="combatPower">–</div><div class="detail">Gear Power ที่เกมแสดง</div><div class="detail" id="combatAge">รออ่านหน้าสวมใส่</div></div>
+        <div class="cell"><div class="k">ผู้เล่นออนไลน์ขณะนี้</div><div class="v" id="onlinePlayers">–</div><div class="detail">คนที่ออนไลน์ตอนนี้ ไม่ใช่จำนวนในตารางอันดับ</div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">ค่าสู้รบจากหน้าสวมใส่ · ล่าสุดที่อ่าน</div><div class="v" id="combatStats" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Gold</div><div class="v" id="gold">–</div></div>
         <div class="cell"><div class="k">Zone</div><div class="v" id="zone" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Crystals</div><div class="v" id="crystals">–</div></div>
@@ -285,6 +288,22 @@ function renderExp(value, text, labelId, barId, progressId) {
   else progress.setAttribute('aria-valuenow', String(percent));
 }
 
+function renderCombat(c,s) {
+  const valid=c?.source==='equipment-ui'&&c.character===s.name&&Number.isSafeInteger(c.power)&&c.power>=0&&Number.isFinite(c.at)&&c.at>0&&c.at<=Date.now()+5000;
+  $('combatPower').textContent=valid?c.power.toLocaleString('en-US'):'–';
+  $('combatStats').textContent=valid?['MATK','ATK','DEF','MDEF','HP','ASPD'].filter(k=>Number.isFinite(c.stats?.[k])&&c.stats[k]>=0).map(k=>k+' '+c.stats[k].toLocaleString('en-US')).join(' · ')||'รอข้อมูลค่าสู้รบ':'–';
+  if(!valid){$('combatAge').textContent='รออ่านหน้าสวมใส่ · ไม่เปิดหน้าต่างค้าง';return;}
+  const mins=Math.max(0,Math.floor((Date.now()-c.at)/60000));
+  const same=c.job===s.job&&c.level===Number(String(s.lv||'').match(/[0-9]+/)?.[0]);
+  $('combatAge').textContent='อ่าน '+mins+' นาทีที่แล้ว · Lv'+c.level+(!same||mins>=20?' · ข้อมูลล่าสุดที่บันทึกไว้':'');
+}
+function renderPopulation(s,rank) {
+  const match=String(s.onlineText||'').trim().match(/^(?:([0-9][0-9,]*)\\s+online|ออนไลน์\\s*([0-9][0-9,]*)\\s*คน)$/i);
+  const online=match?Number((match[1]||match[2]).replace(/,/g,'')):null;
+  $('onlinePlayers').textContent=Number.isSafeInteger(online)&&online>=0?online.toLocaleString('en-US')+' คน':'–';
+  const fresh=rank?.kind==='lv'&&rank.character===s.name&&Number.isFinite(rank.at)&&Date.now()-rank.at>=-5000&&Date.now()-rank.at<20*60000;
+  $('rankScope').textContent=fresh&&Array.isArray(rank.rows)?'ตารางล่าสุดแสดง '+rank.rows.length+' รายชื่อ · ไม่จำกัดคนออนไลน์':'อันดับรวม ไม่จำกัดคนออนไลน์';
+}
 function renderRanking(c, levelText) {
   const ranked = Number.isInteger(c?.rank) && c.rank > 0;
   const age = Number.isFinite(c?.rankAt) && c.rankAt > 0 ? Date.now() - c.rankAt : null;
@@ -442,6 +461,8 @@ async function tickState() {
     $('resourceHold').textContent=hold?.active?(hold.awaitingCatalog?'พักอุปกรณ์รอง · รอตรวจสูตรใหม่':'พักอุปกรณ์รองก่อน Lv'+hold.nextLevel)+' · พบ '+(hold.unlocks?.length||0)+' รายการปลดล็อก':'ใช้นโยบายอัปเกรดปกติ';
     const c=j.strategy?.catchUp?.current,trend={waiting:'รอข้อมูล',uncertain:'ยังแยกความเร็วคู่แข่งไม่ได้',closing:'กำลังตีตื้น',falling:'คู่แข่งโตเร็วกว่า',flat:'EXP ตัวเรายังไม่เพิ่ม',top10:'ติด Top 10 แล้ว','cap-tie':'ต้องตรวจเกณฑ์เสมอที่เพดาน'};
     renderRanking(c, s.lv);
+    renderCombat(j.strategy?.combatSummary,s);
+    renderPopulation(s,j.strategy?.rank);
     const fresh=c&&Date.now()-c.rankAt<20*60000;
     $('catchup').textContent=fresh&&c.cutoff?c.cutoff.name+' Lv'+c.cutoff.level+' · '+trend[c.status]+' · ข้อมูล '+Math.floor((Date.now()-c.rankAt)/60000)+' นาที':'รอตารางอันดับสด';
     const eta=fresh&&(c.etaMovingMinutes||c.etaStaticMinutes);

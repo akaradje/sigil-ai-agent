@@ -15,7 +15,7 @@ test('ranking deadline stays due during town trips while respecting failure back
 function preparedMemory() {
   const m=IQ.freshMemory();m.bossBuild=Object.fromEntries(['fire_bolt','lightning_bolt','blaze','jupiter_thunder','meteor_fall'].map(k=>[k,{result:'already evolved'}]));return m;
 }
-function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skills',expBar='',deadLog=true,storageButton=false,renamedHP=false,ambiguousHP=false,renamedAuto=false}={}) {
+function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skills',expBar='',deadLog=true,storageButton=false,renamedHP=false,ambiguousHP=false,renamedAuto=false,onlineText='9 online'}={}) {
   const nodes={};
   function e(id,text='',opts={}) {
     return nodes[id]={id,innerText:text,textContent:text,dataset:{},classList:{contains:()=>false},
@@ -25,6 +25,7 @@ function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skil
   }
   e('pName','Hero');e('pJob','Mage');e('pLv','Lv 44');e('pJl','Job 40 MAX');
   e('hpTxt',hp);e('mpTxt','730 / 1,076');e('gold','49,498');e('crys','5,080');
+  e('onlineN',onlineText);
   const semantic=[];
   if(renamedHP){delete nodes.hpTxt;semantic.push(e('new-health',hp,{getAttribute:k=>k==='aria-label'?'Health':null}));}
   if(ambiguousHP)semantic.push(e('other-health','5 / 10',{getAttribute:k=>k==='aria-label'?'Health':null}));
@@ -49,6 +50,32 @@ test('EXP MAX in a ranking name is not a cap; the actual stats EXP bar is eviden
 test('historical death/disconnection/quest logs cannot alter live HUD state',()=>{
   const s=fixture();assert.equal(s.dead,false);assert.equal(s.disconnected,false);assert.equal(s.gold,49498);
   assert.equal(s.quest,'Chapter 16 · Train to Lv 47');assert.equal(s.controls.length,0);assert.equal(s.mp[1],1076);
+});
+test('online population is read from its labelled HUD and is independent of ranking/chat text',()=>{
+  assert.equal(fixture({panel:true,panelKind:'rank',panelText:'10\nHero\nLv 44'}).onlineText,'9 online');
+  assert.equal(fixture({onlineText:''}).onlineText,'');
+});
+function combatState(changes={}) {
+  return {...healthy(),panel:'equip',panelOpen:true,panelText:'Equip\n⟳\nHero\nMage\nLv 44\nGear Power\n1,234\nATK\n394+242\nMATK\n1,397+621\nDEF\n277+206\nMDEF\n169+71\nHP\n3,129+2,023\nASPD\n155\nWeapon in bag\nATK\n9999',...changes};
+}
+test('combat summary preserves the game score and displayed totals without adding equipment bonuses twice',()=>{
+  const value=IQ.combatSnapshot(combatState(),123456);
+  assert.equal(value.power,1234);assert.equal(value.stats.MATK,1397);assert.equal(value.stats.ATK,394);assert.equal(value.stats.HP,3129);
+  assert.equal(value.level,44);assert.equal(value.at,123456);assert.equal(value.source,'equipment-ui');
+  assert.equal(IQ.combatSnapshot(combatState({panel:'bag'})).power,1234);
+});
+test('combat snapshots reject other characters, wrong panels, ambiguous scores and missing values',()=>{
+  const s=combatState();
+  for(const changed of [{name:'Other'},{job:'Starweaver'},{lv:'Lv 45'},{panel:'rank'},{panelOpen:false},
+    {panelText:s.panelText+'\nGear Power\n999'},{panelText:s.panelText.replace('1,234','not loaded')}])
+    assert.equal(IQ.combatSnapshot({...s,...changed}),null);
+});
+test('combat memory survives closed panels and restart while refreshing changed displayed stats immediately',()=>{
+  let m={};assert.equal(IQ.rememberCombat(m,combatState(),100000),true);
+  assert.equal(IQ.rememberCombat(m,combatState(),100100),false);
+  m=JSON.parse(JSON.stringify(m));assert.equal(IQ.rememberCombat(m,healthy(),100200),false);assert.equal(m.combatSummary.at,100000);
+  assert.equal(IQ.rememberCombat(m,combatState({panelText:combatState().panelText.replace('1,397+621','1,500+724')}),100300),true);
+  assert.equal(m.combatSummary.stats.MATK,1500);
 });
 test('zero live HP is death and the real Skills panel is detected',()=>{
   const s=fixture({hp:'0 / 1800',panel:true});assert.equal(s.dead,true);assert.equal(s.panel,'skills');assert.equal(s.panelOpen,true);
