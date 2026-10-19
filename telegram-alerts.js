@@ -151,14 +151,29 @@ class AlertEngine {
   }
   observe(sample, now = Date.now()) {
     const d = this.db;
+    const deployment=sample.deployment;
+    if(deployment&&/^[a-f0-9-]{36}$/.test(deployment.identity||'')){
+      if(d.deployment?.identity!==deployment.identity)d.deployment={identity:deployment.identity,cursor:0,announced:[]};
+      const messages={COMMITTED:'✅ Self-Healing: นำแพตช์ขึ้นใช้จริงอัตโนมัติแล้ว ผ่านการเฝ้าดูสุขภาพ 10 นาที',
+        ROLLED_BACK:'↩️ Self-Healing: ตรวจพบปัญหาหลังอัปเดต ย้อนกลับไฟล์รุ่นเดิมและยืนยันว่าโปรเซสรุ่นเดิมเริ่มทำงานแล้ว',
+        ROLLBACK_FAILED:'🚨 Self-Healing: ย้อนกลับยังไม่สำเร็จ ต้องตรวจบริการและไฟล์สำรอง ระบบจำกัดการลองกู้ซ้ำไว้ 3 ครั้ง'};
+      for(const e of (deployment.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>d.deployment.cursor).sort((a,b)=>a.id-b.id)){
+        const key=e.jobId+':'+e.status;
+        if(messages[e.status]&&/^[a-f0-9-]{36}$/.test(e.jobId||'')&&!d.deployment.announced.includes(key)){
+          this.enqueue(`deployment:${deployment.identity}:${key}`,messages[e.status],e.status!=='COMMITTED');
+          d.deployment.announced.push(key);d.deployment.announced=d.deployment.announced.slice(-80);
+        }
+        d.deployment.cursor=e.id;
+      }
+    }
     const healing=sample.selfHealing;
     if(healing&&/^[a-f0-9-]{36}$/.test(healing.identity||'')) {
       if(d.selfHealing?.identity!==healing.identity)d.selfHealing={identity:healing.identity,cursor:0,announced:[]};
       d.selfHealing.announced ||= [];
       const messages={REPAIRING:'🛠 Self-Healing: ตรวจพบปัญหา UI ต่อเนื่อง กำลังเตรียมแพตช์ในพื้นที่แยก',
-        READY_REVIEW:'🧪 Self-Healing: แพตช์ผ่านชุดทดสอบใน sandbox แล้ว รอตรวจโค้ดก่อนใช้จริง ระบบฟาร์มยังใช้โค้ดเดิม',
-        FAILED:'⚠️ Self-Healing: ซ่อมไม่ผ่านภายในขอบเขตที่กำหนด เก็บหลักฐานไว้ตรวจ ระบบจริงไม่ได้ถูกแก้',
-        INTERRUPTED:'⚠️ Self-Healing: งานซ่อมถูกขัดจังหวะ ระบบจริงไม่ได้ถูกแก้'};
+        READY_REVIEW:healing.mode==='automatic-deployment'?'🧪 Self-Healing: แพตช์ผ่านชุดทดสอบแล้ว รอจังหวะพร้อมเพื่อนำขึ้นใช้จริงอัตโนมัติ':'🧪 Self-Healing: แพตช์ผ่านชุดทดสอบใน sandbox แล้ว รอตรวจโค้ดก่อนใช้จริง ระบบฟาร์มยังใช้โค้ดเดิม',
+        FAILED:'⚠️ Self-Healing: งานซ่อมไม่สำเร็จ เก็บหลักฐานไว้ตรวจ โปรดดูสถานะการอัปเดต/ย้อนกลับแยก',
+        INTERRUPTED:'⚠️ Self-Healing: งานซ่อมถูกขัดจังหวะ ตัวเฝ้าอิสระจะตรวจและกู้รุ่นที่กำลังใช้งาน'};
       for(const e of (healing.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>d.selfHealing.cursor).sort((a,b)=>a.id-b.id)) {
         const key=e.jobId+':'+e.status;
         if(messages[e.status]&&/^[a-f0-9-]{36}$/.test(e.jobId||'')&&!d.selfHealing.announced.includes(key)){
@@ -303,8 +318,12 @@ async function collect() {
     agent: settled[0].status === 'fulfilled' ? settled[0].value : null,
     supervisorOk: settled[1].status === 'fulfilled' && Boolean(settled[1].value?.state?.name),
     selfHealing: settled[1].status === 'fulfilled' ? settled[1].value?.selfHealing : null,
+    deployment: readDeployment(),
     viewerOk: settled[2].status === 'fulfilled' && [200, 401].includes(settled[2].value.status),
   };
+}
+function readDeployment(file=process.env.SELF_HEAL_STATUS_FILE||'/run/sigil-self-healing/events.json'){
+  try{if(fs.statSync(file).size>256*1024)return null;const d=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(d.events)&&d.events.length<=40?d:null;}catch{return null;}
 }
 
 function save(file, db) {
@@ -406,5 +425,5 @@ async function main() {
   await loop();
 }
 
-module.exports = { AlertEngine, normalize, statusText, quietHours, readEnv, telegram, levelRanking };
+module.exports = { AlertEngine, normalize, statusText, quietHours, readEnv, telegram, levelRanking, readDeployment };
 if (require.main === module) main().catch((e) => { console.error(e.message); process.exitCode = 1; });

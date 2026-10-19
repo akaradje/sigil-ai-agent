@@ -162,3 +162,31 @@ test('prompt incident data is allowlisted and excludes raw DOM, errors and arbit
   assert.equal(JSON.stringify(messages).includes('PRIVATE_RAW_DOM'),false);assert.equal(JSON.stringify(messages).includes('PRIVATE_FEEDBACK'),false);
   assert.match(messages[0].content,/untrusted data/);
 });
+test('automatic mode sends only sandbox-verified candidates to the separate broker',async t=>{
+  let deployed=0;const r=fixture(t,{deploy:async request=>{deployed++;assert.deepEqual(r.calls,['baseline','attempt-1']);assert.equal(request.files['agent.js'],request.base['agent.js']);return {status:'DEPLOYED'};}});
+  assert.equal((await r.engine.observe(r.h)).status,'DEPLOYED');assert.equal(deployed,1);assert.equal(r.engine.view().mode,'automatic-deployment');
+});
+test('broker rollback failure cannot trigger another model repair/deployment attempt',async t=>{
+  let calls=0;const r=fixture(t,{repair:async()=>{calls++;return proposal();},deploy:async()=>{throw Object.assign(new Error('failed'),{code:'ROLLBACK_FAILED'});}});
+  assert.equal((await r.engine.observe(r.h)).status,'FAILED');assert.equal(calls,1);assert.equal(r.engine.load().jobs[0].failure,'ROLLBACK_FAILED');
+});
+test('previous review candidate is revalidated and automatically published after enabling deployment',async t=>{
+  const r=fixture(t);await r.engine.observe(r.h);let published=0;
+  const next=new E.SelfEvolutionEngine({dir:r.engine.dir,repoDir:r.repo,now:()=>NOW,verify:async()=>({ok:true}),deploy:async()=>{published++;return {status:'DEPLOYED'};}});
+  assert.equal((await next.observe({...r.h,safeIdle:false})).status,'DEPLOYED');assert.equal(published,1);
+});
+test('root-pinned tests cannot be replaced through an agent-writable source tree',async t=>{
+  const r=fixture(t);r.engine.protectedSources=r.engine.sources();fs.appendFileSync(path.join(r.repo,'ui-resilience.test.js'),'\n// changed');
+  await assert.rejects(r.engine.observe(r.h),{code:'PROTECTED_SOURCE_CHANGED'});assert.equal(r.engine.load().jobs.length,0);
+});
+test('sandbox snapshot stays readable by its unprivileged user with service umask 0077',{skip:process.platform==='win32'},async t=>{
+  const r=fixture(t),previous=process.umask(0o077);
+  try{
+    const verify=R.createVerifier({dir:r.engine.dir,runtime:'/opt/node',run:async()=>{
+      const snapshot=fs.readdirSync(r.engine.dir).find(n=>n.startsWith('probe-'));
+      for(const name of ['sandbox-root',snapshot,path.join(snapshot,'uptime-worker')])assert.equal(fs.statSync(path.join(r.engine.dir,name)).mode&0o777,0o755);
+      assert.equal(fs.statSync(path.join(r.engine.dir,snapshot,'uptime-worker/monitor.mjs')).mode&0o777,0o444);return '';
+    }});
+    await verify({'uptime-worker/monitor.mjs':'// synthetic'},r.engine.dir,'probe');
+  }finally{process.umask(previous);}
+});

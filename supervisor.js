@@ -324,8 +324,8 @@ http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       let selfHealing=null;
       try {
-        const d=SelfHealing.readJson(path.join(process.env.SELF_HEAL_DIR||'/var/lib/sigil-self-healing','state.json'),null);
-        if(d?.version===1)selfHealing={identity:d.identity,mode:'candidate-review',last:d.jobs?.at(-1)?.status||null,
+        const d=SelfHealing.readJson('/run/sigil-self-healing/repair.json',null);
+        if(d?.version===1)selfHealing={identity:d.identity,mode:d.mode||'candidate-review',last:d.jobs?.at(-1)?.status||null,
           events:(d.events||[]).slice(-40).map(({id,jobId,status,at})=>({id,jobId,status,at}))};
       }catch{}
       return res.end(JSON.stringify({ state: s, mem: { ...mem, samples: undefined }, selfHealing }, null, 1));

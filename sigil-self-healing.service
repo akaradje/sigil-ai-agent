@@ -6,10 +6,12 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/sigil-agent
-EnvironmentFile=/opt/sigil-agent/.env
+WorkingDirectory=/opt/sigil-self-healing
+EnvironmentFile=/etc/sigil-self-healing.env
+Environment=SIGIL_DIR=/opt/sigil-agent
 Environment=SIGIL_SELF_HEAL=1
-ExecStart=/usr/bin/node /opt/sigil-agent/self-evolution-runner.js
+Environment=SELF_HEAL_AUTO_DEPLOY=1
+ExecStart=/opt/sigil-self-healing/runtime/bin/node /opt/sigil-self-healing/self-evolution-runner.js
 Restart=on-failure
 RestartSec=30
 KillMode=control-group

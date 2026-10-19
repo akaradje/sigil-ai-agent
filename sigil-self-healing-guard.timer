@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Sigil deployments and worker lease every five seconds
+
+[Timer]
+OnBootSec=10
+OnUnitInactiveSec=5
+AccuracySec=1
+Unit=sigil-self-healing-guard.service
+
+[Install]
+WantedBy=timers.target

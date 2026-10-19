@@ -32,6 +32,8 @@ const DIR = process.env.AGENT_DIR || __dirname;
 const selfHealingBootId = require('node:crypto').randomUUID();
 const selfHealingBuildId = SelfHealing.sourceFingerprint(DIR);
 let cycleCompletedAt = 0;
+let cycleErrorAt = 0;
+let healingState = {};
 const DIARY = path.join(DIR, 'agent-diary.md');
 const DECISIONS = path.join(DIR, 'agent-decisions.jsonl');
 const LESSONS = path.join(DIR, 'agent-lessons.md');
@@ -171,6 +173,7 @@ function knowledge(state={}) {
 async function perceive(withShot) {
   const raw = await evalIn(P.state);
   let state; try { state=JSON.parse(raw); } catch { throw Error('invalid perception'); }
+  healingState={dead:Boolean(state.dead)};
   const previous=memory.uiHealth?.safeIdle,sequence=memory.autonomy?.sequence;
   UI.update(memory,state);
   if(previous!==memory.uiHealth.safeIdle||sequence!==memory.autonomy?.sequence)saveMemory();
@@ -706,6 +709,7 @@ async function runCycle() {
       log(`cycle ${cycle} [policy] ${label}`);
     }
   } catch (e) {
+    cycleErrorAt=Date.now();
     log('cycle error: ' + e.message);
   } finally {
     try { await executor.close();saveMemory(); } catch(e) {log('cleanup: '+e.message);}
@@ -719,7 +723,7 @@ http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:4,busy,paused,availability:availability.state,autonomy:autonomyPolicy.enabled,
-      selfHealing:SelfHealing.healthSnapshot({memory,bootId:selfHealingBootId,buildId:selfHealingBuildId,completedAt:cycleCompletedAt,paused,availability:availability.state})}));
+      selfHealing:SelfHealing.healthSnapshot({memory,bootId:selfHealingBootId,buildId:selfHealingBuildId,completedAt:cycleCompletedAt,paused,availability:availability.state,cycleErrorAt,completedCycles:cycle,state:healingState})}));
     if (u.pathname === '/state') {
       const p = await perceive(false);
       return res.end(JSON.stringify({

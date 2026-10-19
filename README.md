@@ -256,14 +256,15 @@ or replaces that display. Otherwise it starts Xvfb without a TCP listener and wa
 before the harness starts. Install Xvfb/xdotool, select the correct service user and adjust the
 display geometry for your browser. This requires access only from trusted local processes.
 
-### Isolated self-healing candidates
+### Automatic self-healing and rollback
 
 `self-evolution-runner.js` observes the agent's loopback health endpoint every 30 seconds. Three
 minutes of continuously observed UI Safe Idle can open a repair job; paused play, maintenance,
 login screens, expected reloads and stale observations cannot. Jobs are limited to one per hour
 and three per day, with one outstanding candidate. The root-only state directory defaults to
 `/var/lib/sigil-self-healing`; jobs, bounded failure history, cooldown and event cursors survive
-restarts. Interrupted repairs retain their baseline and are marked interrupted, never deployed.
+restarts. Interrupted repairs retain their baseline; an independent guard restores an interrupted
+live deployment before new repair work is accepted.
 
 The configured `AGENT_MODEL` receives only enumerated public source files, missing HUD field
 names and redacted test feedback. It returns bounded JSON edits, without tools or shell access.
@@ -276,16 +277,42 @@ The Linux worker uses systemd 255 or later, a separate root filesystem, a read-o
 public snapshot and Node runtime, a private network namespace and temporary filesystem, an
 unprivileged test user, no capabilities and fixed resource/time limits. It never executes model
 commands, installs dependencies, reads arbitrary source paths or falls back to host execution.
-Only the trusted coordinator has credentials for the configured model; curl receives them and
-the prompt on stdin, and child test processes receive a minimal environment. Match the supplied
-`sigil-self-healing.service` paths to your installation. Root is required for the coordinator to
-create these sandbox units, so install only reviewed coordinator code. No general sudoers grant
-or additional coding CLI login is needed.
+The coordinator and guard run from a separate root-owned `/opt/sigil-self-healing` directory,
+including a root-owned Node binary under `runtime/bin/node`. Copy the reviewed coordinator files
+(`self-evolution.js`, `self-evolution-runner.js`, `self-deployment.js`, `telegram-alerts.js`) there,
+and copy the enumerated public sources into its root-owned `source/` directory. Protected source
+and test hashes must match this trusted copy. Keep model configuration in root-owned mode-0600
+`/etc/sigil-self-healing.env`, containing only the selected model endpoint, model, keys and worker
+settings; never load arbitrary environment variables from an agent-writable file into a root
+service. The agent and supervisor both run as the unprivileged game user. Match service paths to
+your installation. Curl receives credentials and prompts on stdin; tests receive a minimal
+environment. No general sudoers grant or additional coding CLI login is needed.
 
-Successful jobs end at **READY_REVIEW**. Their private `candidate.json` records the baseline hash,
-proposed source and changed paths for review and a separate deployment. The worker never edits
-live source, restarts game services, commits/pushes Git or runs `git reset` / `git clean`. Rejected
-candidates require no live rollback. This deliberately keeps unreviewed generated JavaScript
-away from the credentials available to the live agent. A passing sandbox test is not proof of
-live gameplay recovery or a successful canary. Telegram reports start, test-ready, failed and
-interrupted jobs through the existing persistent outbox, without raw DOM, errors or prompts.
+With `SELF_HEAL_AUTO_DEPLOY=1`, passing patches enter a separately journaled deployment. It
+rechecks the complete source baseline, defers human pauses/maintenance/reloads, pauses controls,
+backs up only the changed allowlisted modules, stops the agent/supervisor, replaces files with
+fsync plus atomic rename, then restarts both services. Existing tests are never deployed as model
+changes. Git is never committed/pushed/reset/cleaned by the worker. Without the flag, candidates
+remain at **READY_REVIEW**. Enabling it later revalidates pending candidates before deployment.
+
+Success requires a ten-minute canary, checked every five seconds, with a new process boot ID,
+the exact expected build, fresh HUD observations, progressing cycle timestamps and sufficient
+continuous healthy samples. Runtime errors abort immediately; startup has a 45-second grace for
+normal initialization. Invalid/stale heartbeats, UI Safe Idle, invalid positions, death or another
+agent restart trigger rollback once initialization has completed. This checks observed runtime
+health; it cannot prove every gameplay decision correct or guarantee improved EXP/rank.
+
+Enable `sigil-self-healing-guard.timer` alongside the worker. The independent five-second guard
+also rolls back a worker lease older than 25 seconds, recovers journaled partial installations
+after a reboot, and keeps watching the last committed build for later regressions. Explicit
+operator source changes supersede the previous guard. Pauses, known game maintenance, login and
+expected browser reloads defer post-canary checks. Rollback restores only matching before/after
+file hashes, preserves unrelated files and verifies that a new process started with the original
+build; the original UI bug may still exist. A rejected patch is quarantined for 24 hours. Three
+failed rollback attempts stop automatic retries and generate an urgent operator alert.
+
+Root-owned status projections in `/run/sigil-self-healing/` contain only event metadata. Telegram
+reads deployment results directly, so successful updates and rollbacks reach its persistent
+outbox even when the supervisor is down. Success is announced only after the canary; rollback
+failure has its own urgent alert. No raw DOM, errors, source, prompt or credentials appear in
+notifications. Private journals and original backups remain in `/var/lib/sigil-self-healing`.

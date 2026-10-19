@@ -1,0 +1,15 @@
+[Unit]
+Description=Sigil independent deployment rollback guard
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/sigil-self-healing
+EnvironmentFile=/etc/sigil-self-healing.env
+Environment=SIGIL_DIR=/opt/sigil-agent
+ExecStart=/opt/sigil-self-healing/runtime/bin/node /opt/sigil-self-healing/self-evolution-runner.js --guard
+TimeoutStartSec=100
+UMask=0077
+StandardOutput=journal
+StandardError=journal

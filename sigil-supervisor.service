@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=sigil
 WorkingDirectory=/opt/sigil-agent
 EnvironmentFile=/opt/sigil-agent/.env
 ExecStart=/usr/bin/node /opt/sigil-agent/supervisor.js

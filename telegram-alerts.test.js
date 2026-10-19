@@ -11,6 +11,22 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('deployment success waits for COMMITTED and rollback notifications survive restart without the supervisor',()=>{
+  const identity='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  let e=new AlertEngine({},start),s={agent:null,supervisorOk:false,deployment:{identity,events:[{id:1,jobId,status:'CANARY'}]}};
+  e.observe(s,start);assert.equal(e.db.pending.filter(p=>p.key.startsWith('deployment:')).length,0);
+  s.deployment.events.push({id:2,jobId,status:'COMMITTED'});e.observe(s,start+MIN);
+  let events=e.db.pending.filter(p=>p.key.startsWith('deployment:'));assert.equal(events.length,1);assert.match(events[0].text,/10 นาที/);
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);
+  s.deployment.events.push({id:3,jobId,status:'ROLLED_BACK'});e.observe(s,start+2*MIN);
+  events=e.db.pending.filter(p=>p.key.startsWith('deployment:'));assert.equal(events.length,1);assert.equal(events[0].critical,true);assert.match(events[0].text,/ย้อนกลับ/);
+  e.acknowledge([...e.db.pending]);s.deployment.events.push({id:4,jobId,status:'ROLLED_BACK'});e.observe(s,start+3*MIN);
+  assert.equal(e.db.pending.filter(p=>p.key.startsWith('deployment:')).length,0);
+});
+test('failed rollback is urgent and never described as successfully restored',()=>{
+  const e=new AlertEngine({},start),s=sample();s.deployment={identity:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',events:[{id:1,jobId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'ROLLBACK_FAILED'}]};
+  e.observe(s,start);const event=e.db.pending.find(p=>p.key.startsWith('deployment:'));assert.equal(event.critical,true);assert.match(event.text,/ยังไม่สำเร็จ/);
+});
 test('self-healing events use the existing durable outbox and do not repeat across repair attempts/restarts',()=>{
   const identity='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   let e=new AlertEngine({},start),s=sample();s.selfHealing={identity,events:[{id:1,jobId,status:'REPAIRING'}]};
