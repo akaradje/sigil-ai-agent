@@ -202,7 +202,7 @@ test('EXP-focused farming is not blocked by an unavailable secondary crafting ma
 test('leveling storage creates headroom without moving worn gear, items or unknown gear',async()=>{
   const m={},a=A.init(m);a.trip={kind:'storage',at:clock-6*60000,progressAt:clock-60000,phase:'town'};a.bagUsage=[100,100];a.worn=[{uid:'worn'}];
   let usage=10;
-  const spares=Array.from({length:6},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'}));
+  const spares=Array.from({length:12},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'}));
   const protectedGear=[{uid:'worn',dir:'in',text:'Void Staff'},{uid:'unknown',dir:'in',text:'Unidentified'}];
   const moved=[];
   const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
@@ -210,8 +210,8 @@ test('leveling storage creates headroom without moving worn gear, items or unkno
       controls:[{act:'stmove',key:'potion',dir:'in'},...protectedGear,...spares].map(g=>({...g,act:'stmove'}))}),
     click:async control=>{assert(control.uid.startsWith('spare'));moved.push(control.uid);spares.splice(spares.findIndex(g=>g.uid===control.uid),1);usage++;},
     close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
-  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(moved.length,3);assert.equal(a.bagUsage[0],97);assert.equal(a.trip.phase,'town');assert.equal(a.trip.progressAt,clock);
-  a.bagUsage=[72,100];await c.run('town');assert.equal(moved.length,6);assert.equal(a.bagUsage[0],69);assert.equal(a.trip.phase,'return');
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(moved.length,6);assert.equal(a.bagUsage[0],94);assert.equal(a.trip.phase,'town');assert.equal(a.trip.progressAt,clock);
+  a.bagUsage=[72,100];await c.run('town');assert.equal(moved.length,12);assert.equal(a.bagUsage[0],66);assert.equal(a.trip.phase,'return');
 });
 
 test('town restock confirms scroll quantity and gold debit before counting fast returns',async()=>{

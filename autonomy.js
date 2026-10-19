@@ -300,7 +300,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       // Leveling may store any identified spare gear. Deposits are reversible;
       // worn gear, materials and potions are never selected or bulk-moved.
       const job=getCatalog().jobs[String(s.job).toLowerCase()];
-      for(let i=0;i<3;i++) {
+      const batch=leveling()?Math.min(6,Math.max(1,9-actions)):3;
+      for(let i=0;i<batch;i++) {
         const current=await state();
         if(current.storageUsage&&current.storageUsage[0]>=current.storageUsage[1])break;
         const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);return !!gear&&(leveling()||gear.slot==='weapon'&&gear.fam!==job?.weapon);})());

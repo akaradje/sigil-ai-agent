@@ -232,7 +232,9 @@ async function uiClick(c) {
   await req(`/click?x=${fresh.x}&y=${fresh.y}`);log('UI '+fresh.label);
 }
 async function uiScroll(c) {
-  await gate();
+  // Viewport navigation sends no gameplay command. Keep schema validation while
+  // reserving the existing input budget for clicks and keys that reach the game.
+  await perceive(false);UI.assertReady(memory.uiHealth);
   const result=await evalIn(`(function(){const c=${JSON.stringify(c)};const nodes=Array.from(document.querySelectorAll('#pbody button,#pbody [data-act],#menu [data-open],#bigMap button'));const a=nodes.filter(e=>!e.disabled&&!e.closest('[hidden]')&&(c.id?e.id===c.id:c.place?e.dataset.place===c.place:c.wm?e.dataset.wm===c.wm:c.bm?e.dataset.bm===c.bm:c.go?e.dataset.go===c.go:c.act?e.dataset.act===c.act&&(e.dataset.id||null)===c.key&&(e.dataset.k||null)===c.k&&(e.dataset.v||null)===c.v&&(!c.branch||e.dataset.b===c.branch)&&(!c.amount||e.dataset.n===c.amount)&&(!c.uid||e.dataset.uid===c.uid&&e.dataset.dir===c.dir):c.open?e.dataset.open===c.open:false));const targets=c.boss?a.filter(e=>e.closest('.bbrow')?.querySelector('.bb-t > b')?.textContent.trim()===c.boss):a;if(targets.length!==1)return 'missing';targets[0].scrollIntoView({block:'center',inline:'nearest'});return 'scrolled';})()`);
   if(result!=='scrolled')throw Error('scroll target changed');
 }
