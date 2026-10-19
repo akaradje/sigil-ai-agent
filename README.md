@@ -316,3 +316,14 @@ reads deployment results directly, so successful updates and rollbacks reach its
 outbox even when the supervisor is down. Success is announced only after the canary; rollback
 failure has its own urgent alert. No raw DOM, errors, source, prompt or credentials appear in
 notifications. Private journals and original backups remain in `/var/lib/sigil-self-healing`.
+
+The authenticated read-only dashboard polls `/self-healing.json` every five seconds. Its
+Self-Healing card shows the deployment phase, the running build's SHA, changed module names,
+canary progress and the latest 30 repair/deployment events with Bangkok timestamps. Version
+labels require a fresh agent heartbeat matching the journal's expected build: an uncommitted
+canary, a committed patch and a confirmed restored build have separate labels. Missing/stale
+health cannot establish which patch is running, while recorded history remains visible if
+the agent is down. A full canary progress bar still waits for the coordinator's confirmation.
+Empty history is shown explicitly. Only allowlisted public metadata is served; journals,
+backups, source contents and credentials are not exposed. Optional `SELF_HEAL_STATUS_FILE`
+and `SELF_HEAL_REPAIR_FILE` select the public projections for another installation.

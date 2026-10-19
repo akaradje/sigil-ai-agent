@@ -15,7 +15,71 @@ const DIR = process.env.AGENT_DIR || __dirname;
 const PORT = Number(process.env.VIEWER_PORT || 8080);
 const TOKEN_FILE = path.join(DIR, 'viewer-token.txt');
 const TOKEN = (process.env.VIEWER_TOKEN || (fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8') : '')).trim();
-if (!TOKEN || TOKEN.length < (process.env.VIEWER_ALLOW_LEGACY_TOKEN==='1'?16:24)) throw new Error('Set VIEWER_TOKEN (at least 24 characters) before starting the viewer');
+if (require.main === module && (!TOKEN || TOKEN.length < (process.env.VIEWER_ALLOW_LEGACY_TOKEN==='1'?16:24))) throw new Error('Set VIEWER_TOKEN (at least 24 characters) before starting the viewer');
+
+const DEPLOY_PHASES = new Set(['PREPARED','INSTALLING','STARTING','CANARY','COMMITTED','ROLLING_BACK','ROLLED_BACK','ROLLBACK_FAILED','SUPERSEDED']);
+const REPAIR_PHASES = new Set(['REPAIRING','VERIFYING','READY_REVIEW','FAILED','INTERRUPTED','DEPLOYED','ROLLED_BACK']);
+const EDITABLE = new Set(['game-intelligence.js','game-telemetry.js','ui-resilience.js']);
+const digest = x => typeof x === 'string' && /^[a-f0-9]{64}$/.test(x) ? x : null;
+const jobId = x => typeof x === 'string' && /^[a-f0-9-]{36}$/.test(x) ? x : null;
+const timestamp = x => Number.isSafeInteger(x) && x > 0 ? x : null;
+const recent = (x, now, age) => timestamp(x) !== null && now - x >= -5000 && now - x < age;
+const patchFiles = x => Array.isArray(x) ? [...new Set(x.filter(n => EDITABLE.has(n)))].slice(0, 3) : [];
+
+// Read only the public projections, never private journals, patches or backups.
+function readProjection(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+    const s = fs.fstatSync(fd);
+    if (!s.isFile() || s.size > 256 * 1024) return null;
+    return JSON.parse(fs.readFileSync(fd, 'utf8'));
+  } catch { return null; }
+  finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
+function healingView(deployment, repair, health, now = Date.now()) {
+  const d = deployment?.mode === 'automatic-deployment' && Array.isArray(deployment.events) && deployment.events.length <= 40 ? deployment : null;
+  const r = repair?.version === 1 && Array.isArray(repair.events) && repair.events.length <= 40 ? repair : null;
+  const phase = DEPLOY_PHASES.has(d?.phase) ? d.phase : null;
+  const fresh = recent(d?.checkedAt, now, 45000);
+  const running = digest(health?.buildId) && recent(health.updatedAt, now, 90000) && recent(health.observedAt, now, 30000);
+  const a = d?.active;
+  let kind = running ? 'observed' : 'unconfirmed';
+  if (running && fresh && d?.phase == null && d?.active == null) kind = 'baseline';
+  if (running && phase) {
+    kind = !fresh ? 'unconfirmed' : phase === 'COMMITTED' && health.buildId === digest(a?.candidateBuild) ? 'patch' :
+      phase === 'CANARY' && health.buildId === digest(a?.candidateBuild) ? 'canary' :
+      phase === 'ROLLED_BACK' && health.buildId === digest(a?.beforeBuild) ? 'restored' : phase === 'SUPERSEDED' ? 'external' : 'unconfirmed';
+  }
+  const events = [];
+  for (const [source, sourceEvents, allowed] of [['deployment', d?.events, DEPLOY_PHASES], ['repair', r?.events, REPAIR_PHASES]]) {
+    for (const e of sourceEvents || []) {
+      if (!e || !allowed.has(e.status) || !timestamp(e.at) || e.at > now + 5000 || !jobId(e.jobId) || !Number.isSafeInteger(e.id)) continue;
+      events.push({source, id:e.id, jobId:e.jobId, status:e.status, at:e.at,
+        beforeBuild:digest(e.beforeBuild), candidateBuild:digest(e.candidateBuild), files:patchFiles(e.files),
+        reason:/^[A-Z][A-Z0-9_]{0,63}$/.test(e.reason || '') ? e.reason : null});
+    }
+  }
+  events.sort((x, y) => y.at - x.at || y.id - x.id);
+  const latestRepair = events.find(e => e.source === 'repair');
+  const canary = phase === 'CANARY' && timestamp(a?.startedAt) && Number.isSafeInteger(a?.canaryMs) && a.canaryMs > 0 && a.canaryMs <= 3600000 ?
+    {startedAt:a.startedAt, durationMs:a.canaryMs, elapsedMs:Math.max(0, now - a.startedAt)} : null;
+  return {available:Boolean(d), fresh, checkedAt:timestamp(d?.checkedAt), mode:d ? 'automatic-deployment' : r?.mode === 'candidate-review' ? 'candidate-review' : null,
+    phase, jobId:jobId(d?.jobId), latestRepair:latestRepair || null,
+    current:{kind, buildId:running ? health.buildId : null, observedAt:running ? health.observedAt : null},
+    candidateBuild:digest(a?.candidateBuild), files:patchFiles(a?.files), canary, events:events.slice(0, 30)};
+}
+
+async function healingStatus() {
+  let health = null;
+  try {
+    const response = await fetch(AGENT + '/health', {signal:AbortSignal.timeout(1800)});
+    if (response.ok) health = (await response.json()).selfHealing;
+  } catch { /* The independent deployment journal remains useful when the agent is down. */ }
+  return healingView(readProjection(process.env.SELF_HEAL_STATUS_FILE || '/run/sigil-self-healing/events.json'),
+    readProjection(process.env.SELF_HEAL_REPAIR_FILE || '/run/sigil-self-healing/repair.json'), health);
+}
 
 function proxy(base, p, res, type) {
   http.get(base + p, { timeout: 25000 }, (r) => {
@@ -73,6 +137,16 @@ const PAGE = `<!doctype html>
   .badge { font-size:11px; padding:2px 8px; border-radius:999px; background:#1b2436; color:#9fb0c9; }
   .badge.llm { background:#12301f; color:#5be49b; }
   .badge.policy { background:#33260f; color:#ffc46b; }
+  .healing-content { padding:12px; }
+  .healing-head { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .healing-head b { font-size:16px; }
+  .healing-meta { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0; }
+  .healing-meta small { display:block; color:#7d8aa0; }
+  .healing-meta code { overflow-wrap:anywhere; color:#b9c9e5; }
+  #healingHistory { list-style:none; margin:8px 0 0; padding:0; max-height:260px; overflow:auto; }
+  #healingHistory li { border-top:1px solid #1d2230; padding:8px 0; overflow-wrap:anywhere; }
+  #healingHistory time { font-size:11px; color:#7d8aa0; display:block; }
+  #healingHistory .detail { margin-top:2px; }
   footer { padding:10px 16px 24px; color:#5d6879; font-size:12px; }
 </style></head>
 <body>
@@ -84,9 +158,26 @@ const PAGE = `<!doctype html>
   <span style="margin-left:auto;color:#5d6879;font-size:12px">read-only</span>
 </header>
 <main>
+  <div style="display:flex;flex-direction:column;gap:14px;min-width:0;align-self:start">
   <div class="card">
     <h2>หน้าจอเกม · สด</h2>
     <img id="shot" alt="game screen" src="/shot.jpg">
+  </div>
+  <section class="card" aria-label="Self-Healing">
+    <h2>Self-Healing · อัปเดตและ rollback</h2>
+    <div class="healing-content">
+      <div class="healing-head"><b id="healingState" role="status">กำลังอ่านสถานะ</b><span class="badge" id="healingMode">–</span></div>
+      <div class="detail" id="healingFreshness">รอข้อมูลตัวตรวจ</div>
+      <div class="healing-meta">
+        <div><small>เวอร์ชันที่กำลังรัน · Build SHA</small><code id="healingBuild">–</code><div class="detail" id="healingPatch">ยังยืนยันไม่ได้</div></div>
+        <div><small>งานแพตช์ล่าสุด</small><code id="healingJob">–</code><div class="detail" id="healingFiles">–</div></div>
+      </div>
+      <div id="healingCanary" hidden><div class="detail" id="healingCanaryText"></div><div class="bar mp" id="healingCanaryProgress" role="progressbar" aria-label="ทดสอบแพตช์ขณะรันจริง" aria-valuemin="0" aria-valuemax="100"><i id="healingCanaryBar" style="width:0%"></i></div></div>
+      <div class="detail" id="healingRepair">–</div>
+      <div class="detail">ประวัติล่าสุด · เวลาไทย</div>
+      <ol id="healingHistory"><li class="detail">กำลังอ่านประวัติ</li></ol>
+    </div>
+  </section>
   </div>
   <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
     <div class="card">
@@ -176,6 +267,65 @@ function renderRanking(c, levelText) {
   }
 }
 
+const healingLabels = {PREPARED:'เตรียมติดตั้ง', INSTALLING:'กำลังติดตั้งแพตช์', STARTING:'กำลังเริ่มเวอร์ชันใหม่',
+  CANARY:'ทดสอบแพตช์ขณะรันจริง', COMMITTED:'อัปเดตสำเร็จ · เฝ้าระวัง', ROLLING_BACK:'กำลังย้อนกลับ',
+  ROLLED_BACK:'ย้อนกลับสำเร็จ', ROLLBACK_FAILED:'ย้อนกลับไม่สำเร็จ · ต้องตรวจสอบ', SUPERSEDED:'มีเวอร์ชันใหม่แทนแพตช์เดิม',
+  REPAIRING:'กำลังสร้างแพตช์', VERIFYING:'กำลังทดสอบแพตช์', READY_REVIEW:'แพตช์รอการติดตั้ง',
+  FAILED:'สร้างแพตช์ไม่สำเร็จ', INTERRUPTED:'งานซ่อมถูกขัดจังหวะ', DEPLOYED:'งานซ่อมติดตั้งสำเร็จ'};
+function healingTime(at) {
+  return at ? new Date(at).toLocaleString('th-TH', {timeZone:'Asia/Bangkok', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '–';
+}
+function renderHealing(j) {
+  const latest = j.latestRepair;
+  const repairing = latest && ['REPAIRING','VERIFYING'].includes(latest.status);
+  const deploymentBusy = ['PREPARED','INSTALLING','STARTING','CANARY','ROLLING_BACK','ROLLBACK_FAILED'].includes(j.phase);
+  $('healingState').textContent = !j.available ? 'อ่านสถานะ Self-Healing ไม่ได้' : !j.fresh ? 'ข้อมูล Self-Healing เก่า' :
+    deploymentBusy ? healingLabels[j.phase] : repairing ? healingLabels[latest.status] : healingLabels[j.phase] || 'เฝ้าระวัง · ยังไม่มีแพตช์ใหม่';
+  $('healingMode').textContent = j.mode === 'automatic-deployment' ? 'Auto deploy + rollback' : j.mode === 'candidate-review' ? 'รอตรวจแพตช์' : 'ยังไม่ทราบโหมด';
+  $('healingMode').className = 'badge ' + (j.fresh && !['ROLLBACK_FAILED','ROLLING_BACK'].includes(j.phase) ? 'llm' : 'policy');
+  $('healingFreshness').textContent = 'บันทึกตัวตรวจ: ' + healingTime(j.checkedAt) + (j.fresh ? ' · ข้อมูลล่าสุด' : ' · ยังยืนยันสถานะปัจจุบันไม่ได้');
+  const current = j.current || {};
+  $('healingBuild').textContent = current.buildId ? current.buildId.slice(0,12) : 'ยังยืนยันไม่ได้';
+  $('healingBuild').title = current.buildId || '';
+  const kinds = {baseline:'เวอร์ชันฐาน · ยังไม่มีแพตช์อัตโนมัติ', patch:'แพตช์ผ่านการทดสอบรันจริงแล้ว',
+    canary:'เวอร์ชันทดลอง · ยังไม่ยืนยันสำเร็จ', restored:'ยืนยันว่าเริ่มเวอร์ชันก่อนแพตช์แล้ว', external:'เวอร์ชันที่อัปเดตภายหลัง', observed:'พบ Build ปัจจุบัน · ยังระบุแพตช์ไม่ได้', unconfirmed:'ยังยืนยันแพตช์ที่ใช้อยู่ไม่ได้'};
+  $('healingPatch').textContent = kinds[current.kind] || kinds.unconfirmed;
+  $('healingJob').textContent = j.jobId ? j.jobId.slice(0,8) : j.available ? 'ยังไม่มีงานติดตั้ง' : 'ยังไม่ทราบ';
+  $('healingJob').title = j.jobId || '';
+  $('healingFiles').textContent = (j.files || []).join(', ') || '–';
+  $('healingRepair').textContent = latest ? 'งานซ่อมล่าสุด: ' + healingLabels[latest.status] + ' · ' + healingTime(latest.at) : 'ยังไม่มีงานซ่อมที่บันทึกไว้';
+  const canary = j.canary;
+  $('healingCanary').hidden = !canary;
+  if (canary) {
+    const percent = Math.max(0, Math.min(100, canary.elapsedMs / canary.durationMs * 100));
+    $('healingCanaryBar').style.width = percent + '%';
+    $('healingCanaryProgress').setAttribute('aria-valuenow', String(Math.round(percent)));
+    $('healingCanaryText').textContent = Math.floor(canary.elapsedMs / 60000) + ' / ' + Math.round(canary.durationMs / 60000) + ' นาที · ' +
+      (!j.fresh ? 'ข้อมูลเก่า · รอผลยืนยัน' : percent >= 100 ? 'รอผลยืนยันจากตัวตรวจ' : 'รอผ่านเกณฑ์สุขภาพก่อนยืนยันสำเร็จ');
+  }
+  const history = $('healingHistory'); history.replaceChildren();
+  for (const e of (j.events || []).slice(0, 30)) {
+    const row = document.createElement('li'), time = document.createElement('time'), title = document.createElement('div'), detail = document.createElement('div');
+    time.textContent = healingTime(e.at); time.dateTime = new Date(e.at).toISOString();
+    title.textContent = healingLabels[e.status] || e.status;
+    const build = e.status === 'ROLLED_BACK' ? e.beforeBuild : e.candidateBuild;
+    detail.className = 'detail';
+    detail.textContent = 'งาน ' + e.jobId.slice(0,8) + (build ? ' · Build ' + build.slice(0,12) : '') + (e.reason ? ' · ' + e.reason : '');
+    row.append(time, title, detail); history.append(row);
+  }
+  if (!history.children.length) {
+    const empty = document.createElement('li'); empty.className = 'detail';
+    empty.textContent = j.available ? 'ยังไม่มีประวัติอัปเดตหรือ rollback' : 'ยังอ่านประวัติไม่ได้'; history.append(empty);
+  }
+}
+async function tickHealing() {
+  try {
+    const r = await fetch('/self-healing.json?t=' + Date.now(), {signal:AbortSignal.timeout(3500)});
+    if (!r.ok) throw new Error('status unavailable');
+    renderHealing(await r.json());
+  } catch { renderHealing({available:false, fresh:false, current:{kind:'unconfirmed'}, events:[]}); }
+}
+
 async function tickShot() {
   const img = $('shot');
   const url = '/shot.jpg?t=' + Date.now();
@@ -254,10 +404,11 @@ async function tickText() {
   } catch (e) { /* ignore */ }
 }
 
-tickShot(); tickState(); tickText();
+tickShot(); tickState(); tickText(); tickHealing();
 setInterval(tickShot, 1200);
 setInterval(tickState, 3000);
 setInterval(tickText, 5000);
+setInterval(tickHealing, 5000);
 </script>
 </body></html>`;
 
@@ -269,7 +420,7 @@ function authed(req, url) {
   return cookie.split(';').some((c) => c.trim() === 'v=' + TOKEN);
 }
 
-http.createServer((req, res) => {
+if (require.main === module) http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -291,6 +442,12 @@ http.createServer((req, res) => {
   }
   if (url.pathname === '/shot.jpg') return proxy(HARNESS, '/screenshot', res, 'image/jpeg');
   if (url.pathname === '/state.json') return proxy(AGENT, '/state', res, 'application/json');
+  if (url.pathname === '/self-healing.json') {
+    return healingStatus().then(status => {
+      res.writeHead(200, {'content-type':'application/json; charset=utf-8'});
+      res.end(JSON.stringify(status));
+    }).catch(() => { res.writeHead(503); res.end('status unavailable'); });
+  }
   if (url.pathname === '/log.txt') {
     try {
       const t = fs.readFileSync(path.join(DIR, 'agent.log'), 'utf8');
@@ -308,3 +465,4 @@ http.createServer((req, res) => {
   res.writeHead(404, { 'content-type': 'text/plain' });
   res.end('not found');
 }).listen(PORT, process.env.VIEWER_HOST || '127.0.0.1', () => console.log('viewer on ' + PORT));
+module.exports = {healingView, readProjection, PAGE};

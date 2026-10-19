@@ -26,12 +26,20 @@ test('passing canary atomically deploys only allowed files and keeps a durable o
   assert.equal(fs.readFileSync(path.join(r.repoDir,'.env'),'utf8'),'SYNTHETIC_PRIVATE_FILE');
   assert.equal(fs.existsSync(path.join(r.repoDir,'self-evolution.candidate.test.js')),false);
   assert.equal(d.events.filter(e=>e.status==='COMMITTED').length,1);
+  const projection=JSON.parse(fs.readFileSync(r.opts.projectionFile,'utf8'));
+  assert.equal(projection.active.candidateBuild,E.sourceFingerprint(r.repoDir));
+  assert.deepEqual(projection.active.files,['ui-resilience.js']);
+  assert.equal(projection.active.canaryMs,40);
+  assert.equal(projection.events.at(-1).candidateBuild,projection.active.candidateBuild);
+  assert.equal(projection.events.at(-1).beforeBuild,d.active.beforeBuild);
 });
 test('runtime health failure rolls back immediately and confirms the original build restarted',async t=>{
   const r=rig(t);r.state.fault=true;
   assert.equal((await r.broker.deploy(r.request)).status,'ROLLED_BACK');
   assert.equal(fs.readFileSync(path.join(r.repoDir,'ui-resilience.js'),'utf8'),r.base['ui-resilience.js']);
   assert.equal(r.state.starts,2);assert.equal(r.broker.load().active.phase,'ROLLED_BACK');
+  const projection=JSON.parse(fs.readFileSync(r.opts.projectionFile,'utf8'));
+  assert.equal(projection.events.at(-1).beforeBuild,E.sourceFingerprint(r.repoDir));
 });
 test('a single reused heartbeat cannot pass a canary',async t=>{
   const r=rig(t);const original=r.opts.start;

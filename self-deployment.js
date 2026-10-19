@@ -24,6 +24,11 @@ function text(file) {
   return fs.readFileSync(file,'utf8');
 }
 function buildId(files){return hash(E.RUNTIME.map(n=>n+'\0'+files[n]).join('\0'));}
+function publicPatch(j){
+  return {beforeBuild:digest(j.beforeBuild)?j.beforeBuild:null,candidateBuild:digest(j.candidateBuild)?j.candidateBuild:null,
+    patchHash:digest(j.patchHash)?j.patchHash:null,
+    files:(j.files||[]).map(f=>typeof f==='string'?f:f.name).filter(n=>E.EDITABLE.includes(n))};
+}
 
 class DeploymentBroker {
   constructor({dir,repoDir,health,pause,stop,start,projectionFile=null,now=Date.now,sleep=ms=>new Promise(r=>setTimeout(r,ms)),
@@ -43,7 +48,10 @@ class DeploymentBroker {
     E.writeJsonAtomic(this.file,d);
     if(this.projectionFile){
       const publicState={identity:d.identity,mode:'automatic-deployment',phase:d.active?.phase||null,jobId:d.active?.id||null,
-        checkedAt:this.now(),events:d.events.map(({id,jobId,status,at,reason})=>({id,jobId,status,at,reason}))};
+        checkedAt:this.now(),active:d.active?{...publicPatch(d.active),createdAt:d.active.createdAt,
+          startedAt:d.active.startedAt,canaryMs:this.canaryMs}:null,
+        events:d.events.map(e=>({id:e.id,jobId:e.jobId,status:e.status,at:e.at,
+          reason:/^[A-Z][A-Z0-9_]{0,63}$/.test(e.reason||'')?e.reason:null,...publicPatch(e)}))};
       fs.mkdirSync(path.dirname(this.projectionFile),{recursive:true,mode:0o755});
       fs.chmodSync(path.dirname(this.projectionFile),0o755);
       E.writeJsonAtomic(this.projectionFile,publicState);fs.chmodSync(this.projectionFile,0o644);
@@ -51,7 +59,7 @@ class DeploymentBroker {
   }
   emit(d,status,reason){
     d.active.phase=status;d.active.reason=reason||null;
-    d.events.push({id:++d.sequence,jobId:d.active.id,status,reason:reason||null,at:this.now()});d.events=d.events.slice(-40);this.save(d);
+    d.events.push({id:++d.sequence,jobId:d.active.id,status,reason:reason||null,at:this.now(),...publicPatch(d.active)});d.events=d.events.slice(-40);this.save(d);
   }
   acquire(){
     const token=this.lock+'.'+crypto.randomUUID();
