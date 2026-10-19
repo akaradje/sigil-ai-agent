@@ -1,0 +1,25 @@
+[Unit]
+Description=Sigil read-only Telegram notifications
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=sigil
+Group=asteria
+WorkingDirectory=/opt/sigil-agent
+EnvironmentFile=/opt/sigil-agent/.env
+Environment=SIGIL_DIR=/opt/sigil-agent
+ExecStart=/usr/bin/node /opt/sigil-agent/telegram-alerts.js
+Restart=always
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/sigil-agent
+
+[Install]
+WantedBy=multi-user.target

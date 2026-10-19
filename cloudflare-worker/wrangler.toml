@@ -1,0 +1,12 @@
+name = "sigil-model-relay"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Secrets are set with `wrangler secret put`, never committed:
+#   wrangler secret put META_API_KEY     <- the LLM_... key
+#   wrangler secret put RELAY_KEY        <- any long random string the VPS will send
+#
+# Optional plain vars:
+# [vars]
+# ALLOWED_MODEL = "muse-spark-1.3-contributor"
+# UPSTREAM = "https://api.meta.ai/v1"

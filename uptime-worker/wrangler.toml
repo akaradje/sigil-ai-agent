@@ -1,0 +1,22 @@
+name = "sigil-uptime-monitor"
+main = "monitor.mjs"
+compatibility_date = "2026-10-19"
+workers_dev = true
+preview_urls = false
+keep_vars = true
+
+[observability]
+enabled = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+TARGET_HOST = "example.com"
+TARGET_PORT = "8080"
+
+[[d1_databases]]
+binding = "UPTIME_DB"
+database_name = "sigil-uptime-state"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+# Set TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID and ADMIN_KEY with wrangler secret put.

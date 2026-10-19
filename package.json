@@ -1,0 +1,15 @@
+{
+  "name": "sigil-ai-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "UI-driven game agent, read-only viewer and Telegram monitoring",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env agent.js",
+    "supervisor": "node --env-file-if-exists=.env supervisor.js",
+    "viewer": "node --env-file-if-exists=.env viewer.js",
+    "alerts": "node --env-file-if-exists=.env telegram-alerts.js",
+    "test": "node --test game-intelligence.test.js telegram-alerts.test.js uptime-worker/monitor.test.mjs viewer.test.js",
+    "security:files": "python scripts/check-public-files.py"
+  }
+}

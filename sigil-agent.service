@@ -1,0 +1,22 @@
+[Unit]
+Description=Sigil measured progression agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sigil
+WorkingDirectory=/opt/sigil-agent
+EnvironmentFile=/opt/sigil-agent/.env
+ExecStart=/usr/bin/node /opt/sigil-agent/agent.js
+ExecStopPost=/usr/bin/env DISPLAY=:99 /usr/bin/xdotool keyup t
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

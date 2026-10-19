@@ -1,0 +1,9 @@
+Primary objective: progress the selected character toward the level leaderboard Top 10.
+Use current visible game state to decide the next action. Verify class changes and rankings.
+Follow the Mage -> Starweaver quest requirements shown in the UI, then optimize learned skills
+and owned caster equipment using actual stat comparisons and survival needs.
+Preserve defensive set bonuses. Keep potion supplies and a reserve of gold.
+Close management panels after each short workflow so the live viewer shows gameplay.
+Check the level leaderboard every five minutes; let the Telegram observer report improvements.
+Do not use premium currency, trade, chat, delete items, or change account credentials.
+Do not invent progress or bypass game controls. Stop for operator attention if blocked.

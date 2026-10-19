@@ -1,0 +1,19 @@
+[Unit]
+Description=Sigil observer and controller fallback
+After=network-online.target sigil-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sigil-agent
+EnvironmentFile=/opt/sigil-agent/.env
+ExecStart=/usr/bin/node /opt/sigil-agent/supervisor.js
+Restart=always
+RestartSec=5
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
