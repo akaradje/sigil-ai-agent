@@ -64,6 +64,9 @@ const PAGE = `<!doctype html>
   .bar > i { display:block; height:100%; }
   .hp > i { background:linear-gradient(90deg,#ff6b6b,#ff9f43); }
   .mp > i { background:linear-gradient(90deg,#4dabf7,#845ef7); }
+  .exp > i { background:linear-gradient(90deg,#3ddc84,#a9e34b); }
+  .job-exp > i { background:linear-gradient(90deg,#9775fa,#e599f7); }
+  .exp-label { display:flex; justify-content:space-between; gap:8px; margin-top:8px; font-size:12px; color:#a9b6cc; }
   pre { margin:0; padding:10px 12px; font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
         color:#a9b6cc; max-height:300px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
   .badge { font-size:11px; padding:2px 8px; border-radius:999px; background:#1b2436; color:#9fb0c9; }
@@ -88,8 +91,12 @@ const PAGE = `<!doctype html>
     <div class="card">
       <h2>สถานะตัวละคร</h2>
       <div class="grid">
-        <div class="cell"><div class="k">Level</div><div class="v" id="lv">–</div></div>
-        <div class="cell"><div class="k">Job</div><div class="v" id="jl">–</div></div>
+        <div class="cell"><div class="k">Level</div><div class="v" id="lv">–</div>
+          <div class="exp-label"><span>EXP</span><span id="expPercent">–</span></div>
+          <div class="bar exp" id="expProgress" role="progressbar" aria-label="Level EXP" aria-valuemin="0" aria-valuemax="100" aria-valuetext="ยังไม่มีข้อมูล"><i id="expb" style="width:0%"></i></div></div>
+        <div class="cell"><div class="k">Job</div><div class="v" id="jl">–</div>
+          <div class="exp-label"><span>Job EXP</span><span id="jobExpPercent">–</span></div>
+          <div class="bar job-exp" id="jobExpProgress" role="progressbar" aria-label="Job EXP" aria-valuemin="0" aria-valuemax="100" aria-valuetext="ยังไม่มีข้อมูล"><i id="jobExpb" style="width:0%"></i></div></div>
         <div class="cell"><div class="k">HP</div><div class="v" id="hp">–</div>
           <div class="bar hp"><i id="hpb" style="width:0%"></i></div></div>
         <div class="cell"><div class="k">MP</div><div class="v" id="mp">–</div>
@@ -127,6 +134,18 @@ const PAGE = `<!doctype html>
 <script>
 const $ = (id) => document.getElementById(id);
 let lastShot = 0, fails = 0;
+
+function renderExp(value, text, labelId, barId, progressId) {
+  const capped = String(text || '').toUpperCase().includes('MAX');
+  const percent = capped ? 100 : Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
+  const label = capped ? 'MAX' : percent === null ? '–' : percent.toFixed(1) + '%';
+  $(labelId).textContent = label;
+  $(barId).style.width = (percent ?? 0) + '%';
+  const progress = $(progressId);
+  progress.setAttribute('aria-valuetext', percent === null ? 'ยังไม่มีข้อมูล' : label);
+  if (percent === null) progress.removeAttribute('aria-valuenow');
+  else progress.setAttribute('aria-valuenow', String(percent));
+}
 
 async function tickShot() {
   const img = $('shot');
@@ -179,6 +198,8 @@ async function tickState() {
     $('materials').textContent=(a.goal?.missing||[]).map(m=>m.id+': '+m.have+'/'+m.need).join('\\n')+(a.blocked?'\\n'+a.blocked:'');
     $('lv').textContent = s.lv || '–';
     $('jl').textContent = s.jobLv || '–';
+    renderExp(s.exp, s.expText, 'expPercent', 'expb', 'expProgress');
+    renderExp(s.jobExp, s.jobExpText, 'jobExpPercent', 'jobExpb', 'jobExpProgress');
     $('hp').textContent = s.hp ? s.hp[0] + ' / ' + s.hp[1] : '–';
     $('mp').textContent = s.mp ? s.mp[0] + ' / ' + s.mp[1] : '–';
     if (s.hp && s.hp[1]) $('hpb').style.width = Math.max(0, Math.min(100, s.hp[0] / s.hp[1] * 100)) + '%';
