@@ -114,6 +114,8 @@ class AlertEngine {
     const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      position_invalid:()=>`⚠️ ตำแหน่งตัวละครอยู่นอกขอบแผนที่ต่อเนื่อง กำลังกู้ด้วยการโหลดหน้าเกมใหม่`,
+      position_recovered:()=>`✅ โหลดเกมใหม่และตรวจพบตำแหน่งกลับเข้าแผนที่แล้ว กลับมาเล่นต่อ`,
       ui_changed:e=>`⚠️ UI Structure Changed: เข้าสู่ Safe Idle หยุดคำสั่งใช้ทรัพยากร คงการฟาร์มเดิมที่เกมกำลังรัน · อ่านไม่ได้: ${(e.missing||[]).join(', ')}`,
       ui_recovered:()=>`✅ อ่าน UI ได้ครบตามเกณฑ์ต่อเนื่องแล้ว กลับมาควบคุมเกมอัตโนมัติ`,
       cbt_claimed:e=>`🎁 รับของขวัญ CBT สำเร็จ: +${e.crystals} คริสตัล · ${e.vip||'ตรวจ VIP จากเกม'}`,
@@ -150,7 +152,7 @@ class AlertEngine {
     this.condition('paused', s.paused, now, 2 * MIN, '⚠️ AI ถูกพักเกิน 2 นาที');
     this.condition('dead', s.dead, now, 90_000, '🚨 ตัวละครล้มและยังฟื้นไม่ได้เกิน 90 วินาที', true);
     const autonomous=sample.agent?.strategy?.autonomy;
-    const managed=Boolean(autonomous?.trip||autonomous?.farm||autonomous?.resume||sample.agent?.strategy?.uiHealth?.safeIdle||sample.agent?.availability?.status==='down');
+    const managed=Boolean(autonomous?.trip||autonomous?.farm||autonomous?.resume||sample.agent?.strategy?.uiHealth?.safeIdle||sample.agent?.strategy?.gameTelemetry?.positionFault||sample.agent?.availability?.status==='down');
     this.condition('auto', !s.auto && !managed && !s.disconnected && !s.dead && !s.paused, now, 2 * MIN,
       '⚠️ Auto Quest หยุดเกิน 2 นาที');
     if (s.dead && !last?.dead) d.deaths.push(now);

@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const CATALOG_EXPRESSION = `(()=>Promise.all([import('/src/data.js'),import('/src/world.js'),import('/src/premium-data.js'),fetch('/src/ui.js').then(r=>{if(!r.ok)throw Error('public UI unavailable');return r.text();})]).then(([d,w,p,ui])=>{
   const cap=ui.match(/p\\.lv\\s*>=\\s*(\\d+)[\\s\\S]{0,180}['\"]EXP MAX/);
   const levelCap=cap?Number(cap[1]):null;
-  return JSON.stringify({levelCap,capSource:cap?'public-ui-definition':null,refineMax:d.REFINE_MAX,refineSafe:d.REFINE_SAFE,
+  return JSON.stringify({levelCap,capSource:cap?'public-ui-definition':null,refineMax:d.REFINE_MAX,refineSafe:d.REFINE_SAFE,tileSize:w.TS,
     jobs:Object.fromEntries(Object.entries(d.JOBS).map(([id,j])=>[id,{name:j.name,weapon:d.WEAPON_FAMILY[j.weapon],line:Array.from(d.lineOf(id)),jobCap:d.jobMax(id)}])),
     gear:Object.entries(d.GEAR).map(([id,g])=>({id,name:g.name,art:g.art,slot:g.slot,fam:g.fam,line:g.line||null,tier:g.tier,lv:g.lv,stats:g.st||{},craft:d.craftCost(id),upgrade:d.upgradeCost(id)})),
     monsters:Object.entries(d.MONSTERS).map(([id,m])=>({id,name:m.name,lv:m.lv,hp:m.hp,exp:m.exp,drops:m.drops||[],boss:!!m.boss})),

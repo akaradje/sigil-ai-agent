@@ -18,7 +18,8 @@ function update(mem,s,now=Date.now()) {
   if(report.blocked) {
     h.safeIdle=true;h.healthySince=null;h.badSince??=now;
     // Stop immediately, notify after a sustained observation rather than a loading frame.
-    if(!h.notified&&now-h.badSince>=15000){emit('ui_changed');h.notified=true;}
+    const expectedReload=mem.positionRecovery?.pending&&now-mem.positionRecovery.at<90000;
+    if(!h.notified&&!expectedReload&&now-h.badSince>=15000){emit('ui_changed');h.notified=true;}
   }else {
     h.badSince=null;
     // A login screen cannot establish recovery of the in-game schema.
@@ -44,8 +45,8 @@ function observeCombat(mem,s,now=Date.now()) {
   const ratio=hp&&+hp[2]>0?+hp[1]/+hp[2]:s.targetHpRatio;
   if(!s.name||s.dead||!s.target||!Number.isFinite(ratio)||ratio<0||ratio>1||s.panelOpen||s.mapOpen||s.menuOpen){c.active=null;return c;}
   let p=c.active;
-  if(!p||p.name!==s.target||p.zone!==s.zone||now-p.last>3000||ratio>p.ratio+0.01){
-    p=c.active={name:s.target,zone:s.zone,at:now,last:now,ratio,full:ratio>=0.95,damaged:false};
+  if(!p||p.name!==s.target||p.identity!==(s.targetIdentity||null)||p.zone!==s.zone||now-p.last>3000||ratio>p.ratio+0.01){
+    p=c.active={name:s.target,identity:s.targetIdentity||null,zone:s.zone,at:now,last:now,ratio,full:ratio>=0.95,damaged:false};
   }else {
     if(ratio<p.ratio)p.damaged=true;
     if(ratio===0&&p.ratio>0&&p.full&&p.damaged){

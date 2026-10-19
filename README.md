@@ -134,13 +134,16 @@ survival, and new layouts without semantic labels still require adapter updates.
 
 HUD readers accept a unique explicit `aria-label`, `data-hud` or `data-testid` when an ID changes.
 Navigation has scoped text fallbacks; ambiguous labels are rejected. Craft, purchase and confirmation
-controls keep their existing exact item/resource checks. No player-memory or network interceptor is
-installed: the local harness contract exposes rendered UI and immutable public definitions, with no
-documented player-state telemetry feed.
+controls keep their existing exact item/resource checks. `game-telemetry.js` also reads a narrow
+allowlist from `window.SIGIL`, explicitly exposed for console inspection in the game's public main
+module: map dimensions, position, loading flags and target identity. It never serializes the player,
+network link, tokens or inventory, and never writes game state. If that optional object changes or
+vanishes, UI observations remain the input source. No network interceptor or private API is installed.
 
 Read-only one-second samples estimate target HP-bar duration, discarding visible target switches,
-healing, overlays, disappearance and long sampling gaps. The HUD has no entity UID: identical-name
-switches cannot be ruled out, and the samples do not establish a hit count. Five short completed bars,
+healing, overlays, disappearance and long sampling gaps. Public target IDs distinguish same-name
+switches when available; without them, identical-name switches remain uncertain. Samples do not
+establish a hit count. Five short completed bars,
 a measured EXP baseline, HP above 75% and at least 20 of each potion permit a bounded higher-map trial.
 Trials retreat after low HP/death, a measured EXP regression after three minutes, or ten minutes total.
 Recent measured EXP rates help select repeat farming routes; travel/menu time is excluded. Sampling
@@ -149,6 +152,13 @@ is conservative and may miss fast kills, so missing evidence never triggers a bl
 Bag servicing starts at 95% capacity (95/100), with more frequent checks near full. Potion replenishment
 starts at ten or fewer, uses verified gold prices and the reserve, and does not buy premium buffs.
 Native automatic learned skills and the game's existing CBT bonus remain responsible for buffs.
+
+The same read-only telemetry detects coordinates outside validated live map dimensions. New game
+inputs pause while the fault is present; after 30 seconds it permits a normal browser reload, then
+verified Play/quest recovery. Reload attempts persist across restarts, with a ten-minute cooldown and
+three-per-hour ceiling. Telegram reports the fault and confirmed in-bounds gameplay recovery. Loading
+frames or unknown tile size cannot establish a fault. This handles a diagnosed game-side town-return
+position error without writing coordinates or sending game intents directly.
 
 
 `sigil-viewer.service` keeps the read-only viewer running after a process exit. The optional

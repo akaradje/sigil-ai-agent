@@ -27,3 +27,9 @@ level-cap condition. These are ordinary static resources already served to playe
 API endpoints. No internal player object, socket, authentication token or mutation function is used.
 If those public definitions or the rendered selectors change, catalog validation/transactions fail
 closed and the last verified catalog is kept until refresh succeeds.
+
+The optional `game-telemetry.js` projection reads only map/position/loading/target-ID fields from the
+game's publicly exposed `window.SIGIL` console object. It never dumps that object or reads its network
+link, account, tokens or full inventory. Unknown shapes fall back to UI observation. A sustained,
+validated out-of-map position permits rate-limited normal page reload for browser recovery; all
+gameplay and purchases still use observed mouse/keyboard controls. No socket hook is installed.

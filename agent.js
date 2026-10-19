@@ -18,6 +18,7 @@ const {execFile} = require('child_process');
 const nativeKey = (...args) => new Promise((resolve,reject)=>execFile('/usr/bin/xdotool',args,{env:{...process.env,DISPLAY:process.env.DISPLAY || ':99'},timeout:3000},e=>e?reject(e):resolve()));
 const IQ = require('./game-intelligence');
 const UI = require('./ui-resilience');
+const Telemetry = require('./game-telemetry');
 const Autonomy = require('./autonomy');
 const Catalog = require('./game-catalog');
 const {createAvailability}=require('./server-availability');
@@ -117,6 +118,7 @@ async function gate(cleanup=false) {
     if (more > 0) await sleep(more);
   }
   if(!cleanup){await perceive(false);UI.assertReady(memory.uiHealth);}
+  if(!cleanup&&memory.gameTelemetry?.positionFault&&!memory.uiHealth?.login)throw Error('Outside-map position: gameplay controls idle');
   lastAction = Date.now();
   actionTimes.push(lastAction);
 }
@@ -525,6 +527,15 @@ async function runCycle() {
   try {
     const p = await perceive(false);
     if (!p.state) { log('no state'); return; }
+    if(memory.gameTelemetry?.positionFault&&!memory.uiHealth?.login) {
+      if(Telemetry.recoveryDue(memory)) {
+        const now=Date.now(),previous=memory.positionRecovery||{};
+        memory.positionRecovery={at:now,history:[...(previous.history||[]).filter(t=>now-t<3600000),now],pending:true};
+        Autonomy.event(Autonomy.init(memory),'position_invalid',{});saveMemory();
+        await evalIn("setTimeout(()=>location.reload(),100);'browser reload scheduled'");
+      }
+      return;
+    }
     if(memory.uiHealth?.safeIdle&&!memory.uiHealth.login){saveMemory();return;}
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||''));
     await refreshCatalog(p.state);
@@ -718,7 +729,14 @@ let samplingCombat=false;
 setInterval(async()=>{
   if(samplingCombat||paused||availability.blocked())return;
   samplingCombat=true;
-  try {const s=(await perceive(false)).state;if(!memory.uiHealth.safeIdle)UI.observeCombat(memory,s);}
+  try {
+    const s=(await perceive(false)).state;
+    const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
+    if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){
+      memory.positionRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'position_recovered',{});saveMemory();
+    }
+    if(!memory.uiHealth.safeIdle&&!memory.gameTelemetry.positionFault)UI.observeCombat(memory,{...s,targetIdentity:raw.targetId});
+  }
   catch {memory.combatTelemetry && (memory.combatTelemetry.active=null);}
   finally {samplingCombat=false;}
 },1000);

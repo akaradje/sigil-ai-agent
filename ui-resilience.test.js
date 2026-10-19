@@ -45,3 +45,15 @@ test('HP bar timing censors switching, healing, missing targets and sampling gap
   UI.observeCombat(m,s,16000);UI.observeCombat(m,{...s,target:''},17000);UI.observeCombat(m,{...s,targetHP:'0 / 100'},18000);
   assert.equal(m.combatTelemetry.samples.length,1);
 });
+test('public target identity censors a same-name target switch',()=>{
+  const m={},s={...healthy(),target:'Mob',targetIdentity:'one',targetHP:'100 / 100'};
+  UI.observeCombat(m,s,1000);UI.observeCombat(m,{...s,targetHP:'50 / 100'},2000);
+  UI.observeCombat(m,{...s,targetIdentity:'two',targetHP:'0 / 100'},3000);
+  assert.equal(m.combatTelemetry.samples.length,0);
+});
+test('an expected position-recovery reload does not cause a false UI structure incident',()=>{
+  const m={positionRecovery:{pending:true,at:1000}};
+  UI.update(m,{},1000);UI.update(m,{},20000);
+  assert.equal(m.uiHealth.safeIdle,true);assert.equal(m.autonomy.events.length,0);
+  UI.update(m,{},92000);assert.equal(m.autonomy.events[0].type,'ui_changed');
+});
