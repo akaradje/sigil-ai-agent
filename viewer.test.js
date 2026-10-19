@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
 const crypto = require('node:crypto');
-const {healingView, readProjection, PAGE} = require('./viewer');
+const {healingView, healingTestView, readProjection, PAGE} = require('./viewer');
 const NOW = Date.parse('2026-10-19T14:00:00Z');
 const JOB = '12345678-1234-1234-1234-123456789abc';
 const BEFORE = 'a'.repeat(64), AFTER = 'b'.repeat(64);
@@ -18,6 +18,29 @@ function deployment(phase = 'COMMITTED') {
     events:[{id:1, jobId:JOB, status:phase, at:NOW-1000, beforeBuild:BEFORE, candidateBuild:AFTER}]};
 }
 function health(buildId = AFTER) { return {buildId, updatedAt:NOW-100, observedAt:NOW}; }
+function testReport() {
+  return {version:1, kind:'isolated-e2e', runId:JOB, startedAt:NOW-700000, checkedAt:NOW, finishedAt:NOW,
+    stage:'PASSED', productionUnchanged:true, canaryElapsedMs:600001, deployment:deployment('ROLLED_BACK'), health:health(BEFORE),
+    checks:Object.fromEntries(['baselineTests','candidateTests','canary','telegramCommit','guardRollback','telegramRollback','noDuplicateAlerts','productionUnchanged'].map(n=>[n,'PASSED'])),
+    notifications:[{status:'COMMITTED',messageId:101,at:NOW-5000},{status:'ROLLED_BACK',messageId:102,at:NOW}]};
+}
+
+test('isolated test reports require ten-minute evidence, confirmed rollback and both Telegram receipts', () => {
+  const report=testReport();assert.equal(healingTestView(report,NOW).stage,'PASSED');
+  for(const changed of [{notifications:[]},{productionUnchanged:false},{canaryElapsedMs:1000},{health:health(AFTER)},
+    {checks:{}},{finishedAt:NOW+60000},{notifications:[report.notifications[0],{...report.notifications[1],messageId:101}]}])
+    assert.equal(healingTestView({...report,...changed},NOW).stage,'INCOMPLETE');
+  assert.equal(healingTestView(report,NOW+3600000).stage,'PASSED'); // Finished results are historical evidence.
+});
+
+test('isolated test projection is separate, allowlisted and absent until a real report exists', () => {
+  assert.deepEqual(healingTestView(null,NOW),{available:false});
+  assert.equal(healingTestView({...testReport(),kind:'production'},NOW).available,false);
+  const report={...testReport(),secret:'PRIVATE',control:{token:'PRIVATE'},notifications:[...testReport().notifications,{status:'unknown',messageId:103,at:NOW,secret:'PRIVATE'}]};
+  const view=healingTestView(report,NOW);
+  assert.equal(JSON.stringify(view).includes('PRIVATE'),false);assert.equal(view.notifications.length,2);
+  assert.equal(healingView(deployment(),null,health(),NOW).current.kind,'patch');
+});
 
 test('dashboard distinguishes a canary, a verified patch and a confirmed restored build', () => {
   const canary = healingView(deployment('CANARY'), null, health(), NOW);
@@ -81,6 +104,11 @@ test('dashboard renders rollback history as text and never treats an elapsed can
   context.renderHealing({available:false, fresh:false, events:[]});
   assert.equal(elements.get('healingBuild').textContent, 'ยังยืนยันไม่ได้');
   assert.equal(elements.get('healingCanary').hidden, true);
+  context.renderHealingTest(healingTestView(testReport(),NOW));
+  assert.equal(elements.get('healingTestState').textContent,'ทดสอบครบวงจรผ่าน');
+  assert.match(elements.get('healingTestTelegram').textContent,/#101/);
+  assert.match(elements.get('healingTestHistory').children[0].textContent,/\[TEST\]/);
+  assert.equal(elements.get('healingBuild').textContent,'ยังยืนยันไม่ได้'); // Test renderer cannot overwrite live status.
 });
 
 async function freePort() {
@@ -124,6 +152,7 @@ test('viewer requires authentication, limits routes to read-only and sets privac
     const denied = await fetch(base + '/?k=wrong');
     assert.equal(denied.status, 401);
     assert.equal((await fetch(base + '/self-healing.json')).status, 401);
+    assert.equal((await fetch(base + '/self-healing-test.json')).status, 401);
     const page = await fetch(base + '/?k=' + token);
     assert.equal(page.status, 200);
     assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
@@ -156,9 +185,10 @@ test('authenticated status endpoint reads the nested agent health and preserves 
   await new Promise(resolve=>agent.listen(agentPort,'127.0.0.1',resolve));
   const file = path.join(dir, 'events.json');
   fs.writeFileSync(file, JSON.stringify({...deployment('ROLLED_BACK'), checkedAt:Date.now(), secret:'PRIVATE'}));
+  const reportFile=path.join(dir,'e2e.json');fs.writeFileSync(reportFile,JSON.stringify(testReport()));
   const child = spawn(process.execPath, [path.join(__dirname, 'viewer.js')], {
     env:{...process.env, AGENT_DIR:dir, VIEWER_TOKEN:token, VIEWER_PORT:String(port), VIEWER_HOST:'127.0.0.1',
-      AGENT_URL:`http://127.0.0.1:${agentPort}`, SELF_HEAL_STATUS_FILE:file, SELF_HEAL_REPAIR_FILE:path.join(dir,'missing.json')}, stdio:'ignore'});
+      AGENT_URL:`http://127.0.0.1:${agentPort}`, SELF_HEAL_STATUS_FILE:file, SELF_HEAL_REPAIR_FILE:path.join(dir,'missing.json'), SELF_HEAL_TEST_FILE:reportFile}, stdio:'ignore'});
   t.after(async () => {const exited=once(child,'exit');child.kill();await exited;await new Promise(resolve=>agent.close(resolve));fs.rmSync(dir,{recursive:true,force:true});});
   const base = `http://127.0.0.1:${port}`;
   let ready=false;
@@ -173,4 +203,7 @@ test('authenticated status endpoint reads the nested agent health and preserves 
   const offline = await (await fetch(base+'/self-healing.json', {headers:{cookie:'v='+token}})).json();
   assert.equal(offline.current.kind,'unconfirmed'); assert.equal(offline.events[0].status,'ROLLED_BACK');
   assert.equal((await fetch(base+'/self-healing.json',{method:'POST',headers:{cookie:'v='+token}})).status,405);
+  const isolated=await (await fetch(base+'/self-healing-test.json',{headers:{cookie:'v='+token}})).json();
+  assert.equal(isolated.stage,'PASSED');assert.equal(isolated.pipeline.phase,'ROLLED_BACK');
+  assert.equal((await fetch(base+'/self-healing-test.json',{method:'POST',headers:{cookie:'v='+token}})).status,405);
 });

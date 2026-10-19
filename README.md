@@ -327,3 +327,12 @@ the agent is down. A full canary progress bar still waits for the coordinator's 
 Empty history is shown explicitly. Only allowlisted public metadata is served; journals,
 backups, source contents and credentials are not exposed. Optional `SELF_HEAL_STATUS_FILE`
 and `SELF_HEAL_REPAIR_FILE` select the public projections for another installation.
+
+A separate **ISOLATED TEST** card appears when a root-owned end-to-end report exists at
+`/var/lib/sigil-self-healing-reports/e2e.json` (`SELF_HEAL_TEST_FILE` can override this).
+`/self-healing-test.json` uses the same authentication and read-only route restrictions.
+It displays the simulated process's canary, deployment/rollback events, test checks and
+Telegram message receipts without adding them to live deployment history. A passing report
+requires a complete ten-minute canary, confirmed original-build restoration, both distinct
+Telegram receipts and evidence that the production process/build stayed unchanged. Completed
+reports remain visible as historical results; unfinished stale reports cannot imply success.

@@ -81,6 +81,26 @@ async function healingStatus() {
     readProjection(process.env.SELF_HEAL_REPAIR_FILE || '/run/sigil-self-healing/repair.json'), health);
 }
 
+const TEST_STAGES = new Set(['PREPARING','BASELINE','REPAIRING','VERIFYING','CANARY','COMMITTED','INJECTING_FAILURE','ROLLING_BACK','ROLLED_BACK','PASSED','FAILED']);
+const TEST_CHECKS = ['baselineTests','candidateTests','canary','telegramCommit','guardRollback','telegramRollback','noDuplicateAlerts','productionUnchanged'];
+function healingTestView(report, now = Date.now()) {
+  if (report?.version !== 1 || report.kind !== 'isolated-e2e' || !jobId(report.runId) || !timestamp(report.startedAt)) return {available:false};
+  const pipeline = healingView(report.deployment, report.repair, report.health, now);
+  const notifications = (Array.isArray(report.notifications) ? report.notifications : []).filter(n =>
+    ['COMMITTED','ROLLED_BACK'].includes(n?.status) && Number.isSafeInteger(n.messageId) && n.messageId > 0 && timestamp(n.at))
+    .slice(-2).map(n => ({status:n.status, messageId:n.messageId, at:n.at}));
+  const checks = TEST_CHECKS.map(name => ({name, status:['PASSED','FAILED'].includes(report.checks?.[name]) ? report.checks[name] : 'PENDING'}));
+  const passed = report.stage === 'PASSED' && timestamp(report.finishedAt) && report.finishedAt >= report.startedAt && report.finishedAt <= now + 5000 && report.productionUnchanged === true &&
+    Number.isFinite(report.canaryElapsedMs) && report.canaryElapsedMs >= 600000 &&
+    checks.every(c => c.status === 'PASSED') && ['COMMITTED','ROLLED_BACK'].every(s => notifications.some(n => n.status === s)) &&
+    new Set(notifications.map(n => n.messageId)).size === 2 && pipeline.phase === 'ROLLED_BACK' && digest(report.health?.buildId) === digest(report.deployment?.active?.beforeBuild) && digest(report.health?.buildId) !== null;
+  return {available:true, runId:report.runId, startedAt:report.startedAt, finishedAt:timestamp(report.finishedAt),
+    checkedAt:timestamp(report.checkedAt), fresh:recent(report.checkedAt, now, 45000),
+    stage:passed ? 'PASSED' : report.stage === 'PASSED' ? 'INCOMPLETE' : TEST_STAGES.has(report.stage) ? report.stage : 'INCOMPLETE',
+    productionUnchanged:report.productionUnchanged === true ? true : report.productionUnchanged === false ? false : null,
+    checks, notifications, pipeline};
+}
+
 function proxy(base, p, res, type) {
   http.get(base + p, { timeout: 25000 }, (r) => {
     const chunks = [];
@@ -176,6 +196,20 @@ const PAGE = `<!doctype html>
       <div class="detail" id="healingRepair">–</div>
       <div class="detail">ประวัติล่าสุด · เวลาไทย</div>
       <ol id="healingHistory"><li class="detail">กำลังอ่านประวัติ</li></ol>
+    </div>
+  </section>
+  <section class="card" id="healingTest" aria-label="ทดสอบ Self-Healing แบบแยก" hidden>
+    <h2>ทดสอบระบบ · เอเจนต์จำลองแยกจากตัวละครจริง</h2>
+    <div class="healing-content">
+      <div class="healing-head"><b id="healingTestState" role="status">กำลังอ่านผลทดสอบ</b><span class="badge policy">ISOLATED TEST</span></div>
+      <div class="detail">ผลด้านล่างเป็นการทดสอบบนสำเนาโค้ดและ process จำลอง ไม่ใช่การเปลี่ยนแพตช์ของตัวละคร</div>
+      <div class="detail" id="healingTestRun"></div>
+      <div class="detail" id="healingTestLive"></div>
+      <div class="detail" id="healingTestProgress"></div>
+      <div class="bar mp" id="healingTestBar" role="progressbar" aria-label="Canary ของเอเจนต์จำลอง" aria-valuemin="0" aria-valuemax="100" hidden><i id="healingTestFill" style="width:0%"></i></div>
+      <div class="detail" id="healingTestChecks"></div>
+      <div class="detail" id="healingTestTelegram"></div>
+      <ol id="healingTestHistory" style="list-style:none;padding:0;margin:10px 0 0;max-height:220px;overflow:auto"></ol>
     </div>
   </section>
   </div>
@@ -325,6 +359,38 @@ async function tickHealing() {
     renderHealing(await r.json());
   } catch { renderHealing({available:false, fresh:false, current:{kind:'unconfirmed'}, events:[]}); }
 }
+function renderHealingTest(j) {
+  $('healingTest').hidden = !j.available;
+  if (!j.available) return;
+  const labels = {PREPARING:'เตรียมการทดสอบ', BASELINE:'ทดสอบโค้ดเดิมใน sandbox', REPAIRING:'สร้างแพตช์ทดสอบ', VERIFYING:'ทดสอบแพตช์ใน sandbox',
+    CANARY:'ทดสอบรันจริงกับเอเจนต์จำลอง', COMMITTED:'ทดสอบอัปเดตสำเร็จ', INJECTING_FAILURE:'จำลองข้อผิดพลาดหลังอัปเดต',
+    ROLLING_BACK:'กำลังทดสอบย้อนกลับ', ROLLED_BACK:'ทดสอบย้อนกลับสำเร็จ', PASSED:'ทดสอบครบวงจรผ่าน', FAILED:'ทดสอบไม่ผ่าน · ต้องตรวจสอบ', INCOMPLETE:'หลักฐานทดสอบยังไม่ครบ'};
+  $('healingTestState').textContent = !j.finishedAt && !j.fresh ? 'ข้อมูลทดสอบเก่า · รอยืนยันผล' : labels[j.stage] || labels.INCOMPLETE;
+  $('healingTestRun').textContent = 'รอบ ' + j.runId.slice(0,8) + ' · เริ่ม ' + healingTime(j.startedAt) + (j.finishedAt ? ' · จบ ' + healingTime(j.finishedAt) : '');
+  $('healingTestLive').textContent = j.productionUnchanged === true ? 'ยืนยัน process / Build ของเอเจนต์จริงคงเดิมตลอดรอบทดสอบ' : j.productionUnchanged === false ? 'ตรวจพบการเปลี่ยนแปลงของเอเจนต์จริง · ตรวจสอบผล' : 'กำลังเก็บหลักฐานความต่อเนื่องของเอเจนต์จริง';
+  const c = j.pipeline?.canary;
+  $('healingTestBar').hidden = !c || Boolean(j.finishedAt);
+  if (c) {
+    const percent = Math.min(100, Math.max(0, c.elapsedMs / c.durationMs * 100));
+    $('healingTestFill').style.width = percent + '%'; $('healingTestBar').setAttribute('aria-valuenow', String(Math.round(percent)));
+  }
+  $('healingTestProgress').textContent = c ? 'Canary: ' + Math.floor(c.elapsedMs/60000) + ' / ' + Math.round(c.durationMs/60000) + ' นาที · รอผลยืนยันจากตัวตรวจ' : 'สถานะสำเนาทดสอบ: ' + (healingLabels[j.pipeline?.phase] || labels[j.stage] || '–');
+  const checkLabels = {baselineTests:'เทสต์โค้ดเดิม',candidateTests:'เทสต์แพตช์',canary:'Canary',telegramCommit:'TG อัปเดต',guardRollback:'Guard ย้อนกลับ',telegramRollback:'TG rollback',noDuplicateAlerts:'ไม่แจ้งซ้ำ',productionUnchanged:'เอเจนต์จริงคงเดิม'};
+  $('healingTestChecks').textContent = (j.checks || []).map(c => (c.status === 'PASSED' ? '✓ ' : c.status === 'FAILED' ? '✗ ' : '… ') + checkLabels[c.name]).join(' · ');
+  $('healingTestTelegram').textContent = (j.notifications || []).length ? 'Telegram รับข้อความแล้ว: ' + j.notifications.map(n => (n.status === 'COMMITTED' ? 'อัปเดต' : 'rollback') + ' #' + n.messageId + ' · ' + healingTime(n.at)).join(' / ') : 'ยังไม่มีข้อความ Telegram ที่ยืนยันการส่ง';
+  const history = $('healingTestHistory'); history.replaceChildren();
+  for (const e of (j.pipeline?.events || []).slice(0, 16)) {
+    const row = document.createElement('li'); row.className = 'detail';
+    row.textContent = healingTime(e.at) + ' · [TEST] ' + (healingLabels[e.status] || e.status) + (e.reason ? ' · ' + e.reason : ''); history.append(row);
+  }
+}
+async function tickHealingTest() {
+  try {
+    const r = await fetch('/self-healing-test.json?t=' + Date.now(), {signal:AbortSignal.timeout(3500)});
+    if (!r.ok) throw new Error('test report unavailable');
+    renderHealingTest(await r.json());
+  } catch { if (!$('healingTest').hidden) $('healingTestState').textContent = 'อ่านผลทดสอบไม่ได้ · รอยืนยัน'; }
+}
 
 async function tickShot() {
   const img = $('shot');
@@ -404,11 +470,12 @@ async function tickText() {
   } catch (e) { /* ignore */ }
 }
 
-tickShot(); tickState(); tickText(); tickHealing();
+tickShot(); tickState(); tickText(); tickHealing(); tickHealingTest();
 setInterval(tickShot, 1200);
 setInterval(tickState, 3000);
 setInterval(tickText, 5000);
 setInterval(tickHealing, 5000);
+setInterval(tickHealingTest, 5000);
 </script>
 </body></html>`;
 
@@ -448,6 +515,10 @@ if (require.main === module) http.createServer((req, res) => {
       res.end(JSON.stringify(status));
     }).catch(() => { res.writeHead(503); res.end('status unavailable'); });
   }
+  if (url.pathname === '/self-healing-test.json') {
+    res.writeHead(200, {'content-type':'application/json; charset=utf-8'});
+    return res.end(JSON.stringify(healingTestView(readProjection(process.env.SELF_HEAL_TEST_FILE || '/var/lib/sigil-self-healing-reports/e2e.json'))));
+  }
   if (url.pathname === '/log.txt') {
     try {
       const t = fs.readFileSync(path.join(DIR, 'agent.log'), 'utf8');
@@ -465,4 +536,4 @@ if (require.main === module) http.createServer((req, res) => {
   res.writeHead(404, { 'content-type': 'text/plain' });
   res.end('not found');
 }).listen(PORT, process.env.VIEWER_HOST || '127.0.0.1', () => console.log('viewer on ' + PORT));
-module.exports = {healingView, readProjection, PAGE};
+module.exports = {healingView, healingTestView, readProjection, PAGE};
