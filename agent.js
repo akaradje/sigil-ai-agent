@@ -604,7 +604,8 @@ async function runCycle() {
     if(automatic&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
       if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
       const routine=['stats','skills','gear','rank','combat','configure'];
-      if(automatic==='autonomy_wait'&&routine.includes(planned))await runPolicy(p.state);
+      const restoring=memory.autonomy?.resume||memory.autonomy?.farm?.pendingProfile;
+      if(automatic==='autonomy_wait'&&!restoring&&routine.includes(planned))await runPolicy(p.state);
       else {actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}
       return;
     }
