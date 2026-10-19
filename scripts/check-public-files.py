@@ -16,6 +16,7 @@ ALLOWED = {
     'strategy-dna.js', 'strategy-dna.test.js',
     'self-evolution.js', 'self-evolution-runner.js', 'self-evolution.test.js', 'sigil-self-healing.service',
     'self-deployment.js', 'self-deployment.test.js', 'sigil-self-healing-guard.service', 'sigil-self-healing-guard.timer',
+    'self-healing-check.js', 'self-healing-check.test.js', 'sigil-self-healing-check.service', 'sigil-self-healing-check.timer',
     'telegram-alerts.js', 'telegram-alerts.test.js',
     'sigil-agent.service', 'sigil-supervisor.service', 'sigil-telegram.service',
     'sigil-viewer.service',

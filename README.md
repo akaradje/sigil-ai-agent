@@ -336,3 +336,25 @@ Telegram message receipts without adding them to live deployment history. A pass
 requires a complete ten-minute canary, confirmed original-build restoration, both distinct
 Telegram receipts and evidence that the production process/build stayed unchanged. Completed
 reports remain visible as historical results; unfinished stale reports cannot imply success.
+
+`sigil-self-healing-check.timer` runs a separate daily exercise at 07:00 Asia/Bangkok, with
+persistent missed-run handling. Install `self-healing-check.js` beside the trusted root coordinator,
+add its reviewed public sources/tests to `source/`, create root-owned private
+`/var/lib/sigil-self-healing-e2e` and public `/var/lib/sigil-self-healing-reports` directories,
+and enable the timer. The service mounts production files read-only, uses low CPU/I/O priority,
+and restricts writes to those test/report directories. Fixtures stop/start only their verified
+mock process, never the live agent. Baseline/candidate tests run through the existing OS sandbox;
+a distinct guard process checks every five seconds and verifies a real ten-minute canary,
+post-commit error detection and original-build restoration. Test notification routing is checked
+locally without sending successful-update or intentional-rollback messages. The normal Telegram
+observer queues only finalized unexpected test failures and retries them using its durable
+outbox; no recovery/success message is generated for this exercise. Its failure receipt appears
+on the dashboard after Telegram acknowledges delivery. Production deployment alerts keep their
+existing behavior.
+
+A root-owned daily ledger permits at most one exercise per Bangkok calendar date, including
+failed/interrupted runs, and an atomic process lock prevents overlap. A stopped/timed-out service
+finalizes an unfinished report as failed; after a host reboot the next run also reconciles any
+unfinished ledger record. The dashboard retains the most recent 30 daily results and shows the
+next scheduled run. The completed manual test format with real Telegram receipts remains supported;
+quiet daily results instead require evidence that both expected test messages were suppressed.

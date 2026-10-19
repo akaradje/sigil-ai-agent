@@ -10,9 +10,9 @@ const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'ga
   'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js']);
 const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'ui-resilience.test.js',
   'game-telemetry.test.js', 'progression.test.js', 'session-hygiene.test.js', 'strategy-dna.test.js',
-  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'uptime-worker/monitor.test.mjs']);
+  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs']);
 const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'package.json', 'supervisor.js', 'telegram-alerts.js', 'viewer.js',
-  'self-evolution.js', 'self-evolution-runner.js', 'self-deployment.js', 'uptime-worker/monitor.mjs'])]);
+  'self-evolution.js', 'self-evolution-runner.js', 'self-deployment.js', 'self-healing-check.js', 'uptime-worker/monitor.mjs'])]);
 const ACTIVE = new Set(['REPAIRING', 'VERIFYING']);
 const hash = text => crypto.createHash('sha256').update(text).digest('hex');
 const code = e => /^[A-Z][A-Z0-9_]{2,64}$/.test(e?.code || '') ? e.code : 'REPAIR_FAILED';

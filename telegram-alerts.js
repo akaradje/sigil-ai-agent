@@ -86,10 +86,15 @@ class AlertEngine {
       issue.queued = true;
     }
   }
-  acknowledge(events) {
+  acknowledge(events, receipt = null) {
     const ids = new Set(events.map((e) => e.id));
     for (const e of events) {
       if (e.incident && this.db.incidents[e.incident]) this.db.incidents[e.incident].delivered = true;
+      if (e.key.startsWith('e2e-failed:') && Number.isSafeInteger(receipt?.messageId) && receipt.messageId > 0) {
+        this.db.e2eReceipts ||= [];
+        this.db.e2eReceipts.push({runId:e.key.slice('e2e-failed:'.length),messageId:receipt.messageId,at:receipt.at});
+        this.db.e2eReceipts=this.db.e2eReceipts.slice(-40);
+      }
     }
     this.db.pending = this.db.pending.filter((e) => !ids.has(e.id));
   }
@@ -151,6 +156,17 @@ class AlertEngine {
   }
   observe(sample, now = Date.now()) {
     const d = this.db;
+    const check=sample.selfHealingTest;
+    if(check?.version===1&&check.kind==='isolated-e2e'){
+      d.e2eFailures ||= [];
+      for(const run of [...(Array.isArray(check.history)?check.history.slice(0,30):[]),check]){
+        if(run?.notificationPolicy!=='failed_runs_only'||run.stage!=='FAILED'||!Number.isFinite(run.finishedAt)||run.finishedAt>now+60000||
+          !/^[a-f0-9-]{36}$/.test(run.runId||'')||d.e2eFailures.includes(run.runId))continue;
+        const reason=/^[A-Z][A-Z0-9_]{1,63}$/.test(run.failureCode||'')?run.failureCode:'ISOLATED_CHECK_FAILED';
+        this.enqueue('e2e-failed:'+run.runId,'⚠️ [TEST] Self-Healing รายวันทดสอบไม่ผ่าน\nรอบ '+run.runId.slice(0,8)+' · '+reason+'\nโปรดตรวจการ์ด ISOLATED TEST บน Dashboard · เหตุการณ์นี้เป็นผลทดสอบแยก ไม่ใช่การ rollback ตัวละครจริง',true);
+        d.e2eFailures.push(run.runId);d.e2eFailures=d.e2eFailures.slice(-40);
+      }
+    }
     const deployment=sample.deployment;
     if(deployment&&/^[a-f0-9-]{36}$/.test(deployment.identity||'')){
       if(d.deployment?.identity!==deployment.identity)d.deployment={identity:deployment.identity,cursor:0,announced:[]};
@@ -319,11 +335,15 @@ async function collect() {
     supervisorOk: settled[1].status === 'fulfilled' && Boolean(settled[1].value?.state?.name),
     selfHealing: settled[1].status === 'fulfilled' ? settled[1].value?.selfHealing : null,
     deployment: readDeployment(),
+    selfHealingTest: readTestReport(),
     viewerOk: settled[2].status === 'fulfilled' && [200, 401].includes(settled[2].value.status),
   };
 }
 function readDeployment(file=process.env.SELF_HEAL_STATUS_FILE||'/run/sigil-self-healing/events.json'){
   try{if(fs.statSync(file).size>256*1024)return null;const d=JSON.parse(fs.readFileSync(file,'utf8'));return Array.isArray(d.events)&&d.events.length<=40?d:null;}catch{return null;}
+}
+function readTestReport(file=process.env.SELF_HEAL_TEST_FILE||'/var/lib/sigil-self-healing-reports/e2e.json'){
+  try{if(fs.statSync(file).size>256*1024)return null;const d=JSON.parse(fs.readFileSync(file,'utf8'));return d.version===1&&d.kind==='isolated-e2e'?d:null;}catch{return null;}
 }
 
 function save(file, db) {
@@ -397,7 +417,7 @@ async function main() {
     const link = viewerLink();
     if (link) body.reply_markup = { inline_keyboard: [[{ text: 'ดูสด · อ่านอย่างเดียว', url: link }]] };
     const sent = await telegram(token, 'sendMessage', body);
-    engine.acknowledge(events);
+    engine.acknowledge(events, {messageId:sent.message_id,at:Date.now()});
     if (events.some((e) => e.key === 'welcome')) engine.db.welcomed = fingerprint;
     save(stateFile, engine.db);
     failures = 0; nextSendAt = 0; health.error = null;

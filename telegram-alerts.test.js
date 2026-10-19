@@ -207,6 +207,28 @@ test('quiet hours use Bangkok time with exact boundary handling', () => {
   assert.equal(quietHours(Date.parse('2026-10-20T01:00:00Z')), false);
 });
 
+test('daily isolated tests notify only unexpected failures, never passing or expected rollback stages',()=>{
+  const runId='12345678-1234-1234-1234-123456789abc';
+  for(const stage of ['PREPARING','CANARY','COMMITTED','ROLLED_BACK','PASSED']){
+    const e=new AlertEngine({},start);e.observe({selfHealingTest:{version:1,kind:'isolated-e2e',notificationPolicy:'failed_runs_only',runId,stage,finishedAt:start}},start);
+    assert.equal(e.db.pending.filter(x=>x.key.startsWith('e2e-failed:')).length,0);
+  }
+  let e=new AlertEngine({},start);
+  const report={version:1,kind:'isolated-e2e',notificationPolicy:'failed_runs_only',runId,stage:'FAILED',finishedAt:start,failureCode:'TESTS_FAILED'};
+  e.observe({selfHealingTest:report},start);const failed=e.db.pending.filter(x=>x.key.startsWith('e2e-failed:'));
+  assert.equal(failed.length,1);assert.equal(failed[0].critical,true);assert.match(failed[0].text,/TESTS_FAILED/);
+  e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start);e.observe({selfHealingTest:report},start);
+  assert.equal(e.db.pending.filter(x=>x.key.startsWith('e2e-failed:')).length,1);
+  e.acknowledge(failed,{messageId:123,at:start});e.observe({selfHealingTest:report},start);
+  assert.equal(e.db.pending.filter(x=>x.key.startsWith('e2e-failed:')).length,0);
+  assert.deepEqual(e.db.e2eReceipts,[{runId,messageId:123,at:start}]);
+});
+test('missed daily failure remains alertable in history and raw errors cannot enter notifications',()=>{
+  const runId='12345678-1234-1234-1234-123456789abc',e=new AlertEngine({},start);
+  e.observe({selfHealingTest:{version:1,kind:'isolated-e2e',stage:'PASSED',history:[{runId,stage:'FAILED',notificationPolicy:'failed_runs_only',finishedAt:start,failureCode:'raw PRIVATE error'}]}},start);
+  const failed=e.db.pending.find(x=>x.key.startsWith('e2e-failed:'));assert.ok(failed);assert.equal(failed.text.includes('PRIVATE'),false);
+});
+
 test('Telegram rate limit is respected and credentials never appear in errors', async () => {
   const original = global.fetch;
   try {

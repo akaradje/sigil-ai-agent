@@ -41,6 +41,15 @@ test('isolated test projection is separate, allowlisted and absent until a real 
   assert.equal(JSON.stringify(view).includes('PRIVATE'),false);assert.equal(view.notifications.length,2);
   assert.equal(healingView(deployment(),null,health(),NOW).current.kind,'patch');
 });
+test('quiet daily success requires suppressed alert evidence and cannot claim actual Telegram delivery',()=>{
+  const report={...testReport(),notificationPolicy:'failed_runs_only',notifications:[],suppressedNotifications:['COMMITTED','ROLLED_BACK'],
+    schedule:{enabled:true,hour:7,minute:0,timeZone:'Asia/Bangkok',nextRunAt:NOW+86400000},history:[{runId:JOB,stage:'PASSED',finishedAt:NOW,secret:'PRIVATE'}]};
+  const view=healingTestView(report,NOW);assert.equal(view.stage,'PASSED');assert.deepEqual(view.notifications,[]);assert.equal(view.failureNotification,null);
+  assert.equal(view.schedule.hour,7);assert.equal(view.history.length,1);assert.equal(JSON.stringify(view).includes('PRIVATE'),false);
+  assert.equal(healingTestView({...report,suppressedNotifications:['COMMITTED']},NOW).stage,'INCOMPLETE');
+  const failed=healingTestView({...report,stage:'FAILED'},NOW,[{runId:JOB,messageId:555,at:NOW,token:'PRIVATE'}]);
+  assert.deepEqual(failed.failureNotification,{messageId:555,at:NOW});
+});
 
 test('dashboard distinguishes a canary, a verified patch and a confirmed restored build', () => {
   const canary = healingView(deployment('CANARY'), null, health(), NOW);

@@ -83,21 +83,29 @@ async function healingStatus() {
 
 const TEST_STAGES = new Set(['PREPARING','BASELINE','REPAIRING','VERIFYING','CANARY','COMMITTED','INJECTING_FAILURE','ROLLING_BACK','ROLLED_BACK','PASSED','FAILED']);
 const TEST_CHECKS = ['baselineTests','candidateTests','canary','telegramCommit','guardRollback','telegramRollback','noDuplicateAlerts','productionUnchanged'];
-function healingTestView(report, now = Date.now()) {
+function healingTestView(report, now = Date.now(), receipts = []) {
   if (report?.version !== 1 || report.kind !== 'isolated-e2e' || !jobId(report.runId) || !timestamp(report.startedAt)) return {available:false};
   const pipeline = healingView(report.deployment, report.repair, report.health, now);
   const notifications = (Array.isArray(report.notifications) ? report.notifications : []).filter(n =>
     ['COMMITTED','ROLLED_BACK'].includes(n?.status) && Number.isSafeInteger(n.messageId) && n.messageId > 0 && timestamp(n.at))
     .slice(-2).map(n => ({status:n.status, messageId:n.messageId, at:n.at}));
   const checks = TEST_CHECKS.map(name => ({name, status:['PASSED','FAILED'].includes(report.checks?.[name]) ? report.checks[name] : 'PENDING'}));
+  const notificationPolicy=report.notificationPolicy==='failed_runs_only'?'failed_runs_only':'all_results';
+  const alertEvidence=notificationPolicy==='failed_runs_only' ? notifications.length===0 && Array.isArray(report.suppressedNotifications) && report.suppressedNotifications.length===2 && ['COMMITTED','ROLLED_BACK'].every(s=>report.suppressedNotifications.includes(s)) :
+    ['COMMITTED','ROLLED_BACK'].every(s => notifications.some(n => n.status === s)) && new Set(notifications.map(n => n.messageId)).size === 2;
   const passed = report.stage === 'PASSED' && timestamp(report.finishedAt) && report.finishedAt >= report.startedAt && report.finishedAt <= now + 5000 && report.productionUnchanged === true &&
     Number.isFinite(report.canaryElapsedMs) && report.canaryElapsedMs >= 600000 &&
-    checks.every(c => c.status === 'PASSED') && ['COMMITTED','ROLLED_BACK'].every(s => notifications.some(n => n.status === s)) &&
-    new Set(notifications.map(n => n.messageId)).size === 2 && pipeline.phase === 'ROLLED_BACK' && digest(report.health?.buildId) === digest(report.deployment?.active?.beforeBuild) && digest(report.health?.buildId) !== null;
+    checks.every(c => c.status === 'PASSED') && alertEvidence && pipeline.phase === 'ROLLED_BACK' && digest(report.health?.buildId) === digest(report.deployment?.active?.beforeBuild) && digest(report.health?.buildId) !== null;
+  const failureReceipt=(Array.isArray(receipts)?receipts:[]).find(r=>r?.runId===report.runId&&Number.isSafeInteger(r.messageId)&&r.messageId>0&&timestamp(r.at));
+  const schedule=report.schedule?.enabled===true&&report.schedule.timeZone==='Asia/Bangkok'&&report.schedule.hour===7&&report.schedule.minute===0 ?
+    {hour:7,minute:0,timeZone:'Asia/Bangkok',nextRunAt:timestamp(report.schedule.nextRunAt)} : null;
+  const history=(Array.isArray(report.history)?report.history:[]).slice(0,30).filter(r=>jobId(r?.runId)&&['PASSED','FAILED'].includes(r.stage)&&timestamp(r.finishedAt))
+    .map(r=>({runId:r.runId,stage:r.stage,finishedAt:r.finishedAt,failureCode:/^[A-Z][A-Z0-9_]{1,63}$/.test(r.failureCode||'')?r.failureCode:null}));
   return {available:true, runId:report.runId, startedAt:report.startedAt, finishedAt:timestamp(report.finishedAt),
     checkedAt:timestamp(report.checkedAt), fresh:recent(report.checkedAt, now, 45000),
     stage:passed ? 'PASSED' : report.stage === 'PASSED' ? 'INCOMPLETE' : TEST_STAGES.has(report.stage) ? report.stage : 'INCOMPLETE',
     productionUnchanged:report.productionUnchanged === true ? true : report.productionUnchanged === false ? false : null,
+    notificationPolicy,schedule,history,failureNotification:failureReceipt?{messageId:failureReceipt.messageId,at:failureReceipt.at}:null,
     checks, notifications, pipeline};
 }
 
@@ -204,12 +212,14 @@ const PAGE = `<!doctype html>
       <div class="healing-head"><b id="healingTestState" role="status">กำลังอ่านผลทดสอบ</b><span class="badge policy">ISOLATED TEST</span></div>
       <div class="detail">ผลด้านล่างเป็นการทดสอบบนสำเนาโค้ดและ process จำลอง ไม่ใช่การเปลี่ยนแพตช์ของตัวละคร</div>
       <div class="detail" id="healingTestRun"></div>
+      <div class="detail" id="healingTestSchedule"></div>
       <div class="detail" id="healingTestLive"></div>
       <div class="detail" id="healingTestProgress"></div>
       <div class="bar mp" id="healingTestBar" role="progressbar" aria-label="Canary ของเอเจนต์จำลอง" aria-valuemin="0" aria-valuemax="100" hidden><i id="healingTestFill" style="width:0%"></i></div>
       <div class="detail" id="healingTestChecks"></div>
       <div class="detail" id="healingTestTelegram"></div>
       <ol id="healingTestHistory" style="list-style:none;padding:0;margin:10px 0 0;max-height:220px;overflow:auto"></ol>
+      <div class="detail" id="healingTestDays" style="white-space:pre-line"></div>
     </div>
   </section>
   </div>
@@ -367,6 +377,7 @@ function renderHealingTest(j) {
     ROLLING_BACK:'กำลังทดสอบย้อนกลับ', ROLLED_BACK:'ทดสอบย้อนกลับสำเร็จ', PASSED:'ทดสอบครบวงจรผ่าน', FAILED:'ทดสอบไม่ผ่าน · ต้องตรวจสอบ', INCOMPLETE:'หลักฐานทดสอบยังไม่ครบ'};
   $('healingTestState').textContent = !j.finishedAt && !j.fresh ? 'ข้อมูลทดสอบเก่า · รอยืนยันผล' : labels[j.stage] || labels.INCOMPLETE;
   $('healingTestRun').textContent = 'รอบ ' + j.runId.slice(0,8) + ' · เริ่ม ' + healingTime(j.startedAt) + (j.finishedAt ? ' · จบ ' + healingTime(j.finishedAt) : '');
+  $('healingTestSchedule').textContent = j.schedule ? 'อัตโนมัติทุกวัน 07:00 น. เวลาไทย · รอบถัดไป ' + healingTime(j.schedule.nextRunAt) : '';
   $('healingTestLive').textContent = j.productionUnchanged === true ? 'ยืนยัน process / Build ของเอเจนต์จริงคงเดิมตลอดรอบทดสอบ' : j.productionUnchanged === false ? 'ตรวจพบการเปลี่ยนแปลงของเอเจนต์จริง · ตรวจสอบผล' : 'กำลังเก็บหลักฐานความต่อเนื่องของเอเจนต์จริง';
   const c = j.pipeline?.canary;
   $('healingTestBar').hidden = !c || Boolean(j.finishedAt);
@@ -376,8 +387,11 @@ function renderHealingTest(j) {
   }
   $('healingTestProgress').textContent = c ? 'Canary: ' + Math.floor(c.elapsedMs/60000) + ' / ' + Math.round(c.durationMs/60000) + ' นาที · รอผลยืนยันจากตัวตรวจ' : 'สถานะสำเนาทดสอบ: ' + (healingLabels[j.pipeline?.phase] || labels[j.stage] || '–');
   const checkLabels = {baselineTests:'เทสต์โค้ดเดิม',candidateTests:'เทสต์แพตช์',canary:'Canary',telegramCommit:'TG อัปเดต',guardRollback:'Guard ย้อนกลับ',telegramRollback:'TG rollback',noDuplicateAlerts:'ไม่แจ้งซ้ำ',productionUnchanged:'เอเจนต์จริงคงเดิม'};
+  if(j.notificationPolicy==='failed_runs_only'){checkLabels.telegramCommit='ตรวจข้อความอัปเดต (ไม่ส่ง)';checkLabels.telegramRollback='ตรวจข้อความ rollback (ไม่ส่ง)';}
   $('healingTestChecks').textContent = (j.checks || []).map(c => (c.status === 'PASSED' ? '✓ ' : c.status === 'FAILED' ? '✗ ' : '… ') + checkLabels[c.name]).join(' · ');
-  $('healingTestTelegram').textContent = (j.notifications || []).length ? 'Telegram รับข้อความแล้ว: ' + j.notifications.map(n => (n.status === 'COMMITTED' ? 'อัปเดต' : 'rollback') + ' #' + n.messageId + ' · ' + healingTime(n.at)).join(' / ') : 'ยังไม่มีข้อความ Telegram ที่ยืนยันการส่ง';
+  $('healingTestTelegram').textContent = j.notificationPolicy==='failed_runs_only' ? (j.failureNotification ? 'TG แจ้งทดสอบไม่ผ่านแล้ว #' + j.failureNotification.messageId : j.stage==='FAILED' ? 'TG แจ้งเฉพาะทดสอบไม่ผ่าน · รอผู้ส่งยืนยัน' : 'TG แจ้งเฉพาะทดสอบไม่ผ่าน · รอบที่ผ่านจะไม่ส่งข้อความ') :
+    (j.notifications || []).length ? 'Telegram รับข้อความแล้ว: ' + j.notifications.map(n => (n.status === 'COMMITTED' ? 'อัปเดต' : 'rollback') + ' #' + n.messageId + ' · ' + healingTime(n.at)).join(' / ') : 'ยังไม่มีข้อความ Telegram ที่ยืนยันการส่ง';
+  $('healingTestDays').textContent = (j.history||[]).length ? 'ผลย้อนหลัง (สูงสุด 30 รอบ)\\n' + j.history.map(r=>healingTime(r.finishedAt)+' · '+(r.stage==='PASSED'?'ผ่าน':'ไม่ผ่าน')+' · '+r.runId.slice(0,8)+(r.failureCode?' · '+r.failureCode:'')).join('\\n') : '';
   const history = $('healingTestHistory'); history.replaceChildren();
   for (const e of (j.pipeline?.events || []).slice(0, 16)) {
     const row = document.createElement('li'); row.className = 'detail';
@@ -517,7 +531,8 @@ if (require.main === module) http.createServer((req, res) => {
   }
   if (url.pathname === '/self-healing-test.json') {
     res.writeHead(200, {'content-type':'application/json; charset=utf-8'});
-    return res.end(JSON.stringify(healingTestView(readProjection(process.env.SELF_HEAL_TEST_FILE || '/var/lib/sigil-self-healing-reports/e2e.json'))));
+    return res.end(JSON.stringify(healingTestView(readProjection(process.env.SELF_HEAL_TEST_FILE || '/var/lib/sigil-self-healing-reports/e2e.json'),Date.now(),
+      readProjection(path.join(DIR,'telegram-alerts-state.json'))?.e2eReceipts)));
   }
   if (url.pathname === '/log.txt') {
     try {

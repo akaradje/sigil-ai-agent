@@ -1,0 +1,11 @@
+[Unit]
+Description=Run isolated Sigil self-healing exercise daily at 07:00 Bangkok
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Asia/Bangkok
+Persistent=true
+AccuracySec=30
+Unit=sigil-self-healing-check.service
+
+[Install]
+WantedBy=timers.target
