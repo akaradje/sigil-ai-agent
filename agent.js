@@ -232,6 +232,7 @@ async function refreshCatalog(s) {
   try {
     const data=JSON.parse(await evalIn(Catalog.CATALOG_EXPRESSION));catalog=Catalog.validateCatalog(data);
     Autonomy.catalogChanged(memory,catalog);
+    if(reconnected)Autonomy.init(memory).cbt=null;
     fs.writeFileSync(catalogFile+'.tmp',JSON.stringify({data,at:catalog.at}),{mode:0o600});fs.renameSync(catalogFile+'.tmp',catalogFile);
     log('public catalog refreshed; level cap '+(catalog.levelCap??'unknown')+', refine cap '+catalog.refineMax);
   }catch{log('public catalog unavailable; retaining last verified metadata');}
