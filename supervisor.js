@@ -12,6 +12,7 @@
 const http = require('http');
 const fs = require('fs');
 const IQ = require('./game-intelligence');
+const DNA = require('./strategy-dna');
 const UI = require('./ui-resilience');
 const {createAvailability}=require('./server-availability');
 const availability=createAvailability({url:process.env.GAME_HEALTH_URL||''});
@@ -154,6 +155,7 @@ async function tick() {
     return;
   }
   if (!s) { log('state unparsable'); return; }
+  if(Date.now()-(mem.dnaReadAt||0)>60000){mem.dna=DNA.readSummary(path.join(DIR,'dna-memory.json'));mem.dnaReadAt=Date.now();}
   if(UI.assess(s).blocked){mem.controller='safe-idle';return;}
   // One controller owns the UI. The supervisor observes while the agent is responsive.
   const agentAlive=await new Promise(resolve=>{

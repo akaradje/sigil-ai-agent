@@ -11,6 +11,12 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('DNA promotions report measured metrics once, not a fabricated EXP improvement for saved potions',()=>{
+  const e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[{id:1,type:'dna_evolved',detail:{metric:'potions',gainPercent:30,map:'field',generation:2}}]}};
+  e.observe(s,start);assert.ok(e.db.pending.some(p=>/ใช้ยาลดลง 30%/.test(p.text)));assert.equal(e.db.pending.some(p=>/EXP\/min เพิ่ม/.test(p.text)),false);
+  e.acknowledge([...e.db.pending]);const restored=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);restored.observe(s,start+MIN);
+  assert.equal(restored.db.pending.filter(p=>p.key.startsWith('autonomy:')).length,0);
+});
 test('catch-up trend notifications need two fresh leaderboard samples and survive restart without repeats',()=>{
   let e=new AlertEngine({},start),s=sample();
   const set=(status,at)=>{s.agent.strategy={catchUp:{character:s.agent.state.name,current:{status,at,rankAt:at,cutoff:{name:'Rival',level:66},etaMovingMinutes:status==='closing'?[80,120]:null}}};};

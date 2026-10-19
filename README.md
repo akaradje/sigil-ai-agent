@@ -180,6 +180,50 @@ Native automatic learned skills and the game's existing CBT bonus remain respons
   Telegram reports start, completion or a recovery stalled beyond two minutes. This is preventive
   maintenance, not evidence of a diagnosed memory leak or a guarantee against all crashes.
 
+## Bounded evolutionary strategy memory
+
+With autonomy enabled, `SIGIL_DNA=1` (default) enables `strategy-dna.js`. This evolves strategy
+parameters, not executable code or permissions. It combines a finite contextual UCB selector with
+one-locus crossover/mutation, retaining elites across restarts in private `dna-memory.json`.
+Set `SIGIL_DNA=0` to keep the conservative native profile. That file and all checkpoints are ignored
+by Git; the supervisor reads only a summary and never competes with the agent as a second writer.
+
+- Real applied genes are HP potions at 40% or 60% (the current UI's supported safe choices), bag
+  service at 90% or 95%, a 3–6 second HP-bar trial tolerance, and all-learned versus hotbar skill scope.
+  Hotbar scope must visibly retain Energy Coat and at least four enabled skill controls, or it is
+  rejected and all-learned scope restored. No invented skill-weight vector is sent to the game.
+  Secondary bracket holds, gold/crystal reserves, no-potion stop, loss-protected refinements and
+  ambiguity checks remain fixed. Craft priority is not mutated because crafting cannot be undone.
+- Contexts separate character, public patch fingerprint, job, two-level bands, job-level bands,
+  equipped build/refinement and farm map. Town trips count as elapsed cost within a window. A new
+  context retains old knowledge but collects new baseline evidence; safe bag/TTK alleles can be
+  seeded with zero confidence, never inherited performance claims. Memory is bounded to 64 recent
+  contexts, 12 strategies per context and 256 hazard cells.
+- Normal windows last 15 minutes. Two baseline windows precede experiments; two repeated candidate
+  windows are needed for promotion. Candidates alter only one applied gene and are read back through
+  ordinary UI before measurement starts. Fitness combines normalized real EXP, net gold, verified
+  positive rare-material snapshot deltas, restock-adjusted potion consumption and downtime penalties.
+  Rare here means a public drop chance at most 3%; counts are lower bounds, with no invented prices.
+  Potion counts are a resource-cost proxy, not a claimed exact gold cost per consumed bottle.
+- Promotion requires repeat evidence: EXP improves beyond both 5% and a noise margin, or potion
+  consumption drops by 25% with EXP preserved, or verified cap stockpiling yields more net gold.
+  Fitness must also improve and potion consumption cannot materially worsen. These are observational
+  comparisons; competition, buffs and progression can still confound attribution. Telegram reports
+  the measured metric, not a guaranteed future gain or proof of globally optimal play.
+- Death, low HP, position faults, excessive potion use, stalls or severe early EXP regression abort
+  a trial and request the prior native profile. Failed arms are quarantined for six hours. Sampling
+  gaps, UI outages and restarts discard unobserved windows rather than crediting a success. Profile
+  application waits for healthy HP and supplies; unverified restoration blocks further measurement.
+- Patch/bracket changes and sustained baseline degradation enter faster ten-minute validation
+  windows; mutation size and safety limits do not expand. Hazard cells are retained privately for
+  24 hours; repeated same-cell outside/stuck failures suppress optional map experiments for six hours
+  on that patch. This avoids replaying risky optional routes; it does not provide arbitrary pixel
+  pathfinding or guarantee that native quest routing avoids every recorded coordinate.
+- State uses atomic writes plus a previous valid checkpoint. The agent transfers durable evolution,
+  drift and rollback events to Telegram with a persisted cursor. The read-only dashboard shows genes,
+  context generation, evidence-window progress and immunity count. A persistence failure pauses
+  learning, requests the conservative profile and leaves ordinary progression available.
+
 The same read-only telemetry detects coordinates outside validated live map dimensions. New game
 inputs pause while the fault is present; after 30 seconds it permits a normal browser reload, then
 verified Play/quest recovery. Reload attempts persist across restarts, with a ten-minute cooldown and

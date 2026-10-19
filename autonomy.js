@@ -2,6 +2,7 @@
 const {resolveCap,bottlenecks,farmOptions}=require('./game-catalog');
 const Progression=require('./progression');
 const Hygiene=require('./session-hygiene');
+const DNA=require('./strategy-dna');
 const MIN=60000;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
@@ -101,8 +102,8 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(a.farm&&now-a.farm.started>10*MIN)return 'finish_farm';
   if(due('inventory',a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]*0.85?MIN:5*MIN))return 'inventory';
   if(due('equipment',10*MIN))return 'equipment';
-  if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)) {
-    if(premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
+  if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*DNA.profile(mem).bagReturnThreshold)) {
+    if(a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
     return due('town_storage',5*MIN)?'town_storage':null;
   }
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
@@ -117,9 +118,9 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
 function trialOption(mem,s,catalog,now=Date.now()) {
   const a=init(mem),ttk=mem.combatTelemetry?.current;
   if(mem.uiHealth?.safeIdle||a.trip||s.hp?.[0]/s.hp?.[1]<0.75||!Number.isFinite(s.hpPotions)||!Number.isFinite(s.mpPotions)||s.hpPotions<20||s.mpPotions<20||
-    !ttk||norm(ttk.zone)!==norm(s.zone)||now-ttk.at>10000||ttk.count<5||ttk.medianSeconds>4)return null;
+    !ttk||norm(ttk.zone)!==norm(s.zone)||now-ttk.at>10000||ttk.count<5||ttk.medianSeconds>DNA.profile(mem).ttkToleranceSec)return null;
   const missing=a.goal?.missing?.filter(m=>m.id!=='gold')||[];
-  const options=farmOptions(catalog,s,missing,a.farmRates),current=options.find(m=>norm(m.name)===norm(s.zone));
+  const options=farmOptions(catalog,s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id)),current=options.find(m=>norm(m.name)===norm(s.zone));
   const rate=current&&a.farmRates[current.id];
   if(!rate||now-rate.at>5*MIN||rate.minutes<2||rate.expPerMinute<=0)return null;
   const next=options.filter(m=>m.id!==current.id&&m.monsterLevel>current.monsterLevel&&m.monsterLevel<=current.monsterLevel+5&&
@@ -283,14 +284,15 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
         if(!price||current.gold-price<policy.goldReserve)throw Error('potion price/reserve not verified');
         await pick(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
-        if((await state())[field]<=current[field])throw Error('potion restock not confirmed');
+        const after=await state();if(after[field]<=current[field])throw Error('potion restock not confirmed');
+        a.restocked||={};a.restocked[field]=(a.restocked[field]||0)+after[field]-current[field];
       }
     }
     a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
     const missing=a.goal?.missing?.filter(m=>m.id!=='gold')||[];
-    const options=farmOptions(getCatalog(),s,missing,a.farmRates);
+    const options=farmOptions(getCatalog(),s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id));
     if(!options.length){a.blocked=missing.length?'No currently safe public drop route for missing materials':null;a.last.farm=now();return;}
     const current=options.find(m=>norm(m.name)===norm(s.zone));
     const measured=options.filter(m=>a.farmRates[m.id]?.minutes>=2&&now()-a.farmRates[m.id].at<30*MIN).sort((x,y)=>y.measuredExpPerMinute-x.measuredExpPerMinute);

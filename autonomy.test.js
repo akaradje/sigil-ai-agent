@@ -5,6 +5,12 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('DNA can service a bag earlier but cannot buy capacity below the existing spending boundary',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;a.bagUsage=[90,100];
+  m.dna={genes:{bagReturnThreshold:0.9}};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true,crystalBudget:5000}),'town_storage');
+  m.dna.genes.bagReturnThreshold=0.99;assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true,crystalBudget:5000}),null);
+});
 test('near-bracket hold skips optional forge trips but keeps emergency supplies and farming available',()=>{
   const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
   a.resourceHold={active:true};a.goal={slot:'cape',missing:[]};

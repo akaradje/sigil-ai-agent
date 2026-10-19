@@ -128,6 +128,9 @@ class AlertEngine {
     const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      dna_evolved:e=>`🧬 DNA Evolved: ${e.metric==='potions'?'ใช้ยาลดลง':e.metric==='gold'?'Gold/min เพิ่ม':'EXP/min เพิ่ม'} ${e.gainPercent}% ในช่วงทดสอบ · ${e.map} · รุ่น ${e.generation} (ผลสังเกต ไม่รับประกันผลรอบถัดไป)`,
+      dna_rollback:e=>`↩️ DNA กลับใช้ Elite เดิม: ${e.reason}`,
+      dna_drift:e=>`🧬 ผลฟาร์มเปลี่ยนต่อเนื่องที่ ${e.map} กำลังเก็บ baseline ใหม่และเพิ่มรอบตรวจกลยุทธ์`,
       session_refreshing:()=>`🔄 จัดกระเป๋าและตรวจยาในเมืองแล้ว กำลังรีเฟรชเซสชันตามรอบอายุ`,
       session_refreshed:()=>`✅ รีเฟรชเซสชันสำเร็จ ตรวจตำแหน่งและกลับมาเล่นต่อแล้ว`,
       position_invalid:()=>`⚠️ ตำแหน่งตัวละครอยู่นอกขอบแผนที่ต่อเนื่อง กำลังกู้ด้วยการโหลดหน้าเกมใหม่`,
@@ -151,6 +154,7 @@ class AlertEngine {
     // Schema incidents must still reach Telegram when the HUD name cannot be read.
     this.observeAutonomy(sample.agent);
     this.observeCatchUp(sample.agent,now);
+    this.condition('dna-persistence',Boolean(sample.agent?.strategy?.dna?.issue),now,2*MIN,'⚠️ พักการเรียนรู้ DNA เพราะตรวจฐานความจำไม่ได้ ใช้กลยุทธ์อนุรักษ์ทรัพยากรต่อ');
     const pendingRefresh=sample.agent?.strategy?.sessionHygiene?.pending;
     this.condition('session-refresh',Boolean(pendingRefresh&&now-pendingRefresh.at>2*MIN),now,0,
       '⚠️ รีเฟรชตามรอบแล้วแต่ยังยืนยันการกลับมาเล่นไม่ได้เกิน 2 นาที',true,false);

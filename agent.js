@@ -21,6 +21,7 @@ const UI = require('./ui-resilience');
 const Telemetry = require('./game-telemetry');
 const Progression = require('./progression');
 const Hygiene = require('./session-hygiene');
+const DNA = require('./strategy-dna');
 const Autonomy = require('./autonomy');
 const Catalog = require('./game-catalog');
 const {createAvailability}=require('./server-availability');
@@ -183,6 +184,29 @@ let memory=IQ.freshMemory();
 try { memory={...memory,...JSON.parse(fs.readFileSync(MEMORY,'utf8'))}; } catch {}
 if(memory.bossBuildVersion!==2){memory.bossBuild={};memory.bossBuildVersion=2;}
 function saveMemory() { fs.writeFileSync(MEMORY+'.tmp',JSON.stringify(memory,null,2));fs.renameSync(MEMORY+'.tmp',MEMORY); }
+let dnaEnabled=autonomyPolicy.enabled&&ENV.SIGIL_DNA!=='0';
+const dnaEngine=new DNA.Engine({store:new DNA.FileStore(path.join(DIR,'dna-memory.json')),lastEventStore:memory.dnaEventStore,lastEventId:memory.dnaEventsSeen});
+if(memory.dnaEventStore!==dnaEngine.db.identity){memory.dnaEventStore=dnaEngine.db.identity;memory.dnaEventsSeen=0;}
+if(!dnaEnabled)memory.dna={enabled:false,genes:DNA.genes()};
+function updateDNA(s,observe=false) {
+  if(!dnaEnabled){memory.dna={enabled:false,genes:DNA.genes(),...(memory.dna?.issue?{issue:memory.dna.issue}:{})};return;}
+  try {
+    const context={...memory,availability:availability.state};
+    if(observe)dnaEngine.observe(s,context,catalog,memory.gameTelemetry);
+    else dnaEngine.guard(s,context,catalog,memory.gameTelemetry);
+    memory.dna=dnaEngine.view();
+    const events=dnaEngine.events();
+    if(events.length){
+      for(const e of events)if(e.id>(memory.dnaEventsSeen||0)){
+        Autonomy.event(Autonomy.init(memory),e.type,{...e.detail,dnaEventId:e.id},e.at);memory.dnaEventsSeen=e.id;
+      }
+      saveMemory();dnaEngine.acknowledge(memory.dnaEventsSeen||0);
+    }
+  }catch{
+    dnaEnabled=false;memory.dna={enabled:false,genes:DNA.genes(),issue:'DNA persistence unavailable; conservative native profile requested'};
+    memory.last.combat=0;log('DNA disabled after persistence/validation failure; native progression retained');
+  }
+}
 let actionInFlight=false,cleanupBusy=false,panelSince=0,lastStrategic=0,fastBossMode=false;
 async function uiKey(k) { await gate(k==='Escape');await req('/type?key='+encodeURIComponent(k)); }
 async function uiClick(c) {
@@ -195,6 +219,11 @@ async function uiClick(c) {
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
+  if(dnaEnabled){
+    updateDNA(st);const boundary=DNA.nativeControl(fresh,memory);
+    if(!boundary.allowed)throw Error('DNA boundary rejects an untracked native profile change');
+    if(boundary.invalidate){dnaEngine.applied(false);memory.dna=dnaEngine.view();saveMemory();}
+  }
   const spending=Progression.forgeDecision(fresh,st,memory,catalog);
   if(!spending.allowed)throw Error('Secondary equipment spending held before bracket/catalog recheck');
   if(spending.forge&&['craft','upg','refine'].includes(fresh.act))memory.forgeIntent={at:Date.now(),slot:spending.slot,character:st.name};
@@ -550,6 +579,7 @@ async function runCycle() {
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
     IQ.updateMetrics(memory,p.state);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
+    updateDNA(p.state,true);
     if(Hygiene.eligible(memory,p.state,catalog,Date.now(),autonomyPolicy.sessionRefreshHours)){
       Hygiene.prepare(memory);Autonomy.event(Autonomy.init(memory),'session_refreshing',{});saveMemory();
       await evalIn("setTimeout(()=>location.reload(),100);'town browser refresh scheduled'");return;
@@ -557,6 +587,13 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(dnaEnabled&&!critical.includes(planned)&&dnaEngine.canApply(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      actionInFlight=true;
+      try{const wanted=JSON.stringify(dnaEngine.desired()),result=await executor.run('dna_profile');dnaEngine.applied(result.ok&&wanted===JSON.stringify(dnaEngine.desired()));memory.dna=dnaEngine.view();saveMemory();}
+      catch{dnaEnabled=false;memory.dna={enabled:false,genes:DNA.genes()};memory.last.combat=0;}
+      finally{actionInFlight=false;}
+      return;
+    }
     if(autonomyPolicy.enabled&&!critical.includes(planned)&&IQ.rankDue(memory)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3) {
       actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}
       return;
@@ -745,6 +782,7 @@ setInterval(async()=>{
   try {
     const s=(await perceive(false)).state;
     const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
+    updateDNA(s);
     Hygiene.observe(memory,raw);
     if(Hygiene.completed(memory,s)){Autonomy.event(Autonomy.init(memory),'session_refreshed',{});saveMemory();}
     if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){

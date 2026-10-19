@@ -223,3 +223,23 @@ test('selected disabled evolution is retained and verified as selected, not clic
     click:async c=>{clicks++;if(c.open)panel='skills';}});
   const result=await e.run('boss_build');assert.equal(result.ok,true);assert.equal(clicks,2);assert.equal(m.bossBuild.blaze.result,'existing evolution retained');
 });
+function dnaProfileRig(missingBuff=false,offscreenSafety=false){
+  const m=preparedMemory();m.dna={genes:{hpPotionThreshold:0.4,skillScope:'HOTBAR'}};let panel=null,tab='pot',hp='60',scope='ALL_LEARNED';
+  const executor=IQ.createExecutor({mem:m,log:()=>{},save:()=>{},sleep:async()=>{},key:async()=>{panel=null;},
+    observe:async()=>({...healthy(),panel,panelOpen:!!panel,offscreen:offscreenSafety&&panel&&tab==='pot'?[{act:'aopt',k:'stopNoPot',v:'false',on:true}]:[],controls:panel?[
+      {act:'atab',key:'pot'},{act:'atab',key:'skill'},...(tab==='pot'?[{act:'aopt',k:'hp',v:'40',on:hp==='40'},{act:'aopt',k:'hp',v:'60',on:hp==='60'},
+      {act:'aopt',k:'mp',v:'30',on:true},...(offscreenSafety?[]:[{act:'aopt',k:'stopNoPot',v:'false',on:true}])]:[
+      {act:'ahot',label:'All learned',on:scope==='ALL_LEARNED'},{act:'ahot',label:'Hotbar only',on:scope==='HOTBAR'},
+      ...['fire_bolt','lightning_bolt','meteor_storm',...(missingBuff&&scope==='HOTBAR'?[]:['energy_coat'])].map(key=>({act:'askill',key,on:true}))])]:[{open:'auto'}]}),
+    click:async c=>{if(c.open)panel=c.open;if(c.act==='atab')tab=c.key;if(c.act==='aopt'&&c.k==='hp')hp=c.v;if(c.act==='ahot')scope=/Hotbar/.test(c.label)?'HOTBAR':'ALL_LEARNED';}});
+  return {executor,get:()=>({panel,hp,scope})};
+}
+test('DNA native profile is applied and read back through ordinary controls',async()=>{
+  const r=dnaProfileRig();assert.equal((await r.executor.run('dna_profile')).ok,true);assert.deepEqual(r.get(),{panel:null,hp:'40',scope:'HOTBAR'});
+});
+test('an already enabled safety option below the scroll fold is verified without toggling it off',async()=>{
+  const r=dnaProfileRig(false,true);assert.equal((await r.executor.run('dna_profile')).ok,true);
+});
+test('an unsafe hotbar subset restores all learned scope and is never marked applied',async()=>{
+  const r=dnaProfileRig(true);assert.equal((await r.executor.run('dna_profile')).ok,false);assert.equal(r.get().scope,'ALL_LEARNED');assert.equal(r.get().panel,null);
+});

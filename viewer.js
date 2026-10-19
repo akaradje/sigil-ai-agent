@@ -106,6 +106,7 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">Top 10 cutoff / trend</div><div class="v" id="catchup" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">ETA range · conditional estimate</div><div class="v" id="eta" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Browser session age</div><div class="v" id="sessionAge" style="font-size:14px">–</div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">Strategy DNA</div><div class="v" id="dna" style="font-size:14px">–</div><pre id="dnaGenes"></pre></div>
         <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
@@ -168,6 +169,10 @@ async function tickState() {
     $('eta').textContent=eta?eta.map(n=>n>10080?'>7 วัน':Math.ceil(n)+' นาที').join('–')+(c.etaMovingMinutes?' · หากอัตราโตคงเดิม':' · ถ้าเส้นตัดหยุดโต'):'ข้อมูลไม่พอคำนวณ';
     const session=j.strategy?.sessionHygiene;
     $('sessionAge').textContent=Number.isFinite(session?.ageHours)?session.ageHours.toFixed(1)+' ชม. · '+(session.pending?'กำลังกู้เซสชัน':'รอจบธุระในเมืองเมื่อครบอายุ'):'รอข้อมูลอายุหน้าเกม';
+    const dna=j.strategy?.dna;
+    const dnaMode={waiting:'รอบริบทฟาร์ม',baseline:'เก็บ baseline',experiment:'ทดลองหนึ่งยีน',elite:'ใช้ Elite','hyper-validation':'เร่งตรวจกลยุทธ์'};
+    $('dna').textContent=dna?.enabled?'รุ่น '+dna.generation+' · '+(dna.needsApply?'รอยืนยันค่าจากเกม':dnaMode[dna.mode]||dna.mode)+' · เก็บรอบ '+dna.windowMinutes+' นาที · '+dna.windows+' ผลวัด · Fitness '+(dna.windows?dna.fitness.toFixed(4):'ยังไม่มีผล')+' · ภูมิคุ้มกัน '+dna.immunityCount:(dna?.issue||'ยังไม่เปิด DNA');
+    $('dnaGenes').textContent=dna?.enabled?JSON.stringify(dna.genes,null,2):'';
     $('budget').textContent=(a.premium?.spent||0)+' / '+(a.premium?.reserved||0);
     $('craft').textContent=a.goal?a.goal.name+' · '+(a.craftProgress??0)+'% ของวัตถุดิบ':a.gearCapped?'อุปกรณ์ถึงเพดานที่ตรวจแล้ว':'ยังไม่มีสูตรเป้าหมาย';
     $('craftbar').style.width=Math.max(0,Math.min(100,a.craftProgress||0))+'%';

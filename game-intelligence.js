@@ -113,6 +113,7 @@ function readUI() {
 // indentation/comment-only lines to stay below ordinary HTTP header limits.
 const PERCEPTION = '('+readUI.toString().split('\n').filter(l=>!l.trimStart().startsWith('//')).map(l=>l.trim()).join('\n')+')()';
 const {bracketHold}=require('./progression');
+const DNA=require('./strategy-dna');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
@@ -249,16 +250,28 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           await pick(c=>c.act==='aqstat'&&c.key==='1'&&!c.on,true);
           if(!(await observe()).controls.some(c=>c.act==='aqstat'&&c.key==='1'&&c.on))throw Error('auto allocation not confirmed');
           result='native automatic stat/skill allocation enabled';break;
-        case 'combat':
+        case 'dna_profile':
+        case 'combat': {
+          const g=DNA.profile(mem),threshold=String(Math.round(g.hpPotionThreshold*100));
           await open('auto');await act('atab','pot');
-          await pick(c=>c.act==='aopt'&&c.k==='hp'&&c.v==='60'&&!c.on,true);
+          await pick(c=>c.act==='aopt'&&c.k==='hp'&&c.v===threshold&&!c.on,true);
           await pick(c=>c.act==='aopt'&&c.k==='mp'&&c.v==='30'&&!c.on,true);
           await pick(c=>c.act==='aopt'&&c.k==='stopNoPot'&&c.v==='true',true);
-          {const s=await observe();if(!['hp','mp'].every(k=>s.controls.some(c=>c.act==='aopt'&&c.k===k&&c.v===(k==='hp'?'60':'30')&&c.on)))throw Error('potion thresholds not verified');}
+          {const s=await observe(),read=[...s.controls,...(s.offscreen||[])];
+            if(task==='dna_profile'&&read.filter(c=>c.act==='aopt'&&c.k==='stopNoPot'&&c.on).length!==1)throw Error('no-potion stop protection not verified');
+            if(!['hp','mp'].every(k=>read.some(c=>c.act==='aopt'&&c.k===k&&c.v===(k==='hp'?threshold:'30')&&c.on)))throw Error('potion thresholds not verified');}
           await act('atab','skill');
-          await pick(c=>c.act==='ahot'&&/All learned/i.test(c.label)&&!c.on,true);
-          if(!(await observe()).controls.some(c=>c.act==='ahot'&&/All learned/i.test(c.label)&&c.on))throw Error('all learned skills not verified');
-          mem.combatJob=before.job;result='HP potion 60%, MP 30%, all learned skills enabled';break;
+          const scope=g.skillScope==='HOTBAR'?/Hotbar|ช่องลัด/i:/All learned|ทุกสกิลที่เรียน/i;
+          await pick(c=>c.act==='ahot'&&scope.test(c.label)&&!c.on,true);
+          const checked=await observe();
+          const read=[...checked.controls,...(checked.offscreen||[])];
+          if(!read.some(c=>c.act==='ahot'&&scope.test(c.label)&&c.on))throw Error('native skill scope not verified');
+          if(g.skillScope==='HOTBAR'&&(!read.some(c=>c.act==='askill'&&c.key==='energy_coat'&&c.on)||read.filter(c=>c.act==='askill'&&c.on).length<4)){
+            await pick(c=>c.act==='ahot'&&/All learned|ทุกสกิลที่เรียน/i.test(c.label)&&!c.on,true);
+            throw Error('hotbar scope lacks verified defensive buff/skills');
+          }
+          mem.combatJob=before.job;mem.last.combat=Date.now();result='verified native DNA profile: HP '+threshold+'%, MP 30%, '+g.skillScope;break;
+        }
         case 'class': {
           const next={Novice:'mage',Mage:'starweaver',Starweaver:'sage'}[before.job];
           if(!next) {result='no next class on configured path';break;}
