@@ -60,6 +60,8 @@ function loadEnv() {
 }
 const ENV = { ...loadEnv(), ...process.env };
 const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_LEVELING_FOCUS==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
+autonomyPolicy.sellSurplus=ENV.SIGIL_SELL_SURPLUS==='1';
+autonomyPolicy.targetRank=Number(ENV.SIGIL_TARGET_RANK)===5?5:10;
 autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
 autonomyPolicy.levelingMaxGap=Math.min(5,Math.max(3,Math.floor(Number(ENV.SIGIL_LEVELING_MAX_GAP)||3)));
 const availability=createAvailability({url:ENV.GAME_HEALTH_URL||''});
@@ -179,7 +181,7 @@ async function perceive(withShot) {
   UI.update(memory,state);
   if(previous!==memory.uiHealth.safeIdle||sequence!==memory.autonomy?.sequence)saveMemory();
   if(autonomyPolicy.enabled)Autonomy.update(memory,state,catalog,Date.now(),autonomyPolicy.goldReserve);
-  Progression.updateCatchUp(memory,state,catalog);
+  Progression.updateCatchUp(memory,state,catalog,Date.now(),autonomyPolicy.targetRank);
   const out={state,buttons:state.buttons,controls:state.controls};
   if(withShot) { try { const buf=await reqBuf('/screenshot'); if(buf.length>2000)out.shot=buf.toString('base64'); } catch {} }
   return out;
@@ -342,7 +344,7 @@ async function runToolInner(name, args) {
       const hits=s.controls.filter(c=>c.act===args.act&&(args.key==null||c.key===args.key)&&(!args.uid||c.uid===args.uid&&c.dir===args.dir));
       if(hits.length!==1)return {ok:false,error:'missing or ambiguous control; observe again'};
       if(args.act==='stmove'&&(!args.uid||args.dir!=='in'))return {ok:false,error:'only an individually observed gear deposit is allowed'};
-      if(/^(mksell|mkbuy|buycr|gcreate|gdonate|trconfirm|mailsend|gleave|gkick|blackon|jqdrop|sell|sellgear|eqoffall|cruse)/.test(args.act))return {ok:false,error:'not in autonomous progression scope'};
+      if(/^(mksell|mkbuy|buycr|gcreate|gdonate|trconfirm|mailsend|gleave|gkick|blackon|jqdrop|sell|sellgear|isellg|gsell|ilock|eqoffall|cruse)/.test(args.act))return {ok:false,error:'not in autonomous progression scope'};
       await uiClick(hits[0]);await sleep(650);return {ok:true,clicked:hits[0].label,state:(await perceive(false)).state};
     }
     case 'observe': {
@@ -535,11 +537,11 @@ EFFICIENT CONTROL:
 - Auto Quest mode jq advances the CLASS quest; mq advances the STORY. Story level requirements (e.g. Lv55) do not unlock Starweaver. Chrono Gear is from Time Eater Lv34. Do not switch to story training for this boss unless actual repeated deaths require it.
 - The deterministic boss workflow reads the Boss Board Go button, approaches its live position, then resumes class-quest combat. Do not interrupt a boss approach or a Time Eater fight.
 - Gold is numeric. Maintain a 10000 G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
-- Only routine gameplay for this character. No chat/messages, trading, premium purchases, account settings or destructive inventory actions.
+- Only routine gameplay for this character. No chat/messages, trading, premium purchases or account settings. Sales are permitted only through the opt-in deterministic surplus workflow; never sell, unlock, discard or withdraw gear through LLM tools.
 - Autonomous capacity purchases use a separate deterministic workflow and persistent budget; never attempt them through LLM tools. Public catalog definitions are advisory and current live UI must confirm every action.
 - AUTONOMY STATE: ${JSON.stringify(memory.autonomy?{mode:memory.autonomy.mode,cap:memory.autonomy.cap,goal:memory.autonomy.goal,blocked:memory.autonomy.blocked}:null)}
 - Never override an autonomous material farm, town trip or queued return. Do not infer a level cap from a leaderboard, job cap or stalled EXP.
-- Rank is measured about every 5 minutes. Keep the primary Top10 objective; write tactical plans in notes instead of replacing it. Never claim a rank without the fresh level leaderboard.
+- Rank is measured about every 5 minutes. Keep the primary Top${autonomyPolicy.targetRank} objective; write tactical plans in notes instead of replacing it. Never claim a rank without the fresh level leaderboard.
 - Maximum five tool calls; finish a transaction in the available budget. Prefer no menu when farming is healthy.
 
 LESSONS YOU WROTE EARLIER:

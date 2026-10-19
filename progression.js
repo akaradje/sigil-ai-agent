@@ -35,7 +35,7 @@ function absoluteExp(catalog,level,percent=0) {
   const step=catalog?.expByLevel?.[level];
   return percent===0?total:Number.isFinite(step)&&step>0?total+percent/100*step:null;
 }
-function rankRows(rank,name,now) {
+function rankRows(rank,name,now,targetRank=10) {
   if(!rank||rank.kind!=='lv'||rank.character!==name||!Number.isFinite(rank.at)||now-rank.at>20*MIN||rank.at>now+MIN)return null;
   const rows=(Array.isArray(rank.rows)?rank.rows:[]).map(r=>{
     const a=String(r.text||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -44,21 +44,22 @@ function rankRows(rank,name,now) {
     return {name:a[1],rank:position,level,own:r.own===true};
   });
   if(rows.filter(r=>r.own).length!==1)return null;
-  const own=rows.filter(r=>r.own&&r.name===name),cut=rows.filter(r=>r.rank===10&&r.name&&r.level>0);
+  const own=rows.filter(r=>r.own&&r.name===name),cut=rows.filter(r=>r.rank===targetRank&&r.name&&r.level>0);
   return own.length===1&&own[0].rank>0&&cut.length===1?{own:own[0],cutoff:cut[0],at:rank.at}:null;
 }
-function updateCatchUp(mem,s,catalog,now=Date.now()) {
+function updateCatchUp(mem,s,catalog,now=Date.now(),targetRank=10) {
+  targetRank=targetRank===5?5:10;
   const value=absoluteExp(catalog,lv(s),s.exp);if(!s.name||value==null)return null;
   let t=mem.catchUp;
-  if(!t||t.character!==s.name||t.fingerprint!==catalog?.fingerprint)t=mem.catchUp={character:s.name,fingerprint:catalog?.fingerprint,ownSamples:[],cutoffSamples:[]};
+  if(!t||t.character!==s.name||t.fingerprint!==catalog?.fingerprint||t.targetRank!==targetRank)t=mem.catchUp={character:s.name,targetRank,fingerprint:catalog?.fingerprint,ownSamples:[],cutoffSamples:[]};
   const sample=t.ownSamples.at(-1);
   if(!sample||now-sample.at>=MIN)t.ownSamples.push({at:now,value});
   t.ownSamples=t.ownSamples.filter(x=>now-x.at<2*3600000).slice(-121);
-  const rank=rankRows(mem.rank,s.name,now);
-  const result=t.current={at:now,status:'waiting',etaMovingMinutes:null,etaStaticMinutes:null};
+  const rank=rankRows(mem.rank,s.name,now,targetRank);
+  const result=t.current={at:now,targetRank,status:'waiting',etaMovingMinutes:null,etaStaticMinutes:null};
   if(!rank)return result;
   Object.assign(result,{rank:rank.own.rank,rankAt:rank.at,cutoff:rank.cutoff});
-  if(rank.own.rank<=10){result.status='top10';return result;}
+  if(rank.own.rank<=targetRank){result.status=targetRank===5?'top5':'top10';return result;}
   if(catalog?.levelCap!=null&&rank.cutoff.level>=catalog.levelCap){result.status='cap-tie';return result;}
   const low=absoluteExp(catalog,rank.cutoff.level),high=absoluteExp(catalog,rank.cutoff.level+1);
   if(low==null||high==null)return result;

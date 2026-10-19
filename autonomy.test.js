@@ -293,3 +293,58 @@ test('town service interacts with the verified NPC prompt instead of repeatedly 
     key:async()=>assert.fail('NPC already reached'),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],92);
 });
+
+function saleHarness({wrongDialog=false,missingCredit=false,blocked=false}={}) {
+  const mem={},a=A.init(mem),worn={uid:'worn',slot:'weapon',text:'Void Staff'};
+  a.worn=[worn];a.trip={kind:'shop',phase:'town',at:clock};
+  let panel='shop',selected=false,modal=false,gold=120000,inventory=[{uid:'unused',text:'Void Blade',art:'/gear/blade5.png',protected:false}],confirmations=0;
+  const observe=async()=>state({zone:'Town',panel,gold,inventoryComplete:panel==='bag',inventoryGear:inventory,
+    panelText:panel==='bag'?'In Bag\nVoid Blade\nRefine +0/15 · Sell 500 G':'',
+    modalText:modal?'Sell equipment?\nVoid Blade for '+(wrongDialog?501:500)+' G':'',
+    controls:modal?[{label:'Sell'}]:panel==='bag'?[{act:'isel',key:'g:unused'},...(selected?[{act:'isellg',key:'unused',label:'Sell 500 G'}]:[])]:[]});
+  if(blocked)a.saleIntent={uid:'previous',status:'confirming'};
+  const controller=A.createController({mem,getCatalog:()=>catalog(),policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
+    observe,open:async p=>{panel=p;},close:async()=>{panel=null;modal=false;},sleep:async()=>{},save:()=>{},log:()=>{},
+    click:async c=>{if(c.act==='isel')selected=true;else if(c.act==='isellg')modal=true;else if(c.label==='Sell'){confirmations++;modal=false;inventory=[];if(!missingCredit)gold+=500;}}});
+  return {mem,controller,confirmations:()=>confirmations};
+}
+test('surplus identification protects worn, locked, favorite, unknown and future-use gear',()=>{
+  const worn=[{uid:'worn',slot:'weapon',text:'Void Staff'}];
+  const item={uid:'spare',text:'Void Blade',protected:false};
+  const s=state({inventoryComplete:true,inventoryGear:[item]});
+  assert.equal(A.surplusGear(catalog(),s,worn).length,1);
+  assert.equal(A.surplusGear(catalog(),{...s,inventoryGear:[{...item,text:'+1 Void Blade'}]},worn).length,1);
+  for(const patch of [{protected:true},{protected:undefined},{equipped:true},{text:'Unknown'}])
+    assert.equal(A.surplusGear(catalog(),{...s,inventoryGear:[{...item,...patch}]},worn).length,0);
+  assert.equal(A.surplusGear(catalog(),{...s,inventoryComplete:false},worn).length,0);
+  assert.equal(A.surplusGear(catalog(),{...s,inventoryGear:[{...item,uid:'worn'}]},worn).length,0);
+  assert.equal(A.surplusGear(catalog(),{...s,inventoryGear:[{...item,text:'Void Staff'}]},[{...worn,text:'Cinder Staff'}]).length,0);
+});
+test('authorized sale records only a confirmed disappearance and exact gold credit, never a click alone',async()=>{
+  const h=saleHarness();await h.controller.run('town');
+  assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);assert.equal(h.mem.autonomy.sales.gold,500);
+  assert.equal(h.mem.autonomy.saleIntent.status,'confirmed');
+  const e=saleHarness({missingCredit:true});await e.controller.run('town');
+  assert.equal(e.confirmations(),1);assert.equal(e.mem.autonomy.sales,undefined);assert.equal(e.mem.autonomy.saleIntent.status,'uncertain');
+  await e.controller.run('town');assert.equal(e.confirmations(),1);
+});
+test('changed sale dialog and a restart with pending confirmation cannot trigger irreversible input',async()=>{
+  const h=saleHarness({wrongDialog:true});await h.controller.run('town');assert.equal(h.confirmations(),0);
+  const e=saleHarness({blocked:true});await e.controller.run('town');assert.equal(e.confirmations(),0);
+});
+test('opt-in sales replace junk storage and capacity purchases while default policy remains unchanged',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;a.last.forge=clock;
+  a.bagUsage=[95,100];a.storageUsage=[100,100];
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true,sellSurplus:true,crystalBudget:5000}),'town_shop');
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true,crystalBudget:5000}),'capacity');
+});
+
+test('stored cleanup withdraws only identified off-class weapons and is bounded before returning to the shop',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'liquidate',phase:'town',at:clock};a.bagUsage=[50,100];
+  const storage=[{uid:'off',dir:'out',art:'/gear/blade5.png'}, {uid:'caster',dir:'out',art:'/gear/staff5.png'}, {uid:'item',dir:'out',art:'/items/potion.png'}];
+  const clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'storage',storageGear:storage,controls:storage.map(g=>({...g,act:'stmove'}))}),
+    click:async g=>{clicked.push(g.uid);storage.splice(storage.findIndex(x=>x.uid===g.uid),1);},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.deepEqual(clicked,['off']);assert.equal(a.trip.kind,'shop');assert.equal(a.trip.salesDone,false);assert.equal(a.trip.storageScanned,true);
+});

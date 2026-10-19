@@ -63,3 +63,12 @@ test('level-cap ties and rank membership require actual ranking evidence',()=>{
   const m={rank:rank(now,99)};assert.equal(P.updateCatchUp(m,state(),catalog(),now).status,'cap-tie');
   m.rank.rows[1].text='9\nHero\nLv 66';assert.equal(P.updateCatchUp(m,state(),catalog(),now).status,'top10');
 });
+
+test('Top 5 objective resets old Top 10 telemetry and requires fresh rank-five evidence',()=>{
+  const m={rank:rank(now)};P.updateCatchUp(m,state(),catalog(),now);
+  m.rank.rows.push({own:false,text:'5\nFifth\nLv 99'});
+  const c=P.updateCatchUp(m,state(),catalog(),now,5);
+  assert.equal(c.targetRank,5);assert.equal(c.cutoff.rank,5);assert.equal(c.status,'cap-tie');assert.equal(c.etaMovingMinutes,null);
+  assert.equal(m.catchUp.cutoffSamples.length,0);
+  m.rank.rows[1].text='4\nHero\nLv 99';assert.equal(P.updateCatchUp(m,state(),catalog(),now,5).status,'top5');
+});

@@ -10,7 +10,7 @@ rename/reset tickets or unverified buffs. CBT EXP/drop bonuses need no duplicate
 
 CORE LOOP:
 Survival and recovery first. Advance Mage -> Starweaver -> Sage using current quest requirements.
-Pursue the level leaderboard Top 10 while measuring actual EXP/min and survival by farming area.
+Pursue the level leaderboard Top 5 while measuring actual EXP/min and survival by farming area.
 Read current recipes and drop sources. Upgrade owned suitable equipment before crafting duplicates.
 Farm missing materials using safe, bounded trials; label predicted drops separately from measurements.
 Craft and refine one verified equipped piece per transaction toward the current public limits.
@@ -29,6 +29,8 @@ Pause controls during confirmed server outages and resume after recovery checks 
 
 EVIDENCE AND NOTIFICATIONS:
 Check the fresh level leaderboard about every five minutes. Telegram reports verified class changes,
-rank improvements/Top 10, new CBT claims, successful crafts/refine caps and cap expansion.
+rank improvements/Top 5, new CBT claims, successful crafts/refine caps and cap expansion.
 Never report a click, eligibility message or stale acknowledgement as successful completion.
 No chat/messages, account changes, hidden state mutation, socket injection or private game commands.
+
+Optional NPC surplus sales require SIGIL_SELL_SURPLUS=1 and explicit operator authorization. The deterministic workflow rechecks the selected item and price, preserves cards/locks/favourites and verifies gold credit. Leave disabled for accounts without this authorization. SIGIL_TARGET_RANK=5 selects Top 5 telemetry.

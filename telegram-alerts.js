@@ -104,10 +104,12 @@ class AlertEngine {
     const previous = this.db.levelRanking;
     if (previous?.name === r.name && r.at <= previous.at) return;
     if (!previous || previous.name !== r.name) {
-      if (r.rank <= 10) this.enqueue(`rank:${r.name}:${r.at}`, `🏆 ยืนยันติด Top 10 ด้านเลเวลแล้ว!\n${r.name} อันดับ ${r.rank}`);
+      if (r.rank <= 5) this.enqueue(`rank:${r.name}:${r.at}`, `🏆 ยืนยันติด Top 5 ด้านเลเวลแล้ว!\n${r.name} อันดับ ${r.rank}`);
+      else if (r.rank <= 10) this.enqueue(`rank:${r.name}:${r.at}`, `🏆 ยืนยันติด Top 10 ด้านเลเวลแล้ว!\n${r.name} อันดับ ${r.rank}`);
     } else if (r.rank < previous.rank) {
+      const enteredTop5 = previous.rank > 5 && r.rank <= 5;
       const enteredTop10 = previous.rank > 10 && r.rank <= 10;
-      this.enqueue(`rank:${r.name}:${r.at}`, `${enteredTop10 ? '🏆 ติด Top 10 ด้านเลเวลแล้ว!' : '📈 อันดับด้านเลเวลดีขึ้น!'}\n` +
+      this.enqueue(`rank:${r.name}:${r.at}`, `${enteredTop5 ? '🏆 ติด Top 5 ด้านเลเวลแล้ว!' : enteredTop10 ? '🏆 ติด Top 10 ด้านเลเวลแล้ว!' : '📈 อันดับด้านเลเวลดีขึ้น!'}\n` +
         `${r.name}: อันดับ ${previous.rank} → ${r.rank}${r.rank <= 10 && !enteredTop10 ? ' · อยู่ใน Top 10' : ''}`);
     }
     // Declines update the baseline silently, so a later genuine recovery can be reported.
@@ -122,9 +124,10 @@ class AlertEngine {
     t.at=c.rankAt;t.current={...c};
     t.candidate=t.candidate?.status===c.status?{status:c.status,count:t.candidate.count+1}:{status:c.status,count:1};
     if(!['closing','falling','flat'].includes(c.status)||t.candidate.count<2||t.announced===c.status||now-(t.notifiedAt||0)<30*MIN)return;
-    const labels={closing:'กำลังตีตื้น',falling:'เส้น Top 10 โตเร็วกว่าตัวเรา',flat:'EXP ตัวเรายังไม่เพิ่ม'};
+    const target=c.targetRank===5?5:10;
+    const labels={closing:'กำลังตีตื้น',falling:'เส้น Top '+target+' โตเร็วกว่าตัวเรา',flat:'EXP ตัวเรายังไม่เพิ่ม'};
     const eta=c.etaMovingMinutes?.every(Number.isFinite)?` · ETA โดยประมาณ ${c.etaMovingMinutes.join('–')} นาที`:'';
-    this.enqueue(`catchup:${data.character}:${c.rankAt}`,`📊 ${labels[c.status]} · อันดับ 10: ${c.cutoff?.name||'?'} Lv${c.cutoff?.level||'?'}${eta}`);
+    this.enqueue(`catchup:${data.character}:${c.rankAt}`,`📊 ${labels[c.status]} · อันดับ ${target}: ${c.cutoff?.name||'?'} Lv${c.cutoff?.level||'?'}${eta}`);
     t.announced=c.status;t.notifiedAt=now;
   }
   observeAutonomy(agent) {

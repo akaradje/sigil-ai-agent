@@ -60,7 +60,7 @@ function readUI() {
   const cells=Array.from(document.querySelectorAll('#pbody [data-act="isel"][data-it]'));
   const inventoryItems={};
   for(const e of cells)if(e.dataset.it?.startsWith('i:'))inventoryItems[e.dataset.it.slice(2)]=number(e.querySelector?.('.u-count')?.textContent||'')||1;
-  const inventoryGear=cells.filter(e=>e.dataset.it?.startsWith('g:')).map(e=>({uid:e.dataset.it.slice(2),text:e.getAttribute?.('aria-label')||e.innerText||'',art:e.querySelector?.('img')?.getAttribute?.('src')||'',equipped:!!e.querySelector?.('u')}));
+  const inventoryGear=cells.filter(e=>e.dataset.it?.startsWith('g:')).map(e=>({uid:e.dataset.it.slice(2),text:e.getAttribute?.('aria-label')||e.innerText||'',art:e.querySelector?.('img')?.getAttribute?.('src')||'',equipped:!!e.querySelector?.('u'),protected:!!e.querySelector?.('[aria-pressed="true"]')||/u-fav/.test(e.className),better:e.classList.contains('u-up')}));
   const worn=Array.from(document.querySelectorAll('#pbody [data-act="dslot"][data-id]')).map(e=>({slot:e.dataset.id,uid:e.querySelector?.('[data-it]')?.dataset.it?.replace(/^g:/,''),text:e.innerText||''})).filter(e=>e.uid);
   const smithRows=panel==='smith'?Array.from(document.querySelectorAll('#pbody .shoprow')).map(e=>{
     const b=e.querySelector?.('button[data-act]')||e.nextElementSibling;

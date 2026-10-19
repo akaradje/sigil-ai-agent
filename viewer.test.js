@@ -69,6 +69,8 @@ test('combat and population cards distinguish online users from level ranking an
   context.renderRanking({rank:10,rankAt:Date.now()},s.lv);
   assert.equal(nodes.get('onlinePlayers').textContent,'9 คน');assert.equal(nodes.get('currentRank').textContent,'#10');
   assert.match(nodes.get('rankScope').textContent,/50 รายชื่อ/);assert.match(nodes.get('top10Gap').textContent,/อยู่ใน Top 10/);
+  context.renderRanking({rank:10,targetRank:5,rankAt:Date.now(),cutoff:{level:99}},s.lv);
+  assert.match(nodes.get('rankTargetLabel').textContent,/Top 5/);assert.match(nodes.get('top10Gap').textContent,/อีก 5 อันดับ · 32 เลเวล/);
   const c={source:'equipment-ui',character:'Hero',job:'Starweaver',level:67,power:1234,stats:{MATK:1397,ATK:394,DEF:277},at:Date.now()-1000};
   context.renderCombat(c,s);assert.equal(nodes.get('combatPower').textContent,'1,234');assert.match(nodes.get('combatStats').textContent,/MATK 1,397/);
   context.renderCombat({...c,level:59,at:Date.now()-3600000},s);assert.match(nodes.get('combatAge').textContent,/ข้อมูลล่าสุดที่บันทึกไว้/);

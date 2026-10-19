@@ -307,3 +307,12 @@ test('missing, stale, wrong-character or wrong-category rankings are ignored', (
 test('medal positions are parsed as actual top-three ranks', () => {
   for(const [medal,rank] of [['🥇',1],['🥈',2],['🥉',3]]) assert.equal(levelRanking(ranked(medal,start).agent,start).rank,rank);
 });
+
+test('Top 5 entry is combined with the genuine improvement and persists across restart',()=>{
+  let e=new AlertEngine({},start);e.observe(ranked(6,start),start);e.acknowledge([...e.db.pending]);
+  e.observe(ranked(5,start+MIN),start+MIN);
+  const r=e.db.pending.filter(p=>p.key.startsWith('rank:'));assert.equal(r.length,1);assert.match(r[0].text,/Top 5/);assert.match(r[0].text,/6 → 5/);
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+2*MIN);
+  e.observe(ranked(5,start+MIN),start+2*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('rank:')).length,0);
+  e.observe(ranked(4,start+3*MIN),start+3*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('rank:')).length,1);
+});
