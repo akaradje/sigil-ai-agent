@@ -111,9 +111,11 @@ class AlertEngine {
   observeAutonomy(agent) {
     const a=agent?.strategy?.autonomy;if(!a)return;
     const d=this.db;d.autonomySeen ||= {};
-    const character=agent.state?.name;if(!character)return;
+    const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      ui_changed:e=>`⚠️ UI Structure Changed: เข้าสู่ Safe Idle หยุดคำสั่งใช้ทรัพยากร คงการฟาร์มเดิมที่เกมกำลังรัน · อ่านไม่ได้: ${(e.missing||[]).join(', ')}`,
+      ui_recovered:()=>`✅ อ่าน UI ได้ครบตามเกณฑ์ต่อเนื่องแล้ว กลับมาควบคุมเกมอัตโนมัติ`,
       cbt_claimed:e=>`🎁 รับของขวัญ CBT สำเร็จ: +${e.crystals} คริสตัล · ${e.vip||'ตรวจ VIP จากเกม'}`,
       cap_expanded:e=>`🚀 ตรวจพบเพดานเลเวลใหม่ ${e.from} → ${e.to} กำลังกลับเข้าสู่ลูปพัฒนา`,
       catalog_changed:e=>`🔄 ข้อมูลเกมเปลี่ยน กำลังวิเคราะห์สูตรใหม่ · Lv cap ${e.levelCap??'?'} / refine +${e.refineMax}`,
@@ -128,6 +130,8 @@ class AlertEngine {
   }
   observe(sample, now = Date.now()) {
     const d = this.db;
+    // Schema incidents must still reach Telegram when the HUD name cannot be read.
+    this.observeAutonomy(sample.agent);
     const s = normalize(sample.agent);
     this.condition('agent', !s, now, 90_000, '🚨 อ่านสถานะบอต/เกมไม่ได้เกิน 90 วินาที', true);
     if (sample.supervisorOk != null) this.condition('supervisor', !sample.supervisorOk, now, 90_000,
@@ -146,7 +150,7 @@ class AlertEngine {
     this.condition('paused', s.paused, now, 2 * MIN, '⚠️ AI ถูกพักเกิน 2 นาที');
     this.condition('dead', s.dead, now, 90_000, '🚨 ตัวละครล้มและยังฟื้นไม่ได้เกิน 90 วินาที', true);
     const autonomous=sample.agent?.strategy?.autonomy;
-    const managed=Boolean(autonomous?.trip||autonomous?.farm||autonomous?.resume||sample.agent?.availability?.status==='down');
+    const managed=Boolean(autonomous?.trip||autonomous?.farm||autonomous?.resume||sample.agent?.strategy?.uiHealth?.safeIdle||sample.agent?.availability?.status==='down');
     this.condition('auto', !s.auto && !managed && !s.disconnected && !s.dead && !s.paused, now, 2 * MIN,
       '⚠️ Auto Quest หยุดเกิน 2 นาที');
     if (s.dead && !last?.dead) d.deaths.push(now);
@@ -177,7 +181,6 @@ class AlertEngine {
     }
     if (s.job) d.lastKnownJob = s.job;
     this.observeRanking(sample.agent, now);
-    this.observeAutonomy(sample.agent);
     this.condition('autonomy-blocked',Boolean(autonomous?.blocked),now,5*MIN,`⚠️ งานอัตโนมัติต้องตรวจเพิ่ม: ${autonomous?.blocked||''}`);
     if (last && !restarted) {
       if (s.lv > last.lv && Math.floor(s.lv / 5) > Math.floor(last.lv / 5)) {

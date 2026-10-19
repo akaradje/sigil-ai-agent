@@ -5,6 +5,51 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('95 percent bag threshold and proactive potion restock keep a cooldown',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;
+  a.bagUsage=[94,100];const policy={enabled:true,crystalBudget:0};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,policy),null);
+  a.bagUsage=[95,100];assert.equal(A.chooseTask(m,state(),catalog(),clock,policy),'town_storage');
+  a.bagUsage=[50,100];assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:10}),catalog(),clock,policy),'town_shop');
+  a.last.town_shop=clock;assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:10}),catalog(),clock,policy),null);
+  m.uiHealth={safeIdle:true};a.bagUsage=[100,100];assert.equal(A.chooseTask(m,state(),catalog(),clock,policy),null);
+});
+test('higher-map trials require repeated short bars, measured baseline, survival and available potions',()=>{
+  const c=catalog();c.maps.push({id:'higher',name:'Higher',monsters:[{id:'next'}]});c.monsters.push({id:'next',lv:60,hp:1500,exp:200,drops:[]});
+  const m={},a=A.init(m);a.farmRates.field={expPerMinute:10000,minutes:3,at:clock};
+  m.combatTelemetry={current:{zone:'Field',count:5,medianSeconds:3,at:clock}};
+  const s=state({hpPotions:30,mpPotions:30});assert.equal(A.trialOption(m,s,c,clock).id,'higher');
+  assert.equal(A.trialOption(m,{...s,hp:[500,1000]},c,clock),null);
+  assert.equal(A.trialOption(m,{...s,mpPotions:undefined},c,clock),null);
+  m.combatTelemetry.current.count=1;assert.equal(A.trialOption(m,s,c,clock),null);m.combatTelemetry.current.count=5;
+  a.farmTrials={higher:{at:clock}};assert.equal(A.trialOption(m,s,c,clock),null);
+});
+test('worse measured trial or a low-HP episode queues return, even after HP recovers',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.farm={trial:true,map:'field',started:clock-4*60000,baseline:10000};
+  a.farmRates.field={expPerMinute:5000,minutes:3,at:clock};
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true}),'finish_farm');
+  a.farmRates.field.expPerMinute=12000;
+  A.update(m,state({hp:[350,1000]}),catalog(),clock);A.update(m,state(),catalog(),clock+1000);
+  assert.equal(A.chooseTask(m,state(),catalog(),clock+1000,{enabled:true}),'finish_farm');
+});
+test('town and overlay time cannot contaminate measured farming EXP',()=>{
+  const m={};A.update(m,state(),catalog(),clock);A.update(m,state({panelOpen:true,exp:50}),catalog(),clock+60000);
+  assert.equal(m.autonomy.expSample,null);assert.equal(m.autonomy.expPerMinute,undefined);
+});
+test('a failed town return cannot leave native quest routing idle forever',async()=>{
+  const m={},a=A.init(m);a.resume={map:'field',mode:'mq',at:clock-90000};let running=false;
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',autoQuestRunning:running,controls:[{aq:'mq'}]}),click:async()=>{running=true;},
+    close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('autonomy_wait');assert.equal(running,true);assert.equal(a.resume,null);
+});
+test('quest return does not report success until native auto quest is observed running',async()=>{
+  const m={},a=A.init(m);a.resume={map:'field',mode:'mq',at:clock};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoQuestRunning:false,controls:[{aq:'mq'}]}),click:async()=>{},
+    close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('autonomy_wait');assert.ok(a.resume);assert.equal(a.lastResult.ok,false);
+});
 function catalog(extra={}) {return {levelCap:99,capSource:'public-ui-definition',refineMax:15,refineSafe:10,fingerprint:'version-a',at:clock,
   jobs:{starweaver:{weapon:'staff',line:['mage','starweaver'],jobCap:50}},
   gear:[{id:'staff4',name:'Cinder Staff',slot:'weapon',fam:'staff',tier:4,lv:40,stats:{matk:40},upgrade:{to:'staff5',gold:5000,mats:{shard:10}}},

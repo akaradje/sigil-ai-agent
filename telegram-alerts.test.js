@@ -11,6 +11,15 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('UI incident reaches the outbox even when player name is unreadable, and recovery is deduplicated',()=>{
+  const e=new AlertEngine({},start),s=sample({name:''});
+  s.agent.strategy={uiHealth:{safeIdle:true,character:'ExampleHero'},autonomy:{events:[{id:1,type:'ui_changed',detail:{missing:['hp','level']}}]}};
+  e.observe(s,start);assert.match(e.db.pending[0].text,/UI Structure Changed/);
+  e.acknowledge([...e.db.pending]);
+  const restored=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);restored.observe(s,start+MIN);assert.equal(restored.db.pending.length,0);
+  s.agent.state.name='ExampleHero';s.agent.strategy.autonomy.events.push({id:2,type:'ui_recovered',detail:{}});
+  restored.observe(s,start+MIN+1000);assert.ok(restored.db.pending.some(p=>/อ่าน UI ได้ครบ/.test(p.text)));
+});
 test('verified autonomy events persist across restarts without duplicate or inferred claims',()=>{
   const e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[],mode:'leveling'}};
   e.observe(s,start);assert.equal(keys(e).some(k=>k.startsWith('autonomy:')),false);

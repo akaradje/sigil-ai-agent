@@ -101,6 +101,7 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">Autonomous mode</div><div class="v" id="mode" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Level / refine cap</div><div class="v" id="cap">–</div></div>
         <div class="cell"><div class="k">Measured EXP / min</div><div class="v" id="expRate">–</div></div>
+        <div class="cell"><div class="k">Estimated target bar time / samples</div><div class="v" id="ttk">–</div></div>
         <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
@@ -149,9 +150,11 @@ async function tickState() {
     $('character').textContent=s.name||'Sigil · live';
     $('crystals').textContent=s.crystals??'–';
     $('bag').textContent=a.bagUsage?a.bagUsage.join(' / '):'ยังไม่ตรวจ';
-    $('mode').textContent=j.availability?.status==='down'?'พักรอเซิร์ฟเวอร์':a.mode||'ยังไม่เปิด autonomy';
+    $('mode').textContent=j.availability?.status==='down'?'พักรอเซิร์ฟเวอร์':j.strategy?.uiHealth?.safeIdle?'Safe Idle · ตรวจพบ UI เปลี่ยน':a.mode||'ยังไม่เปิด autonomy';
     $('cap').textContent=(a.cap?.level??'?')+' / +'+(a.catalog?.refineMax??'?');
     $('expRate').textContent=a.expPerMinute??'กำลังวัด';
+    const t=j.strategy?.combatTelemetry?.current;
+    $('ttk').textContent=t?.count?t.medianSeconds+'s / '+t.count:'รอหลอดเลือดครบ';
     $('budget').textContent=(a.premium?.spent||0)+' / '+(a.premium?.reserved||0);
     $('craft').textContent=a.goal?a.goal.name+' · '+(a.craftProgress??0)+'% ของวัตถุดิบ':a.gearCapped?'อุปกรณ์ถึงเพดานที่ตรวจแล้ว':'ยังไม่มีสูตรเป้าหมาย';
     $('craftbar').style.width=Math.max(0,Math.min(100,a.craftProgress||0))+'%';

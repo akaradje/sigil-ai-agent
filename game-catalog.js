@@ -54,7 +54,7 @@ function farmOptions(catalog,state,missing=[],measured={}) {
     const estimated=mons.reduce((sum,m)=>sum+(m.exp||0)/Math.max(1,m.hp||1),0)/mons.length;
     const material=mons.reduce((sum,m)=>sum+m.drops.filter(([id])=>wanted.has(id)).reduce((a,[,p])=>a+p,0),0)/mons.length;
     // Estimates only prioritize a bounded trial. Verified EXP/min is kept separate.
-    return {...map,score:wanted.size?material*100+estimated:estimated,materialChance:material,
+    return {...map,monsterLevel:Math.round(mons.reduce((sum,m)=>sum+m.lv,0)/mons.length),score:wanted.size?material*100+estimated:estimated,materialChance:material,
       measuredExpPerMinute:measuredRate?.expPerMinute??null,estimated:true};
   }).filter(Boolean).filter(m=>!wanted.size||m.materialChance>0).sort((a,b)=>b.score-a.score);
 }

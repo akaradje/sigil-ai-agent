@@ -17,6 +17,7 @@ const path = require('path');
 const {execFile} = require('child_process');
 const nativeKey = (...args) => new Promise((resolve,reject)=>execFile('/usr/bin/xdotool',args,{env:{...process.env,DISPLAY:process.env.DISPLAY || ':99'},timeout:3000},e=>e?reject(e):resolve()));
 const IQ = require('./game-intelligence');
+const UI = require('./ui-resilience');
 const Autonomy = require('./autonomy');
 const Catalog = require('./game-catalog');
 const {createAvailability}=require('./server-availability');
@@ -115,6 +116,7 @@ async function gate(cleanup=false) {
     if (more>2000) throw Object.assign(new Error('action budget cooling down'),{code:'ACTION_BUDGET'});
     if (more > 0) await sleep(more);
   }
+  if(!cleanup){await perceive(false);UI.assertReady(memory.uiHealth);}
   lastAction = Date.now();
   actionTimes.push(lastAction);
 }
@@ -158,6 +160,9 @@ function knowledge(state={}) {
 async function perceive(withShot) {
   const raw = await evalIn(P.state);
   let state; try { state=JSON.parse(raw); } catch { throw Error('invalid perception'); }
+  const previous=memory.uiHealth?.safeIdle,sequence=memory.autonomy?.sequence;
+  UI.update(memory,state);
+  if(previous!==memory.uiHealth.safeIdle||sequence!==memory.autonomy?.sequence)saveMemory();
   if(autonomyPolicy.enabled)Autonomy.update(memory,state,catalog,Date.now(),autonomyPolicy.goldReserve);
   const out={state,buttons:state.buttons,controls:state.controls};
   if(withShot) { try { const buf=await reqBuf('/screenshot'); if(buf.length>2000)out.shot=buf.toString('base64'); } catch {} }
@@ -177,12 +182,15 @@ async function uiKey(k) { await gate(k==='Escape');await req('/type?key='+encode
 async function uiClick(c) {
   await gate();
   const st=(await perceive(false)).state;
+  UI.assertReady(memory.uiHealth);
   let matches=st.controls.filter(x=>c.id?x.id===c.id:c.act?x.act===c.act&&x.key===c.key&&x.k===c.k&&x.v===c.v&&(!c.branch||x.branch===c.branch)&&(!c.amount||x.amount===c.amount):c.open?x.open===c.open:c.aq?x.aq===c.aq:c.go?x.go===c.go:c.bm?x.bm===c.bm:c.wm?x.wm===c.wm:c.place?x.place===c.place:x.label===c.label);
   if(c.boss)matches=matches.filter(x=>x.boss===c.boss);
   if(c.uid)matches=matches.filter(x=>x.uid===c.uid&&x.dir===c.dir);
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
-  const fresh=matches[0];await req(`/click?x=${fresh.x}&y=${fresh.y}`);log('UI '+fresh.label);
+  const fresh=matches[0];
+  if(memory.uiHealth.login&&!/^(▶\s*)?Play$/i.test(fresh.label))throw Error('login permits only verified Play');
+  await req(`/click?x=${fresh.x}&y=${fresh.y}`);log('UI '+fresh.label);
 }
 async function uiScroll(c) {
   await gate();
@@ -200,6 +208,7 @@ async function uiHold(k,ms,releaseSkill) {
     do {
       await sleep(200);
       snapshot=(await perceive(false)).state;
+      UI.assertReady(memory.uiHealth);
       if(snapshot.dead)throw Error('knocked out while charging');
       if(!snapshot.name||!snapshot.hp) return {aborted:'HUD unavailable'};
       if(snapshot.hp[0]/snapshot.hp[1]<0.55) {
@@ -516,6 +525,7 @@ async function runCycle() {
   try {
     const p = await perceive(false);
     if (!p.state) { log('no state'); return; }
+    if(memory.uiHealth?.safeIdle&&!memory.uiHealth.login){saveMemory();return;}
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||''));
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
@@ -702,3 +712,13 @@ setInterval(async()=>{
 },5000);
 
 setInterval(()=>{if(fastBossMode&&!busy&&!paused)runCycle().catch(e=>log('boss reflex: '+e.message));},1500);
+
+// Read-only combat sampling never clicks, spends or changes the native hunt loop.
+let samplingCombat=false;
+setInterval(async()=>{
+  if(samplingCombat||paused||availability.blocked())return;
+  samplingCombat=true;
+  try {const s=(await perceive(false)).state;if(!memory.uiHealth.safeIdle)UI.observeCombat(memory,s);}
+  catch {memory.combatTelemetry && (memory.combatTelemetry.active=null);}
+  finally {samplingCombat=false;}
+},1000);

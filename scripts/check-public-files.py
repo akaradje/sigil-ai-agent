@@ -10,6 +10,7 @@ ALLOWED = {
     'agent.js', 'game-intelligence.js', 'game-intelligence.test.js',
     'supervisor.js', 'viewer.js', 'viewer.test.js',
     'autonomy.js', 'autonomy.test.js', 'game-catalog.js', 'server-availability.js',
+    'ui-resilience.js', 'ui-resilience.test.js',
     'telegram-alerts.js', 'telegram-alerts.test.js',
     'sigil-agent.service', 'sigil-supervisor.service', 'sigil-telegram.service',
     'sigil-viewer.service',

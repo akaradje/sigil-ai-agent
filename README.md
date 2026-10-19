@@ -113,7 +113,7 @@ repository never contains the runtime budget, character inventory, cached catalo
   can lose a level require Guardian Stone protection. Missing or inaccessible materials remain a
   visible bottleneck; the controller does not invent a drop route or a successful action.
 - Confirmed cap plus verified maxed equipped gear selects stockpiling instead of stopping.
-  Town tasks remember the previous map, restock empty potion slots and return via visible map controls.
+  Town tasks remember the previous map, restock low potion slots and return via visible map controls.
 - `server-availability.js` checks `GAME_HEALTH_URL` each minute. Three failures pause agent and
   supervisor controls; two successes resume. HTTP availability alone does not prove a game session
   or WebSocket is healthy, so existing connection recovery still observes the game UI.
@@ -121,6 +121,34 @@ repository never contains the runtime budget, character inventory, cached catalo
 The read-only dashboard displays mode, crystals, bag usage, current caps, measured EXP/min,
 material completion and reserved/spent crystal budget. Telegram includes verified CBT claims,
 crafts, refine caps and catalog/cap changes, with persisted deduplication across restarts.
+
+## UI resilience and measured farming
+
+`ui-resilience.js` validates ten live HUD fields against a fixed schema. More than 30% missing,
+or a missing name, level or valid HP pair, immediately blocks new game inputs except Escape cleanup
+and uniquely verified Play at character selection. Existing native AUTO is left running. After 15
+seconds of bad observations, Telegram receives one persisted UI incident, including when the name
+is unreadable; ten continuous seconds of healthy HUD readings allow recovery and one recovery alert.
+The supervisor also checks the schema before fallback actions. An unreadable HUD cannot guarantee
+survival, and new layouts without semantic labels still require adapter updates.
+
+HUD readers accept a unique explicit `aria-label`, `data-hud` or `data-testid` when an ID changes.
+Navigation has scoped text fallbacks; ambiguous labels are rejected. Craft, purchase and confirmation
+controls keep their existing exact item/resource checks. No player-memory or network interceptor is
+installed: the local harness contract exposes rendered UI and immutable public definitions, with no
+documented player-state telemetry feed.
+
+Read-only one-second samples estimate target HP-bar duration, discarding visible target switches,
+healing, overlays, disappearance and long sampling gaps. The HUD has no entity UID: identical-name
+switches cannot be ruled out, and the samples do not establish a hit count. Five short completed bars,
+a measured EXP baseline, HP above 75% and at least 20 of each potion permit a bounded higher-map trial.
+Trials retreat after low HP/death, a measured EXP regression after three minutes, or ten minutes total.
+Recent measured EXP rates help select repeat farming routes; travel/menu time is excluded. Sampling
+is conservative and may miss fast kills, so missing evidence never triggers a blind map jump.
+
+Bag servicing starts at 95% capacity (95/100), with more frequent checks near full. Potion replenishment
+starts at ten or fewer, uses verified gold prices and the reserve, and does not buy premium buffs.
+Native automatic learned skills and the game's existing CBT bonus remain responsible for buffs.
 
 
 `sigil-viewer.service` keeps the read-only viewer running after a process exit. The optional

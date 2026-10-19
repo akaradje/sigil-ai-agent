@@ -2,6 +2,9 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const IQ=require('./game-intelligence');
+test('serialized perception fits the local GET adapter header budget',()=>{
+  assert.ok(encodeURIComponent('JSON.stringify('+IQ.PERCEPTION+')').length<15000);
+});
 const healthy=()=>({name:'Hero',job:'Mage',lv:'Lv 44',jobLv:'Job 40 MAX',hp:[900,1800],gold:49000,exp:40,quest:'Train to Lv 47',autoQuestRunning:true,controls:[]});
 test('ranking deadline stays due during town trips while respecting failure backoff',()=>{
   const now=1800000000000,m=IQ.freshMemory();m.last.rank=now-300001;m.autonomy={trip:{kind:'forge'}};
@@ -12,7 +15,7 @@ test('ranking deadline stays due during town trips while respecting failure back
 function preparedMemory() {
   const m=IQ.freshMemory();m.bossBuild=Object.fromEntries(['fire_bolt','lightning_bolt','blaze','jupiter_thunder','meteor_fall'].map(k=>[k,{result:'already evolved'}]));return m;
 }
-function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skills',expBar='',deadLog=true,storageButton=false}={}) {
+function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skills',expBar='',deadLog=true,storageButton=false,renamedHP=false,ambiguousHP=false,renamedAuto=false}={}) {
   const nodes={};
   function e(id,text='',opts={}) {
     return nodes[id]={id,innerText:text,textContent:text,dataset:{},classList:{contains:()=>false},
@@ -22,15 +25,23 @@ function fixture({hp='900 / 1800',panel=false,panelKind='skills',panelText='Skil
   }
   e('pName','Hero');e('pJob','Mage');e('pLv','Lv 44');e('pJl','Job 40 MAX');
   e('hpTxt',hp);e('mpTxt','730 / 1,076');e('gold','49,498');e('crys','5,080');
+  const semantic=[];
+  if(renamedHP){delete nodes.hpTxt;semantic.push(e('new-health',hp,{getAttribute:k=>k==='aria-label'?'Health':null}));}
+  if(ambiguousHP)semantic.push(e('other-health','5 / 10',{getAttribute:k=>k==='aria-label'?'Health':null}));
   e('jqCard','Chapter 16 · Train to Lv 47');e('panel','',{hidden:!panel,dataset:{kind:panelKind}});e('pbody',panelText);
   e('log',deadLog?'You died. Revive Here. Disconnected. Hunt old quest':'');
   const fake=e('fake','Revive Here',{log:true});
-  const rendered=storageButton?e('deposit','',{dataset:{act:'stmove',uid:'gear-one',dir:'in'}}):fake;
+  const rendered=renamedAuto?e('patch-auto','AUTO'):storageButton?e('deposit','',{dataset:{act:'stmove',uid:'gear-one',dir:'in'}}):fake;
   const context={innerWidth:1280,innerHeight:720,getComputedStyle:()=>({visibility:'visible',display:'block',opacity:'1'}),
     document:{getElementById:id=>nodes[id],querySelector:s=>s.includes('data-aq')?{}:s==='#pbody .bars .exp'&&expBar?{textContent:expBar}:null,
-      querySelectorAll:s=>s.includes('button,')?[rendered]:[],elementFromPoint:()=>rendered}};
+      querySelectorAll:s=>s.includes('button,')?[rendered]:s==='[aria-label],[data-testid],[data-hud]'?semantic:[],elementFromPoint:()=>rendered}};
   return vm.runInNewContext(IQ.PERCEPTION,context);
 }
+test('semantic HUD and navigation fallback survive renamed IDs but reject duplicate health labels',()=>{
+  assert.deepEqual(Array.from(fixture({renamedHP:true}).hp),[900,1800]);
+  assert.equal(fixture({renamedHP:true,ambiguousHP:true}).hp,null);
+  assert.equal(fixture({renamedAuto:true}).controls[0].id,'autoBtn');
+});
 test('EXP MAX in a ranking name is not a cap; the actual stats EXP bar is evidence',()=>{
   assert.doesNotMatch(fixture({panel:true,panelKind:'rank',panelText:'1\nEXP MAX\nMage Lv 50'}).expText,/MAX/);
   assert.match(fixture({panel:true,panelKind:'stats',expBar:'EXP MAX'}).expText,/EXP MAX/);

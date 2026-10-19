@@ -1,11 +1,24 @@
 'use strict';
 // All observations are rendered UI. No game memory, socket injection or private APIs.
 function readUI() {
-  const $ = id => document.getElementById(id);
+  // Prefer stable IDs; use only unique, explicitly labelled semantic alternatives.
+  // Never infer player state from chat, ranking names or arbitrary body text.
+  const aliases={pName:['Player name','Character name','ชื่อตัวละคร'],pJob:['Class','Job','อาชีพ'],
+    pLv:['Level','เลเวล'],pJl:['Job level'],hpTxt:['HP','Health'],mpTxt:['MP','Mana'],
+    gold:['Gold','เงิน'],crys:['Crystals','เพชร'],zone:['Zone','Location','พื้นที่'],
+    expTxt:['EXP','Experience'],jexpTxt:['Job EXP'],tgName:['Target name'],tgTxt:['Target HP']};
   const visible = e => {
     if (!e || e.closest('[hidden]')) return false;
     const r=e.getBoundingClientRect(), st=getComputedStyle(e);
     return r.width>3 && r.height>3 && st.visibility!=='hidden' && st.display!=='none' && st.opacity!=='0';
+  };
+  const $ = id => {
+    const exact=document.getElementById(id);if(visible(exact))return exact;
+    const names=aliases[id];if(!names)return null;
+    const found=Array.from(document.querySelectorAll('[aria-label],[data-testid],[data-hud]')).filter(e=>
+      visible(e)&&!e.closest('#log,#toast,#nq,#ann,[role=log],[role=dialog],#pbody,.ranklist')&&
+      (e.getAttribute('data-testid')===id||e.getAttribute('data-hud')===id||names.some(n=>n.toLowerCase()===(e.getAttribute('aria-label')||'').toLowerCase())));
+    return found.length===1?found[0]:null;
   };
   const txt = id => visible($(id)) ? ($(id).innerText || '').trim() : '';
   const pair = t => { const m=t.replace(/,/g,'').match(/(\d+)\s*\/\s*(\d+)/); return m ? [+m[1],+m[2]] : null; };
@@ -22,9 +35,9 @@ function readUI() {
     const r=e.getBoundingClientRect(), x=Math.round(r.left+r.width/2), y=Math.round(r.top+r.height/2);
     const hit=(x>=0&&x<innerWidth&&y>=0&&y<innerHeight)?document.elementFromPoint(x,y):null;
     const label=(e.innerText||e.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim().slice(0,120);
-    const item={label,id:e.id||null,act:e.dataset.act||null,key:e.dataset.id||null,
+    const item={label,id:e.id||null,scope:e.closest('#menu,[role=menu]')?'menu':e.closest('#pbody,[role=dialog]')?'panel':'hud',act:e.dataset.act||null,key:e.dataset.id||null,
       open:e.dataset.open||null,aq:e.dataset.aq||null,go:e.dataset.go||null,
-      k:e.dataset.k||null,v:e.dataset.v||null,branch:e.dataset.b||null,on:e.classList.contains('on'),x,y};
+      k:e.dataset.k||null,v:e.dataset.v||null,branch:e.dataset.b||null,on:e.classList.contains('on')||e.getAttribute('aria-pressed')==='true'||e.getAttribute('aria-selected')==='true',x,y};
     if(e.dataset.uid)item.uid=e.dataset.uid;
     if(e.dataset.dir)item.dir=e.dataset.dir;
     if(e.dataset.place)item.place=e.dataset.place;
@@ -59,6 +72,18 @@ function readUI() {
       gold:number(e.querySelector?.('.mat.gold')?.textContent||''),refine:step?+step[1]:null,nextRefine:step?+step[2]:null,
       chance:number((risk.match(/[\d.]+%/)||[])[0]||''),risk,costText:e.querySelector?.('.rf-cost')?.textContent||'',max:/^MAX$/.test(b?.innerText?.trim()||'')};
   }):[];
+  // Text fallback is limited to navigation. Spending/forging keeps exact row identity.
+  const navigation={menuBtn:/^(Full menu|Menu|เมนู)$/i,autoBtn:/^(AUTO|Auto Hunt|ล่าอัตโนมัติ)$/i};
+  for(const [id,re] of Object.entries(navigation))if(!controls.some(c=>c.id===id)) {
+    const matches=controls.filter(c=>c.scope==='hud'&&!c.act&&!c.open&&!c.aq&&!c.go&&re.test(c.label));
+    if(matches.length===1)matches[0].id=id;
+  }
+  const panels={stats:/^(Status|Stats|สถานะ)(?:\s+[Cc])?$/i,bag:/^(Bag|Inventory|กระเป๋า)(?:\s+[Ii])?$/i,
+    equip:/^(Gear|Equipment|อุปกรณ์)(?:\s+[Gg])?$/i,skills:/^(Skills|สกิล)(?:\s+[Kk])?$/i,rank:/^(Ranking|Rankings|อันดับ)$/i};
+  if(visible($('menu')))for(const [kind,re] of Object.entries(panels))if(!controls.some(c=>c.open===kind)) {
+    const matches=controls.filter(c=>c.scope==='menu'&&!c.act&&!c.open&&re.test(c.label));
+    if(matches.length===1)matches[0].open=kind;
+  }
   return {name:txt('pName'),job:txt('pJob'),lv:txt('pLv'),jobLv:txt('pJl'),hp,mp,
     gold:number(txt('gold')),crystals:number(txt('crys')),quest,questProgress,jobQuestProgress,autoQuestMode,zone:txt('zone'),zoneLv:txt('zoneLv'),
     target:txt('tgName'),targetHP:txt('tgTxt'),targetHpRatio:parseFloat($('tgFill')?.style.width||'')/100,bossMechanic:txt('bossMech'),tension:number(txt('tenTxt')),weak:txt('tgElem'),exp:number(txt('expTxt')),jobExp:number(txt('jexpTxt')),
@@ -71,7 +96,7 @@ function readUI() {
     storageUsage:panel==='storage'?pair(document.querySelector('#pbody .stbox > div:nth-child(2) > b > small')?.textContent||''):null,
     premiumRows:panel==='prem'?Array.from(document.querySelectorAll('#pbody .prem-item')).map(e=>{const b=e.querySelector?.('[data-act="crbuy"]'),owned=e.querySelector?.('em')?.textContent;return {id:b?.dataset.id,disabled:!!b?.disabled,price:number(b?.innerText||''),owned:owned?number(owned):0,text:e.innerText||''};}):[],
     autoQuestRunning:questRunning,
-    autoHunt: $('autoBtn')?.className || '',
+    autoHunt:controls.find(c=>c.id==='autoBtn')?.on?'on':$('autoBtn')?.className||'',
     statBlocked:(quest.match(/(?:Spend|stat points|stats)\s*(\d+)/i)||[])[1]||null,
     statPoints:badge('stats'),skillPoints:badge('skills'),hpPotions:number(txt('potHp')),mpPotions:number(txt('potMp')),
     dead:!!(hp && hp[0]===0 || revive), atCharSelect, disconnected:!txt('pName') && /disconnect|connection lost/i.test(title),
@@ -84,7 +109,9 @@ function readUI() {
     equipmentCandidates:panel==='equip'?Array.from(document.querySelectorAll('#pbody .sx-cands .sx-cand')).map(e=>({key:e.dataset.id,text:e.innerText,locked:e.classList.contains('lk')})):[],
     controls, offscreen, buttons:controls.map(c=>c.label)};
 }
-const PERCEPTION = '('+readUI.toString()+')()';
+// The local adapter accepts GET expressions; retain line boundaries but omit
+// indentation/comment-only lines to stay below ordinary HTTP header limits.
+const PERCEPTION = '('+readUI.toString().split('\n').filter(l=>!l.trimStart().startsWith('//')).map(l=>l.trim()).join('\n')+')()';
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }

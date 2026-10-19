@@ -12,6 +12,7 @@
 const http = require('http');
 const fs = require('fs');
 const IQ = require('./game-intelligence');
+const UI = require('./ui-resilience');
 const {createAvailability}=require('./server-availability');
 const availability=createAvailability({url:process.env.GAME_HEALTH_URL||''});
 availability.probe().catch(()=>{});
@@ -66,6 +67,8 @@ async function gate() {
     const waitMore = actionTimes[0] + 60000 - Date.now();
     if (waitMore > 0) await sleep(waitMore);
   }
+  const state=await readState();
+  if(!state||UI.assess(state).blocked)throw Error('UI schema unavailable: fallback controller idle');
   lastAction = Date.now();
   actionTimes.push(lastAction);
 }
@@ -90,15 +93,8 @@ async function typeStr(s, why) {
 
 // ------------------------------------------------------- DOM helpers (in page)
 const DOM = {
-  // centre of the first *visible* button whose text matches /re/
-  btn: (re) => `(function(){var a=Array.from(document.querySelectorAll('button,div[role=button]'));
-    for(var i=0;i<a.length;i++){var t=(a[i].innerText||'').trim();
-      if(!new RegExp(${JSON.stringify(re)},'i').test(t))continue;
-      var r=a[i].getBoundingClientRect();
-      if(r.width<4||r.height<4)continue;
-      var st=getComputedStyle(a[i]); if(st.visibility==='hidden'||st.display==='none')continue;
-      return Math.round(r.left+r.width/2)+','+Math.round(r.top+r.height/2);}
-    return 'nf';})()`,
+  // Match only one currently visible, hit-tested control; never choose the first ambiguous label.
+  btn: re => `(function(){const s=${IQ.PERCEPTION};const a=s.controls.filter(c=>new RegExp(${JSON.stringify(re)},'i').test(c.label));return a.length===1?a[0].x+','+a[0].y:'nf';})()`,
   state: 'JSON.stringify('+IQ.PERCEPTION+')',
 };
 
@@ -158,6 +154,7 @@ async function tick() {
     return;
   }
   if (!s) { log('state unparsable'); return; }
+  if(UI.assess(s).blocked){mem.controller='safe-idle';return;}
   // One controller owns the UI. The supervisor observes while the agent is responsive.
   const agentAlive=await new Promise(resolve=>{
     const r=http.get('http://127.0.0.1:4801/health',{timeout:2500},res=>{res.resume();resolve(res.statusCode===200);});
