@@ -30,12 +30,37 @@ function surplusGear(catalog,s,worn) {
     if(item.protected!==false||item.equipped||worn.some(w=>w.uid===item.uid))return false;
     const gear=gearForName(catalog,item.art||item.text);if(!gear)return false;
     if(gear.slot==='weapon'&&gear.fam&&gear.fam!==job.weapon)return true;
-    if(item.better||/\+\d+/.test(item.text)||gear.lv>level(s)||gear.line&&!job.line.includes(gear.line))return false;
+    if(item.better||gear.lv>level(s)||gear.line&&!job.line.includes(gear.line))return false;
     const current=gearForName(catalog,worn.find(w=>w.slot===gear.slot)?.text);
     if(!current||current.tier<gear.tier||current.lv<gear.lv)return false;
+    if(gear.slot==='weapon')return true; // Live comparison decides options and refinement.
+    if(/\+\d+/.test(item.text))return false;
     const keys=new Set([...Object.keys(gear.stats),...Object.keys(current.stats)]);
     return [...keys].every(k=>(gear.stats[k]||0)<=(current.stats[k]||0));
   });
+}
+function surplusDetail(catalog,s,worn,item,selected) {
+  if(!surplusGear(catalog,s,worn).some(g=>g.uid===item.uid))return 'not proven surplus';
+  const gear=gearForName(catalog,item.art||item.text),job=catalog.jobs[String(s.job).toLowerCase()];
+  if(!selected.includes(gear.name)||!/(?:Refine|ตีบวก)\s*\+\d+\//i.test(selected))return 'unidentified detail';
+  if(/🃏/u.test(selected))return 'installed card';
+  if(gear.slot!=='weapon')return /✦/u.test(selected)?'equipment with options':null;
+  if(gear.fam!==job.weapon)return null;
+  const own=worn.find(w=>w.slot==='weapon')?.text||'';
+  const heading=selected.split(/\r?\n/).find(l=>l.includes(gear.name))||'';
+  if(Number(heading.match(/\[(\d+)\]/)?.[1]||0)>Number(own.match(/\[(\d+)\]/)?.[1]||0))return 'additional card slots';
+  const parts=selected.split(/Compared with worn:|เทียบกับที่สวม:/i),comparison=parts.at(-1);
+  const primary=job.weapon==='staff'?'MATK':'ATK';
+  if(parts.length<2||!/▼\s*Worse than worn|แย่กว่าที่สวมอยู่/i.test(comparison)||
+    !new RegExp('\\b'+primary+'\\s*▼\\s*[1-9]\\d*').test(comparison))return 'not a verified inferior weapon';
+  return null;
+}
+function storageDepositAllowed(catalog,s,control) {
+  if(control.act==='stall')return false;
+  if(control.act!=='stmove'||control.dir!=='in')return true;
+  const item=s.storageGear?.find(g=>g.uid===control.uid&&g.dir==='in');
+  const gear=catalog?.gear&&item&&gearForName(catalog,item.art||item.text);
+  return !!gear&&gear.slot!=='weapon';
 }
 function storedSurplus(catalog,s,worn,entries=[]) {
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];if(!job)return [];
@@ -104,6 +129,9 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   if(state.panel==='storage'&&state.storageUsage)a.storageUsage=state.storageUsage;
   if(state.panel==='cbt'&&state.cbtClaimed!=null)a.cbt={claimed:state.cbtClaimed,at:now};
   if(!catalog)return a;
+  const inTown=catalog.maps.some(m=>m.town&&norm(m.name)===norm(state.zone));
+  if(inTown&&!a.townVisit?.active)a.townVisit={active:true,arrivedAt:now};
+  else if(!inTown&&a.townVisit?.active)a.townVisit.active=false;
   a.goal=progressionGoal(catalog,state,a,reserve);
   const need=a.goal?.cost?.mats||{},owned=a.inventory?.items||{};
   const total=Object.values(need).reduce((s,n)=>s+n,0),have=Object.entries(need).reduce((s,[id,n])=>s+Math.min(n,owned[id]||0),0);
@@ -137,6 +165,8 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(!policy.sellSurplus&&premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
   if(a.trip)return 'town';
   if(a.resume)return 'autonomy_wait';
+  if(policy.sellSurplus&&catalog.maps.some(m=>m.town&&norm(m.name)===norm(s.zone))&&
+    (!a.townVisit?.active||!a.townVisit.servicedAt))return 'town_shop';
   if(!policy.levelingFocus&&a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
   if(a.farm?.trial&&(a.farm.abort||s.hp[0]/s.hp[1]<0.4||(mem.deaths||[]).some(t=>t>=a.farm.started)))return 'finish_farm';
   if(a.farm?.trial&&now-a.farm.started>3*MIN) {
@@ -228,6 +258,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   async function resume(trip) {
     await close();
     if(trip.returnMap)await travel(trip.returnMap);
+    if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();
     a.farm=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};a.trip=null;save();
   }
   async function buyCapacity() {
@@ -319,22 +350,26 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
     if(['uncertain','confirming'].includes(a.saleIntent?.status)&&!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
     for(let i=0;i<2;i++) {
-      if((trip.sales||0)>=8)return;
-      const before=await state(),item=surplusGear(getCatalog(),before,a.worn).sort((x,y)=>Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])).find(g=>!trip.keepUIDs?.includes(g.uid));
-      if(!item){trip.salesDone=true;return;}
+      if(actions>6)return; // Leave room for select, dialog and confirmation this slice.
+      const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
+      const isWeapon=g=>gearForName(getCatalog(),g.art||g.text)?.slot==='weapon';
+      const item=surplusGear(getCatalog(),before,a.worn)
+        .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid]))
+        .find(g=>!trip.keepUIDs?.includes(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<8));
+      if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
+      if(!isWeapon(item))trip.secondaryInspections=(trip.secondaryInspections||0)+1;
       const detail=await state(),gear=gearForName(getCatalog(),item.art||item.text);
       // Read only the selected detail, not unrelated equipped statistics.
       const selected=detail.panelText.split(/In Bag|ในกระเป๋า/i).at(-1);
-      const otherWeapon=gear.slot==='weapon'&&gear.fam!==getCatalog().jobs[String(detail.job).toLowerCase()].weapon;
       const sale=detail.controls.concat(detail.offscreen||[]).filter(c=>c.act==='isellg'&&c.key===item.uid);
       const price=sale.length===1?Number(sale[0].label.replace(/,/g,'').match(/^(?:Sell|ขาย)\s+(\d+)\s*G$/i)?.[1]):0;
-      if(!surplusGear(getCatalog(),detail,a.worn).some(g=>g.uid===item.uid)||!selected.includes(gear.name)||
-        !/(?:Refine|ตีบวก)\s*\+\d+\//i.test(selected)||/🃏/u.test(selected)||!otherWeapon&&/✦/u.test(selected)||!price){(trip.keepUIDs ||= []).push(item.uid);return;}
+      const reason=surplusDetail(getCatalog(),detail,a.worn,item,selected)||(!price?'sale price unavailable':null);
+      if(reason){(trip.keepUIDs ||= []).push(item.uid);(trip.keepReasons ||= {})[item.uid]=reason;trip.progressAt=now();save();continue;}
       await pick(c=>c.act==='isellg'&&c.key===item.uid);
       const confirm=await state();
       if(!/Sell (?:gear|equipment)|ขายอุปกรณ์/i.test(confirm.modalText)||!confirm.modalText.includes(gear.name)||
-        Number(confirm.modalText.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1])!==price)throw Error('Sale confirmation changed');
+        Number(confirm.modalText.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1])!==price||/🃏/u.test(confirm.modalText))throw Error('Sale confirmation changed');
       // No retry after ambiguous confirmation. Persist before the irreversible input.
       a.saleIntent={uid:item.uid,name:gear.name,price,source:a.storageOrigins?.[item.uid]?'storage':'bag',gold:before.gold,at:now(),status:'confirming'};save();
       try{await pick(c=>/^(Sell|ขาย)$/.test(c.label));}
@@ -345,15 +380,23 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   async function town(s) {
     const trip=a.trip;
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
+    if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {
       await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
       if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}
       await close();s=await state();
     }
     if(now()-(trip.hygiene?.started||trip.progressAt||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
-    if(!townMap)return;
-    if(policy.sellSurplus&&trip.sales>=8&&trip.phase!=='return'){trip.salesDone=true;trip.storageScanned=true;trip.kind='shop';}
+    if(!townMap){
+      // A Return Scroll uses the saved home, which may be a field rather than a town.
+      if(!trip.townTravelAt||now()-trip.townTravelAt>90000){
+        const towns=getCatalog().maps.filter(m=>m.town);if(towns.length!==1)throw Error('No unique verified town route');
+        trip.townTravelAt=now();save();await travel(towns[0].id);
+      }
+      return;
+    }
     if(trip.phase==='return'){
+      if(policy.sellSurplus&&trip.salesDone!==true){trip.kind='shop';trip.phase='town';trip.progressAt=now();save();return;}
       if(Hygiene.due(mem,now(),policy.sessionRefreshHours||6)&&!trip.hygiene?.failed) {
         const h=trip.hygiene ||= {started:now(),shopAttempts:0};
         if(h.ready&&now()-h.readyAt<90000)return; // agent refreshes only after independent safety checks
@@ -363,7 +406,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
           if(!bag.inventoryComplete||!bag.bagUsage)throw Error('Pre-refresh inventory not verified');
           h.bagUsage=bag.bagUsage;
           if(bag.bagUsage[0]>=Math.floor(bag.bagUsage[1]*0.95)) {
-            if(!h.storageTried){h.storageTried=true;trip.kind='storage';trip.phase='town';return;}
+            if(!policy.sellSurplus&&!h.storageTried){h.storageTried=true;trip.kind='storage';trip.phase='town';return;}
             h.failed=true;mem.sessionHygiene.deferred='Bag could not be safely serviced';
           }else if(bag.hpPotions<20||bag.mpPotions<20||bag.hpPotions==null||bag.mpPotions==null) {
             if(h.shopAttempts++<3){trip.kind='shop';trip.phase='town';return;}
@@ -373,7 +416,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       await resume(trip);return;
     }
-    if(policy.sellSurplus&&(trip.kind==='storage'||trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())))trip.kind='liquidate';
+    if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
+    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now()))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
       const names={smith:/Talk to (?:Blacksmith|Smith)|คุย.*(?:ช่างตีเหล็ก|ตีบวก)/i,storage:/Talk to Storage|คุย.*คลัง/i,shop:/Talk to Shop|คุย.*ร้านขาย/i,church:/Talk to (?:Cathedral|Church)|คุย.*(?:โบสถ์|มหาวิหาร)/i};
@@ -550,4 +594,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run};
 }
-module.exports={init,event,catalogChanged,gearForName,surplusGear,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};
+module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};

@@ -409,3 +409,89 @@ test('bank cleanup keeps a bounded cooldown, can be explicitly requested, and st
   a.storageCleanup={remaining:0,checkedAt:clock,job:'Starweaver',fingerprint:'version-a'};a.last.town_shop=0;
   assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,p),null);
 });
+
+test('compatible weapons require the live inferior verdict and primary-stat loss, preserving cards and extra slots',()=>{
+  const c=catalog(),worn=[{uid:'worn',slot:'weapon',text:'+4 Void Staff [2]'}];
+  const item={uid:'spare',text:'+1 Void Staff',protected:false},s=state({inventoryComplete:true,inventoryGear:[item]});
+  const detail='Void Staff [2]\n✦ MATK +4%\nRefine +1/15\nCompared with worn: +4 Void Staff [2]\n▼ Worse than worn\nMATK▼180';
+  assert.equal(A.surplusDetail(c,s,worn,item,detail),null);
+  for(const d of [detail.replace('Worse','Better'),detail.replace('MATK▼180','MATK▲20'),detail.replace('Void Staff [2]','Void Staff [3]'),detail+'\n🃏 Card',detail.split('Compared')[0]])assert.ok(A.surplusDetail(c,s,worn,item,d));
+  assert.ok(A.surplusDetail(c,{...s,inventoryGear:[{...item,better:true}]},worn,item,detail));
+  c.jobs.starweaver.weapon='blade';item.text='Void Blade';
+  const bladeDetail='Void Blade\nRefine +0/15\nCompared with worn: Void Blade\n▼ Worse than worn\nMATK▼99\nATK▲20';
+  assert.ok(A.surplusDetail(c,s,[{uid:'worn',slot:'weapon',text:'Void Blade'}],item,bladeDetail));
+});
+
+test('native storage guard rejects weapon, unknown and bulk deposits while allowing identified non-weapon gear',()=>{
+  const c=catalog();c.gear.push({id:'hood',name:'Hood',slot:'head'});
+  const s={storageGear:[{uid:'w',dir:'in',art:'/gear/blade5.png'},{uid:'h',dir:'in',art:'/gear/hood.png'},{uid:'x',dir:'in',text:'unknown'}]};
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stall',dir:'in'}),false);
+  for(const uid of ['w','x','missing'])assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'in',uid}),false);
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'in',uid:'h'}),true);
+  assert.equal(A.storageDepositAllowed(null,s,{act:'stmove',dir:'in',uid:'h'}),false);
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'out',uid:'w'}),true);
+});
+
+test('every new town arrival queues sales even inside the old town cooldown, without interrupting a return route',()=>{
+  const m={},a=A.init(m),p={enabled:true,sellSurplus:true,levelingFocus:true},c=catalog();
+  a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.town_shop=clock;a.farm={map:'field',started:clock};
+  A.update(m,state({zone:'Town'}),c,clock);assert.equal(A.chooseTask(m,state({zone:'Town'}),c,clock,p),'town_shop');
+  a.townVisit.servicedAt=clock;assert.equal(A.chooseTask(m,state({zone:'Town'}),c,clock,p),'autonomy_wait');
+  A.update(m,state(),c,clock+1);A.update(m,state({zone:'Town'}),c,clock+2);
+  assert.equal(A.chooseTask(m,state({zone:'Town'}),c,clock+2,p),'town_shop');
+  a.resume={map:'field'};assert.equal(A.chooseTask(m,state({zone:'Town'}),c,clock+2,p),'autonomy_wait');
+});
+
+test('return after another town service must visit the shop, and the sales policy never deposits junk weapons',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'forge',phase:'return',at:clock,returnMap:'field'};
+  const controller=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,observe:async()=>state({zone:'Town'}),
+    click:async()=>assert.fail('no travel or deposit before sales'),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await controller.run('town');assert.equal(a.trip.kind,'shop');assert.equal(a.trip.phase,'town');assert.equal(a.trip.returnMap,'field');
+  a.trip.kind='storage';a.trip.phase='town';
+  await controller.run('town');assert.notEqual(a.trip.kind,'storage');
+});
+
+test('town sales drain more than eight weapons across bounded slices, preserve necessities and resume the same farm',async()=>{
+  const mem={},a=A.init(mem),cat=catalog();cat.maps[1].monsters[0].n=3;
+  a.worn=[{slot:'weapon',uid:'worn',text:'+4 Void Staff [2]'}];a.trip={kind:'shop',at:clock,phase:'town',returnMap:'field',returnMode:'farm'};
+  cat.gear.push({id:'hood4',name:'Old Hood',slot:'head',lv:40,tier:4,stats:{def:3}},{id:'hood5',name:'New Hood',slot:'head',lv:55,tier:5,stats:{def:5}});
+  a.worn.push({uid:'worn-hood',slot:'head',text:'New Hood'});const trip=a.trip;
+  let t=clock,panel='shop',zone='Town',hunting=false,selected=null,modal=null,gold=120000;
+  let inventory=Array.from({length:13},(_,i)=>({uid:'sale'+i,text:'Void Blade',protected:false}));
+  inventory.push({uid:'staff',text:'+1 Void Staff',protected:false},{uid:'card',text:'Void Blade',protected:false},{uid:'locked',text:'Void Blade',protected:true},{uid:'better',text:'Void Staff',protected:false,better:true},{uid:'unknown',text:'unknown',protected:false});
+  const secondary=Array.from({length:20},(_,i)=>({uid:'armor'+i,text:'Old Hood',protected:false}));inventory.unshift(...secondary);
+  const sold=[],controller=A.createController({mem,getCatalog:()=>cat,policy:{sellSurplus:true,levelingFocus:true,goldReserve:100000},now:()=>t,
+    observe:async()=>state({zone,panel,gold,hpPotions:35,mpPotions:35,autoHunt:hunting?'on':'',inventoryComplete:panel==='bag',inventoryGear:inventory,bagUsage:[inventory.length,100],
+      panelText:panel==='bag'?'In Bag\n'+(selected?.startsWith('armor')?'Old Hood\n✦ INT +3\nRefine +0/15':selected==='staff'?'Void Staff [2]\n✦ MATK +4%\nRefine +1/15\nCompared with worn: +4 Void Staff [2]\n▼ Worse than worn\nMATK▼180':'Void Blade\nRefine +0/15'+(selected==='card'?'\n🃏 Monster Card':'')):'',
+      modalText:modal?'Sell equipment?\n'+modal.name+' for 500 G':'',
+      controls:modal?[{label:'Sell'}]:[{bm:'world'},{wm:'field'},{go:'field'},{id:'interactBtn',label:'Talk to Shop'},{id:'autoBtn'},
+        {act:'atab',key:'hunt'},{act:'atab',key:'loot'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true},
+        {act:'ifilter',key:'all',on:true},...inventory.map(g=>({act:'isel',key:'g:'+g.uid})),...(selected?[{act:'isellg',key:selected,label:'Sell 500 G'}]:[])]}),
+    click:async c=>{assert.notEqual(c.act,'stmove');if(c.id==='interactBtn')panel='shop';if(c.act==='isel')selected=c.key.slice(2);
+      if(c.act==='isellg')modal={uid:selected,name:selected==='staff'?'Void Staff':'Void Blade'};
+      if(c.label==='Sell'){sold.push(modal.uid);inventory=inventory.filter(g=>g.uid!==modal.uid);gold+=500;modal=null;selected=null;}
+      if(c.go==='field')zone='Field';if(c.id==='autoBtn')hunting=true;},
+    key:async()=>{},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
+  for(let i=0;i<30&&a.trip;i++){const before=sold.length;await controller.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.ok(sold.length-before<=2);t+=30000;}
+  assert.equal(sold.length,14);assert.equal(new Set(sold).size,14);assert.equal(a.sales.count,14);assert.equal(a.sales.gold,7000);
+  assert.deepEqual(inventory.map(g=>g.uid),[...secondary.map(g=>g.uid),'card','locked','better','unknown']);assert.equal(a.resume.map,'field');assert.equal(a.trip,null);
+  assert.equal(trip.secondaryInspections,8);assert.equal(Object.values(trip.keepReasons).filter(r=>r==='equipment with options').length,8);
+  await controller.run('autonomy_wait');assert.equal(hunting,true);assert.equal(a.resume,null);assert.equal(a.farm.map,'field');
+});
+
+test('a filtered bag cannot report that all surplus was inspected',async()=>{
+  const m={},a=A.init(m);a.worn=[{uid:'worn',slot:'weapon',text:'Void Staff'}];a.trip={kind:'shop',phase:'town',at:clock};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',inventoryComplete:false,controls:[]}),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,false);assert.notEqual(a.trip.salesDone,true);
+});
+
+test('a Return Scroll saved to a field continues to the verified town once, retaining the farm destination',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'shop',phase:'town',at:clock,returnMap:'field',returnMode:'farm'};const clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,
+    observe:async()=>state({zone:'Field',autoHunt:'',controls:[{bm:'world'},{wm:'town'},{go:'town'}]}),
+    click:async b=>clicked.push(b),key:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.deepEqual(clicked,[{bm:'world'},{wm:'town'},{go:'town'}]);
+  assert.equal(a.trip.returnMap,'field');assert.equal(a.trip.townTravelAt,clock);
+  await c.run('town');assert.equal(clicked.length,3);assert.equal(a.trip.phase,'town');assert.equal(a.trip.salesDone,false);
+});

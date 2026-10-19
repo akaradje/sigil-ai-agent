@@ -230,6 +230,7 @@ async function uiClick(c) {
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
+  if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
   if(dnaEnabled){
     updateDNA(st);const boundary=DNA.nativeControl(fresh,memory);
     if(!boundary.allowed)throw Error('DNA boundary rejects an untracked native profile change');
@@ -538,6 +539,7 @@ EFFICIENT CONTROL:
 - The deterministic boss workflow reads the Boss Board Go button, approaches its live position, then resumes class-quest combat. Do not interrupt a boss approach or a Time Eater fight.
 - Gold is numeric. Maintain a 10000 G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
 - Only routine gameplay for this character. No chat/messages, trading, premium purchases or account settings. Sales are permitted only through the opt-in deterministic surplus workflow; never sell, unlock, discard or withdraw gear through LLM tools.
+- With authorized surplus sales enabled, finish town shop inspection before returning to farm. Never deposit weapons or use bulk storage; retain protected, useful and ambiguous gear.
 - Autonomous capacity purchases use a separate deterministic workflow and persistent budget; never attempt them through LLM tools. Public catalog definitions are advisory and current live UI must confirm every action.
 - AUTONOMY STATE: ${JSON.stringify(memory.autonomy?{mode:memory.autonomy.mode,cap:memory.autonomy.cap,goal:memory.autonomy.goal,blocked:memory.autonomy.blocked}:null)}
 - Never override an autonomous material farm, town trip or queued return. Do not infer a level cap from a leaderboard, job cap or stalled EXP.

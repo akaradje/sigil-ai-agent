@@ -16,7 +16,10 @@ Farm missing materials using safe, bounded trials; label predicted drops separat
 Craft and refine one verified equipped piece per transaction toward the current public limits.
 Preserve 100,000 gold for sustain; never attempt a refinement that can lose a level without protection.
 Return to town for storage/potions/forge work and restore the previous farming area afterward.
-Deposit spare non-caster weapons individually; never bulk-sell, delete or trade materials/equipment.
+When authorized NPC sales are enabled, inspect unused weapons at every town visit and finish
+all safe sales before restoring the farm. Never deposit weapons in storage in this mode.
+Keep worn, better/future-use, locked/favorite and carded gear; preserve ambiguous comparisons.
+Never bulk-sell, delete or trade materials/equipment.
 Close management panels after each short workflow so the viewer shows combat.
 
 PATCH CHANGES AND ENDGAME:

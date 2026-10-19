@@ -89,13 +89,27 @@ GitHub Actions รัน tests, ตรวจรายการไฟล์ต้
 
 `SIGIL_AUTONOMY=1` enables the deterministic town/farm/craft controller in `autonomy.js`.
 Set `SIGIL_LEVELING_FOCUS=1` to prefer measured EXP routes while leveling and defer
-secondary crafting trips. Town storage clears identified spare gear to 70% bag
-occupancy over short verified transactions, preserving worn gear, items and potions.
+secondary crafting trips. Without NPC sales, town storage clears identified spare gear
+to 70% bag occupancy over short verified transactions, preserving worn gear, items and potions.
+With explicit authorization and `SIGIL_SELL_SURPLUS=1`, every town arrival and every
+town-service return passes through the shop. Sales continue across short, rate-limited
+workflows until all identified surplus weapons have been checked; weapons have no
+eight-item visit cap and take priority over other equipment. Secondary equipment checks
+remain bounded to eight per visit so a large armor backlog does not delay the farm return.
+The agent never deposits weapons or uses bulk storage in this mode. It preserves worn,
+locked/favorite, carded, future and better gear. Compatible weapons, including options
+and refinements, require a live inferior verdict, a loss of the job's primary attack stat,
+and no extra card slots. Unknown or ambiguous comparisons stay in the bag.
+Each confirmed sale updates the dashboard only after item disappearance and exact gold
+credit. Uncertain settlement blocks new sales. The agent then replenishes supplies,
+closes its panels and restores the previous farming route.
 Leveling hunts select a specific normal monster, excluding bosses and rare elite spawns.
 `SIGIL_LEVELING_MAX_GAP` defaults to three levels above the character and is bounded to
 3–5; increase it only after observing survival and measured EXP. A changed target starts
 a separate EXP measurement.
 Return Scrolls stop native movement before casting and are replenished during potion trips.
+If a saved home is a field, town service continues via the verified public town route;
+selling starts only after the town's actual zone is observed.
 The regular crafting and stockpiling policy resumes at the detected level cap.
 Copy `agent-goal.example.txt` to the private `agent-goal.txt`. Set `GOLD_RESERVE` (default 100000)
 and `CBT_CRYSTAL_BUDGET` (default 0, maximum 5000) in your private `.env`. The separate public
