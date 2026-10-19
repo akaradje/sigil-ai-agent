@@ -34,3 +34,4 @@ Never report a click, eligibility message or stale acknowledgement as successful
 No chat/messages, account changes, hidden state mutation, socket injection or private game commands.
 
 Optional NPC surplus sales require SIGIL_SELL_SURPLUS=1 and explicit operator authorization. The deterministic workflow rechecks the selected item and price, preserves cards/locks/favourites and verifies gold credit. Leave disabled for accounts without this authorization. SIGIL_TARGET_RANK=5 selects Top 5 telemetry.
+Native VIP rarity-1 instant sales are enabled only after all eight worn slots reach the catalog maximum tier; a higher-tier catalog update queues revalidation. The game protects cards, quest/craft materials and boss drops. Rarities 0 and 2+ are not configured by this workflow.

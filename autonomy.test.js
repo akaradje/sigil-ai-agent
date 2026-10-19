@@ -294,18 +294,18 @@ test('town service interacts with the verified NPC prompt instead of repeatedly 
   await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],92);
 });
 
-function saleHarness({wrongDialog=false,missingCredit=false,blocked=false}={}) {
+function saleHarness({wrongDialog=false,missingCredit=false,blocked=false,delayedCredit=false}={}) {
   const mem={},a=A.init(mem),worn={uid:'worn',slot:'weapon',text:'Void Staff'};
   a.worn=[worn];a.trip={kind:'shop',phase:'town',at:clock};
-  let panel='shop',selected=false,modal=false,gold=120000,inventory=[{uid:'unused',text:'Void Blade',art:'/gear/blade5.png',protected:false}],confirmations=0;
-  const observe=async()=>state({zone:'Town',panel,gold,inventoryComplete:panel==='bag',inventoryGear:inventory,
+  let panel='shop',selected=false,modal=false,gold=120000,inventory=[{uid:'unused',text:'Void Blade',art:'/gear/blade5.png',protected:false}],confirmations=0,settlementReads=0;
+  const observe=async()=>{if(delayedCredit&&confirmations&&++settlementReads===3)gold+=500;return state({zone:'Town',panel,gold,inventoryComplete:panel==='bag',inventoryGear:inventory,
     panelText:panel==='bag'?'In Bag\nVoid Blade\nRefine +0/15 · Sell 500 G':'',
     modalText:modal?'Sell equipment?\nVoid Blade for '+(wrongDialog?501:500)+' G':'',
-    controls:modal?[{label:'Sell'}]:panel==='bag'?[{act:'isel',key:'g:unused'},...(selected?[{act:'isellg',key:'unused',label:'Sell 500 G'}]:[])]:[]});
+    controls:modal?[{label:'Sell'}]:panel==='bag'?[{act:'isel',key:'g:unused'},...(selected?[{act:'isellg',key:'unused',label:'Sell 500 G'}]:[])]:[{id:'interactBtn',label:'Talk to Shop'}]});};
   if(blocked)a.saleIntent={uid:'previous',status:'confirming'};
   const controller=A.createController({mem,getCatalog:()=>catalog(),policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
     observe,open:async p=>{panel=p;},close:async()=>{panel=null;modal=false;},sleep:async()=>{},save:()=>{},log:()=>{},
-    click:async c=>{if(c.act==='isel')selected=true;else if(c.act==='isellg')modal=true;else if(c.label==='Sell'){confirmations++;modal=false;inventory=[];if(!missingCredit)gold+=500;}}});
+    click:async c=>{if(c.id==='interactBtn')panel='shop';else if(c.act==='isel')selected=true;else if(c.act==='isellg')modal=true;else if(c.label==='Sell'){confirmations++;modal=false;inventory=[];if(!missingCredit&&!delayedCredit)gold+=500;}}});
   return {mem,controller,confirmations:()=>confirmations};
 }
 test('surplus identification protects worn, locked, favorite, unknown and future-use gear',()=>{
@@ -347,4 +347,33 @@ test('stored cleanup withdraws only identified off-class weapons and is bounded 
     observe:async()=>state({zone:'Town',panel:'storage',storageGear:storage,controls:storage.map(g=>({...g,act:'stmove'}))}),
     click:async g=>{clicked.push(g.uid);storage.splice(storage.findIndex(x=>x.uid===g.uid),1);},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await c.run('town');assert.deepEqual(clicked,['off']);assert.equal(a.trip.kind,'shop');assert.equal(a.trip.salesDone,false);assert.equal(a.trip.storageScanned,true);
+});
+
+test('instant common loot sale requires all eight highest-tier slots and stops when a patch adds a tier',()=>{
+  const slots=['weapon','head','armor','cape','boots','shield','ring','amulet'];
+  const c=catalog({gear:slots.map((slot,i)=>({id:'g'+i,name:'Max '+slot,slot,tier:5,lv:55,stats:{}}))});
+  const worn=slots.map((slot,i)=>({slot,uid:'u'+i,text:'Max '+slot}));
+  assert.equal(A.commonLootSurplus(c,worn),true);assert.equal(A.commonLootSurplus(c,worn.slice(1)),false);
+  c.gear.push({id:'next',name:'Next',slot:'weapon',tier:6,lv:70,stats:{}});
+  assert.equal(A.commonLootSurplus(c,worn),false);
+  const m={},a=A.init(m);A.catalogChanged(m,c,clock);a.farm={map:'field',target:'mob'};
+  A.catalogChanged(m,{...c,fingerprint:'patch-next'},clock+1);assert.equal(a.farm.pendingProfile,true);
+});
+test('native common filter is verified without changing other loot rarity settings',async()=>{
+  const m={},a=A.init(m);a.resume={map:'field',mode:'farm',at:clock};let hunting=false,on=true;
+  const c=catalog();c.maps[1].monsters[0].n=3;
+  const clicked=[];
+  const x=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,sellSurplus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:hunting?'on':'',controls:[{id:'autoBtn'},{act:'atab',key:'hunt'},{act:'atab',key:'loot'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true},{act:'asellr',v:'1',on}]}),
+    click:async b=>{clicked.push(b);if(b.id==='autoBtn')hunting=true;if(b.act==='asellr')on=!on;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await x.run('autonomy_wait');assert.equal(a.lastResult.ok,true);assert.equal(a.commonLootSales.enabled,false);assert.equal(on,false);
+  assert.equal(clicked.filter(b=>b.act==='asellr').length,1);
+});
+
+test('late UI settlement is observed without selling twice and a verified restart reconciliation counts once',async()=>{
+  const h=saleHarness({delayedCredit:true});await h.controller.run('town');
+  assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);assert.equal(h.mem.autonomy.sales.gold,500);
+  h.mem.autonomy.saleIntent.status='uncertain';h.mem.autonomy.sales={count:0,gold:0,history:[]};h.mem.autonomy.trip.sales=0;h.mem.autonomy.trip.salesDone=false;
+  await h.controller.run('town');assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);
+  await h.controller.run('town');assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);
 });
