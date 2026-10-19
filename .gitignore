@@ -28,6 +28,9 @@ harness.js
 agent-memory.json
 game-catalog-cache.json
 dna-memory.json*
+.self-healing/
+.patch-*.json
+.agent-health.json
 telegram-alerts-state.json
 agent-diary.md
 agent-lessons.md

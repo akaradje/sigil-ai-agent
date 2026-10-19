@@ -255,3 +255,37 @@ first probes DISPLAY :99 and skips startup when an existing X server is healthy;
 or replaces that display. Otherwise it starts Xvfb without a TCP listener and waits for X clients
 before the harness starts. Install Xvfb/xdotool, select the correct service user and adjust the
 display geometry for your browser. This requires access only from trusted local processes.
+
+### Isolated self-healing candidates
+
+`self-evolution-runner.js` observes the agent's loopback health endpoint every 30 seconds. Three
+minutes of continuously observed UI Safe Idle can open a repair job; paused play, maintenance,
+login screens, expected reloads and stale observations cannot. Jobs are limited to one per hour
+and three per day, with one outstanding candidate. The root-only state directory defaults to
+`/var/lib/sigil-self-healing`; jobs, bounded failure history, cooldown and event cursors survive
+restarts. Interrupted repairs retain their baseline and are marked interrupted, never deployed.
+
+The configured `AGENT_MODEL` receives only enumerated public source files, missing HUD field
+names and redacted test feedback. It returns bounded JSON edits, without tools or shell access.
+Only `game-intelligence.js`, `game-telemetry.js` and `ui-resilience.js` can be proposed for change;
+existing tests, controllers, supervisor, credentials and this repair engine are protected. A new
+regression test is required. Both the unchanged baseline and each candidate run syntax checks
+and the complete fixed test suite. Failed attempts restart from the baseline, up to three times.
+
+The Linux worker uses systemd 255 or later, a separate root filesystem, a read-only bind of the
+public snapshot and Node runtime, a private network namespace and temporary filesystem, an
+unprivileged test user, no capabilities and fixed resource/time limits. It never executes model
+commands, installs dependencies, reads arbitrary source paths or falls back to host execution.
+Only the trusted coordinator has credentials for the configured model; curl receives them and
+the prompt on stdin, and child test processes receive a minimal environment. Match the supplied
+`sigil-self-healing.service` paths to your installation. Root is required for the coordinator to
+create these sandbox units, so install only reviewed coordinator code. No general sudoers grant
+or additional coding CLI login is needed.
+
+Successful jobs end at **READY_REVIEW**. Their private `candidate.json` records the baseline hash,
+proposed source and changed paths for review and a separate deployment. The worker never edits
+live source, restarts game services, commits/pushes Git or runs `git reset` / `git clean`. Rejected
+candidates require no live rollback. This deliberately keeps unreviewed generated JavaScript
+away from the credentials available to the live agent. A passing sandbox test is not proof of
+live gameplay recovery or a successful canary. Telegram reports start, test-ready, failed and
+interrupted jobs through the existing persistent outbox, without raw DOM, errors or prompts.

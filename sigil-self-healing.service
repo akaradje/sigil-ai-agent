@@ -1,0 +1,21 @@
+[Unit]
+Description=Sigil isolated repair candidate worker
+After=network-online.target sigil-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sigil-agent
+EnvironmentFile=/opt/sigil-agent/.env
+Environment=SIGIL_SELF_HEAL=1
+ExecStart=/usr/bin/node /opt/sigil-agent/self-evolution-runner.js
+Restart=on-failure
+RestartSec=30
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

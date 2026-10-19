@@ -151,6 +151,23 @@ class AlertEngine {
   }
   observe(sample, now = Date.now()) {
     const d = this.db;
+    const healing=sample.selfHealing;
+    if(healing&&/^[a-f0-9-]{36}$/.test(healing.identity||'')) {
+      if(d.selfHealing?.identity!==healing.identity)d.selfHealing={identity:healing.identity,cursor:0,announced:[]};
+      d.selfHealing.announced ||= [];
+      const messages={REPAIRING:'🛠 Self-Healing: ตรวจพบปัญหา UI ต่อเนื่อง กำลังเตรียมแพตช์ในพื้นที่แยก',
+        READY_REVIEW:'🧪 Self-Healing: แพตช์ผ่านชุดทดสอบใน sandbox แล้ว รอตรวจโค้ดก่อนใช้จริง ระบบฟาร์มยังใช้โค้ดเดิม',
+        FAILED:'⚠️ Self-Healing: ซ่อมไม่ผ่านภายในขอบเขตที่กำหนด เก็บหลักฐานไว้ตรวจ ระบบจริงไม่ได้ถูกแก้',
+        INTERRUPTED:'⚠️ Self-Healing: งานซ่อมถูกขัดจังหวะ ระบบจริงไม่ได้ถูกแก้'};
+      for(const e of (healing.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>d.selfHealing.cursor).sort((a,b)=>a.id-b.id)) {
+        const key=e.jobId+':'+e.status;
+        if(messages[e.status]&&/^[a-f0-9-]{36}$/.test(e.jobId||'')&&!d.selfHealing.announced.includes(key)){
+          this.enqueue(`self-healing:${healing.identity}:${e.jobId}:${e.status}`,messages[e.status]);
+          d.selfHealing.announced.push(key);d.selfHealing.announced=d.selfHealing.announced.slice(-60);
+        }
+        d.selfHealing.cursor=e.id;
+      }
+    }
     // Schema incidents must still reach Telegram when the HUD name cannot be read.
     this.observeAutonomy(sample.agent);
     this.observeCatchUp(sample.agent,now);
@@ -285,6 +302,7 @@ async function collect() {
   return {
     agent: settled[0].status === 'fulfilled' ? settled[0].value : null,
     supervisorOk: settled[1].status === 'fulfilled' && Boolean(settled[1].value?.state?.name),
+    selfHealing: settled[1].status === 'fulfilled' ? settled[1].value?.selfHealing : null,
     viewerOk: settled[2].status === 'fulfilled' && [200, 401].includes(settled[2].value.status),
   };
 }

@@ -14,6 +14,7 @@ const fs = require('fs');
 const IQ = require('./game-intelligence');
 const DNA = require('./strategy-dna');
 const UI = require('./ui-resilience');
+const SelfHealing = require('./self-evolution');
 const {createAvailability}=require('./server-availability');
 const availability=createAvailability({url:process.env.GAME_HEALTH_URL||''});
 availability.probe().catch(()=>{});
@@ -321,7 +322,13 @@ http.createServer(async (req, res) => {
     if (req.url.startsWith('/state')) {
       const s = await readState();
       res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ state: s, mem: { ...mem, samples: undefined } }, null, 1));
+      let selfHealing=null;
+      try {
+        const d=SelfHealing.readJson(path.join(process.env.SELF_HEAL_DIR||'/var/lib/sigil-self-healing','state.json'),null);
+        if(d?.version===1)selfHealing={identity:d.identity,mode:'candidate-review',last:d.jobs?.at(-1)?.status||null,
+          events:(d.events||[]).slice(-40).map(({id,jobId,status,at})=>({id,jobId,status,at}))};
+      }catch{}
+      return res.end(JSON.stringify({ state: s, mem: { ...mem, samples: undefined }, selfHealing }, null, 1));
     }
     if (req.url.startsWith('/log')) {
       return res.end(fs.readFileSync(LOG, 'utf8').split('\n').slice(-40).join('\n'));

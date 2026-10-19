@@ -11,6 +11,15 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('self-healing events use the existing durable outbox and do not repeat across repair attempts/restarts',()=>{
+  const identity='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  let e=new AlertEngine({},start),s=sample();s.selfHealing={identity,events:[{id:1,jobId,status:'REPAIRING'}]};
+  e.observe(s,start);assert.equal(e.db.pending.filter(p=>p.key.startsWith('self-healing:')).length,1);
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);
+  s.selfHealing.events.push({id:2,jobId,status:'REPAIRING'},{id:3,jobId,status:'READY_REVIEW'});
+  e.observe(s,start+MIN);const events=e.db.pending.filter(p=>p.key.startsWith('self-healing:'));
+  assert.equal(events.length,1);assert.match(events[0].text,/รอตรวจโค้ด/);assert.equal(events[0].text.includes('สำเร็จแล้ว'),false);
+});
 test('DNA promotions report measured metrics once, not a fabricated EXP improvement for saved potions',()=>{
   const e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[{id:1,type:'dna_evolved',detail:{metric:'potions',gainPercent:30,map:'field',generation:2}}]}};
   e.observe(s,start);assert.ok(e.db.pending.some(p=>/ใช้ยาลดลง 30%/.test(p.text)));assert.equal(e.db.pending.some(p=>/EXP\/min เพิ่ม/.test(p.text)),false);

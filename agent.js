@@ -24,10 +24,14 @@ const Hygiene = require('./session-hygiene');
 const DNA = require('./strategy-dna');
 const Autonomy = require('./autonomy');
 const Catalog = require('./game-catalog');
+const SelfHealing = require('./self-evolution');
 const {createAvailability}=require('./server-availability');
 
 const HARNESS = process.env.HARNESS || 'http://127.0.0.1:4799';
 const DIR = process.env.AGENT_DIR || __dirname;
+const selfHealingBootId = require('node:crypto').randomUUID();
+const selfHealingBuildId = SelfHealing.sourceFingerprint(DIR);
+let cycleCompletedAt = 0;
 const DIARY = path.join(DIR, 'agent-diary.md');
 const DECISIONS = path.join(DIR, 'agent-decisions.jsonl');
 const LESSONS = path.join(DIR, 'agent-lessons.md');
@@ -706,6 +710,7 @@ async function runCycle() {
   } finally {
     try { await executor.close();saveMemory(); } catch(e) {log('cleanup: '+e.message);}
     busy = false;
+    cycleCompletedAt = Date.now();
   }
 }
 
@@ -713,7 +718,8 @@ async function runCycle() {
 http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
-    if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:4,busy,paused,availability:availability.state,autonomy:autonomyPolicy.enabled}));
+    if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:4,busy,paused,availability:availability.state,autonomy:autonomyPolicy.enabled,
+      selfHealing:SelfHealing.healthSnapshot({memory,bootId:selfHealingBootId,buildId:selfHealingBuildId,completedAt:cycleCompletedAt,paused,availability:availability.state})}));
     if (u.pathname === '/state') {
       const p = await perceive(false);
       return res.end(JSON.stringify({
