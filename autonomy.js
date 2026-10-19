@@ -22,6 +22,12 @@ function gearForName(catalog,text) {
   const value=norm(text);
   return catalog.gear.filter(g=>value.includes(norm(g.name))||value.includes('/gear/'+g.id+'.png')).sort((a,b)=>b.name.length-a.name.length)[0]||null;
 }
+function levelingTarget(catalog,mapId,state,maxGap=3) {
+  const map=catalog?.maps.find(m=>m.id===mapId),lv=level(state),gap=Number.isInteger(maxGap)&&maxGap>=3&&maxGap<=5?maxGap:3;
+  return (map?.monsters||[]).map(entry=>({...catalog.monsters.find(m=>m.id===entry.id),n:entry.n}))
+    .filter(m=>m.id&&!m.boss&&m.n>=1&&m.hp>0&&m.exp>0&&m.lv<=lv+gap&&m.lv>=Math.max(1,lv-20))
+    .sort((x,y)=>(y.exp/y.hp*y.n)-(x.exp/x.hp*x.n))[0]||null;
+}
 function progressionGoal(catalog,state,a,reserve) {
   if(!a.inventory||!catalog)return null;
   const job=catalog.jobs[String(state.job||'').toLowerCase()];if(!job)return null;
@@ -66,7 +72,7 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   const need=a.goal?.cost?.mats||{},owned=a.inventory?.items||{};
   const total=Object.values(need).reduce((s,n)=>s+n,0),have=Object.entries(need).reduce((s,[id,n])=>s+Math.min(n,owned[id]||0),0);
   a.craftProgress=total?Math.floor(have/total*100):null;
-  a.mode=a.trip?'town-service':a.resourceHold?.active?'pre-bracket-stockpiling':a.goal?.missing?.length?'farm-materials':a.goal?'craft-upgrade':a.cap.atCap&&a.gearCapped?'stockpiling':a.cap.atCap?'endgame-forge':'leveling';
+  a.mode=a.trip?'town-service':a.resourceHold?.active?'pre-bracket-stockpiling':a.levelingFocus&&!a.cap.atCap?'leveling':a.goal?.missing?.length?'farm-materials':a.goal?'craft-upgrade':a.cap.atCap&&a.gearCapped?'stockpiling':a.cap.atCap?'endgame-forge':'leveling';
   const cumulative=lv=>Array.from({length:Math.max(0,lv-1)},(_,i)=>catalog.expByLevel?.[i+1]||0).reduce((s,n)=>s+n,0);
   const active=!a.trip&&!state.panelOpen&&!state.menuOpen&&!state.mapOpen&&!state.dead&&(!mem.uiHealth?.safeIdle)&&(/\bon\b/.test(state.autoHunt||'')||state.autoQuestRunning);
   const absolute=state.exp==null?null:cumulative(level(state))+(state.exp/100)*(catalog.expByLevel?.[level(state)]||0);
@@ -75,9 +81,9 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
     const elapsed=(now-a.expSample.at)/MIN,delta=absolute-a.expSample.value;
     if(delta>=0) {
       a.expPerMinute=Math.round(delta/elapsed);a.expRateAt=now;a.expRateZone=state.zone;const map=catalog.maps.find(m=>norm(m.name)===norm(state.zone));
-      if(map){const old=a.farmRates[map.id],fresh=old&&now-old.at<30*MIN;
+      if(map){const old=a.farmRates[map.id],target=a.farm?.map===map.id?a.farm.target||null:null,fresh=old&&now-old.at<30*MIN&&(old.target||null)===target;
         a.farmRates[map.id]={expPerMinute:fresh?Math.round((old.expPerMinute+a.expPerMinute)/2):a.expPerMinute,
-          minutes:(fresh?old.minutes||0:0)+elapsed,level:level(state),at:now};}
+          minutes:(fresh?old.minutes||0:0)+elapsed,level:level(state),target,at:now};}
     }
     a.expSample={value:absolute,at:now,zone:state.zone};
   } else if(absolute!=null&&(!a.expSample||norm(a.expSample.zone)!==norm(state.zone)))a.expSample={value:absolute,at:now,zone:state.zone};
@@ -86,6 +92,8 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
 function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(!policy.enabled||mem.uiHealth?.safeIdle||!s.name||s.dead||!s.hp)return null;
   const a=init(mem),due=(k,ms)=>now-(a.last[k]||0)>ms&&now-(a.failures?.[k]||0)>120000;
+  a.levelingFocus=!!policy.levelingFocus&&!a.cap?.atCap;
+  policy={...policy,levelingFocus:a.levelingFocus};
   if(s.hp[0]/s.hp[1]<0.3)return s.hpPotions===0?(a.trip?'town':'town_rest'):null;
   if(!catalog)return null; // Keep the existing UI policy running during catalog outages.
   if(!a.cbt&&s.controls.some(c=>c.id==='cbtPill'))return 'cbt';
@@ -93,33 +101,33 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
   if(a.trip)return 'town';
   if(a.resume)return 'autonomy_wait';
-  if(a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
+  if(!policy.levelingFocus&&a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
   if(a.farm?.trial&&(a.farm.abort||s.hp[0]/s.hp[1]<0.4||(mem.deaths||[]).some(t=>t>=a.farm.started)))return 'finish_farm';
   if(a.farm?.trial&&now-a.farm.started>3*MIN) {
     const rate=a.farmRates[a.farm.map];
     if(rate?.at>a.farm.started&&rate.minutes>=2&&rate.expPerMinute<a.farm.baseline*0.9)return 'finish_farm';
   }
-  if(a.farm&&now-a.farm.started>10*MIN)return 'finish_farm';
+  if(a.farm&&now-a.farm.started>(policy.levelingFocus&&!a.farm.trial?30:10)*MIN)return 'finish_farm';
   if(due('inventory',a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]*0.85?MIN:5*MIN))return 'inventory';
   if(due('equipment',10*MIN))return 'equipment';
   if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*DNA.profile(mem).bagReturnThreshold)) {
     if(a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
-    return due('town_storage',5*MIN)?'town_storage':null;
+    return due('town_storage',5*MIN)?'town_storage':a.farm?'autonomy_wait':null;
   }
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
-  if(a.goal&&!a.goal.missing.length&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
-  if(!a.resourceHold?.active&&due('forge',15*MIN))return 'town_forge';
-  if((a.goal?.missing?.length||a.cap?.atCap)&&(!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
-  if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now))return 'farm_trial';
+  if(a.goal&&!a.goal.missing.length&&(!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
+  if(!policy.levelingFocus&&!a.resourceHold?.active&&due('forge',15*MIN))return 'town_forge';
+  if((policy.levelingFocus||a.goal?.missing?.length||a.cap?.atCap)&&(policy.levelingFocus||!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
+  if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now,policy))return 'farm_trial';
   if(a.farm)return 'autonomy_wait';
   return null;
 }
 
-function trialOption(mem,s,catalog,now=Date.now()) {
+function trialOption(mem,s,catalog,now=Date.now(),policy={}) {
   const a=init(mem),ttk=mem.combatTelemetry?.current;
   if(mem.uiHealth?.safeIdle||a.trip||s.hp?.[0]/s.hp?.[1]<0.75||!Number.isFinite(s.hpPotions)||!Number.isFinite(s.mpPotions)||s.hpPotions<20||s.mpPotions<20||
     !ttk||norm(ttk.zone)!==norm(s.zone)||now-ttk.at>10000||ttk.count<5||ttk.medianSeconds>DNA.profile(mem).ttkToleranceSec)return null;
-  const missing=a.goal?.missing?.filter(m=>m.id!=='gold')||[];
+  const missing=policy.levelingFocus&&!a.cap?.atCap?[]:a.goal?.missing?.filter(m=>m.id!=='gold')||[];
   const options=farmOptions(catalog,s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id)),current=options.find(m=>norm(m.name)===norm(s.zone));
   const rate=current&&a.farmRates[current.id];
   if(!rate||now-rate.at>5*MIN||rate.minutes<2||rate.expPerMinute<=0)return null;
@@ -131,6 +139,8 @@ function trialOption(mem,s,catalog,now=Date.now()) {
 function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,now=Date.now}) {
   let actions=0;
   const a=init(mem);
+  const leveling=()=>!!policy.levelingFocus&&!a.cap?.atCap;
+  const targetFor=(map,s)=>levelingTarget(getCatalog(),map,s,policy.levelingMaxGap);
   async function state(){const s=await observe();update(mem,s,getCatalog(),now(),policy.goldReserve);return s;}
   async function pick(pred,optional=false) {
     if(++actions>9)throw Error('autonomy action budget exceeded');
@@ -144,14 +154,28 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     await pick(c=>c.bm==='world');await pick(c=>c.wm===id);await pick(c=>c.go===id);
   }
   function returnPoint(s) {
-    return getCatalog().maps.find(m=>!m.town&&norm(m.name)===norm(s.zone))?.id||a.returnMap||null;
+    return getCatalog().maps.find(m=>!m.town&&norm(m.name)===norm(s.zone))?.id||a.farm?.map||a.returnMap||null;
   }
   async function beginTrip(kind,s) {
-    a.trip={kind,returnMap:returnPoint(s),returnMode:s.autoQuestMode||a.farm?.returnMode||'mq',at:now(),phase:'town'};save();
+    a.trip={kind,returnMap:returnPoint(s),returnMode:leveling()&&a.farm?'farm':s.autoQuestMode||a.farm?.returnMode||'mq',at:now(),phase:'town'};save();
     await pick(c=>c.aq==='stop',true);
+    if(/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
     if(!getCatalog().maps.some(m=>m.town&&norm(m.name)===norm(s.zone))) {
       if(!await pick(c=>c.id==='potTp',true))await travel('town');
     }
+  }
+  async function farmProfile(s) {
+    if(!leveling())return;
+    const f=a.farm,target=targetFor(f.map,s);
+    if(!target)throw Error('No verified normal leveling target');
+    await open('auto');await pick(c=>c.act==='atab'&&c.key==='hunt');
+    for(const [k,v] of [['target',target.id],['prio','near']]) {
+      let read=await state();
+      if(![...read.controls,...(read.offscreen||[])].some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick(c=>c.act==='aopt'&&c.k===k&&c.v===v&&!c.on);
+      read=await state();
+      if([...read.controls,...(read.offscreen||[])].filter(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on).length!==1)throw Error('Leveling hunt profile not confirmed');
+    }
+    await close();f.target=target.id;f.pendingProfile=false;
   }
   async function resume(trip) {
     await close();
@@ -229,7 +253,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function town(s) {
     const trip=a.trip;
-    if(now()-(trip.hygiene?.started||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
+    if(now()-(trip.hygiene?.started||trip.progressAt||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(!townMap)return;
     if(trip.phase==='return'){
@@ -254,8 +278,17 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     }
     const panel={forge:'smith',storage:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
-      await close();await key('m');await sleep(400);await pick(c=>c.bm==='here',true);
-      await pick(c=>c.place==='n:'+panel);s=await state();if(s.panel!==panel)return;
+      const names={smith:/Talk to (?:Blacksmith|Smith)|คุย.*(?:ช่างตีเหล็ก|ตีบวก)/i,storage:/Talk to Storage|คุย.*คลัง/i,shop:/Talk to Shop|คุย.*ร้านขาย/i,church:/Talk to (?:Cathedral|Church)|คุย.*(?:โบสถ์|มหาวิหาร)/i};
+      const talk=c=>c.id==='interactBtn'&&names[panel]?.test(c.label);
+      if(!s.controls.some(talk)) {
+        await close();await key('m');await sleep(400);await pick(c=>c.bm==='here',true);
+        await pick(c=>c.place==='n:'+panel);s=await state();
+      }
+      if(s.panel!==panel&&s.controls.some(talk)) {
+        await pick(talk);s=await state();
+        for(let i=0;i<3&&s.panel!==panel;i++){await sleep(500);s=await state();}
+      }
+      if(s.panel!==panel)return;
     }
     if(trip.kind==='forge')await forge(s);
     if(trip.kind==='rest') {
@@ -264,18 +297,26 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       trip.kind='shop';return;
     }
     if(trip.kind==='storage') {
-      // Deposit one observed spare non-caster weapon at a time. Never bulk-move materials or potions.
+      // Leveling may store any identified spare gear. Deposits are reversible;
+      // worn gear, materials and potions are never selected or bulk-moved.
       const job=getCatalog().jobs[String(s.job).toLowerCase()];
       for(let i=0;i<3;i++) {
         const current=await state();
-        const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);return gear?.slot==='weapon'&&gear.fam!==job?.weapon;})());
+        if(current.storageUsage&&current.storageUsage[0]>=current.storageUsage[1])break;
+        const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);return !!gear&&(leveling()||gear.slot==='weapon'&&gear.fam!==job?.weapon);})());
         if(!spare)break;
         await pick(c=>c.act==='stmove'&&c.uid===spare.uid&&c.dir==='in');
         if((await state()).storageGear.some(g=>g.dir==='in'&&g.uid===spare.uid))throw Error('storage deposit not confirmed');
         a.blocked=null;a.last.inventory=0;trip.deposits=(trip.deposits||0)+1;
+        trip.progressAt=now();
+        if(a.bagUsage)a.bagUsage=[Math.max(0,a.bagUsage[0]-1),a.bagUsage[1]];
       }
       a.blocked=trip.deposits?null:'No verified spare non-caster gear to deposit';
-      if(!trip.hygiene&&a.goal&&!a.goal.missing.length&&(!a.resourceHold?.active||a.goal.slot==='weapon')){trip.kind='forge';return;}
+      if(leveling()&&trip.deposits&&a.bagUsage&&a.bagUsage[0]>Math.floor(a.bagUsage[1]*0.7)) {
+        const live=await state();
+        if(live.storageUsage&&live.storageUsage[0]<live.storageUsage[1]&&(live.storageGear||[]).some(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&gearForName(getCatalog(),g.text+' '+g.art)))return;
+      }
+      if(!trip.hygiene&&a.goal&&!a.goal.missing.length&&(!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
       for(const [field,id] of [['hpPotions','mega_potion'],['mpPotions','mega_ether']]) {
@@ -287,24 +328,36 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const after=await state();if(after[field]<=current[field])throw Error('potion restock not confirmed');
         a.restocked||={};a.restocked[field]=(a.restocked[field]||0)+after[field]-current[field];
       }
+      const current=await state(),scrolls=current.panelText?.match(/Return Scroll\s+have\s+(\d+)/i);
+      if(scrolls&&Number(scrolls[1])<5) {
+        const control=[...current.controls,...(current.offscreen||[])].find(c=>c.act==='buy'&&c.key==='return_scroll'&&c.amount==='10');
+        const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
+        if(price&&current.gold-price>=policy.goldReserve) {
+          await pick(c=>c.act==='buy'&&c.key==='return_scroll'&&c.amount==='10');
+          const after=await state(),owned=Number(after.panelText?.match(/Return Scroll\s+have\s+(\d+)/i)?.[1]);
+          if(owned!==Number(scrolls[1])+10||after.gold!==current.gold-price)throw Error('Return Scroll restock not confirmed');
+          a.restocked||={};a.restocked.return_scroll=(a.restocked.return_scroll||0)+10;
+        }
+      }
     }
     a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
-    const missing=a.goal?.missing?.filter(m=>m.id!=='gold')||[];
+    const missing=leveling()?[]:a.goal?.missing?.filter(m=>m.id!=='gold')||[];
     const options=farmOptions(getCatalog(),s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id));
     if(!options.length){a.blocked=missing.length?'No currently safe public drop route for missing materials':null;a.last.farm=now();return;}
     const current=options.find(m=>norm(m.name)===norm(s.zone));
-    const measured=options.filter(m=>a.farmRates[m.id]?.minutes>=2&&now()-a.farmRates[m.id].at<30*MIN).sort((x,y)=>y.measuredExpPerMinute-x.measuredExpPerMinute);
-    const proposal=trialOption(mem,s,getCatalog(),now());
+    const measured=options.filter(m=>a.farmRates[m.id]?.minutes>=2&&now()-a.farmRates[m.id].at<30*MIN&&(!leveling()||a.farmRates[m.id].target===targetFor(m.id,s)?.id)).sort((x,y)=>y.measuredExpPerMinute-x.measuredExpPerMinute);
+    const proposal=trialOption(mem,s,getCatalog(),now(),policy);
     const best=proposal||(!trial?(!missing.length&&measured.length?measured[0]:current&&current.score>=options[0].score*0.8?current:options[0]):null);
     if(!best)return;
     trial=!!proposal;
-    a.farm={map:best.id,name:best.name,started:now(),returnMap:returnPoint(s),returnMode:s.autoQuestMode||'mq',expectedDrops:best.materialChance,estimate:true,trial,baseline:best.baseline};
+    a.farm={map:best.id,name:best.name,started:now(),returnMap:returnPoint(s),returnMode:s.autoQuestMode||'mq',expectedDrops:best.materialChance,estimate:true,trial,baseline:best.baseline,pendingProfile:leveling()};
     a.last.farm=now();save();
     await pick(c=>c.aq==='stop',true);
+    if(leveling()&&/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
     if(norm(best.name)!==norm(s.zone))await travel(best.id);
-    else if(!/\bon\b/.test(s.autoHunt||''))await pick(c=>c.id==='autoBtn');
+    else if(!leveling()&&!/\bon\b/.test(s.autoHunt||''))await pick(c=>c.id==='autoBtn');
   }
   async function run(task) {
     actions=0;
@@ -327,19 +380,37 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       else if(task==='finish_farm') {
         const f=a.farm;a.farm=null;a.last.farm=now();
         if(f.trial){a.farmTrials||={};a.farmTrials[f.map]={at:now(),expPerMinute:a.farmRates[f.map]?.expPerMinute??null,baseline:f.baseline};}
-        a.resume={map:f.returnMap,mode:f.returnMode,at:now()};
-        if(f.returnMap&&norm(f.returnMap)!==norm(f.map))await travel(f.returnMap);
+        if(leveling()&&!f.trial){a.last.farm=0;a.resume=null;}
+        else {
+          a.resume={map:f.returnMap,mode:f.returnMode,at:now()};
+          if(f.returnMap&&norm(f.returnMap)!==norm(f.map))await travel(f.returnMap);
+        }
       } else if(task==='autonomy_wait') {
         if(a.resume) {
           const destination=getCatalog()?.maps.find(m=>m.id===a.resume.map);
           // A teleport/walk can be cancelled by the game. Do not wait forever at
           // the wrong map: native quest routing can recover from the current town.
           if(!destination||norm(destination.name)===norm(s.zone)||now()-a.resume.at>MIN) {
-            await close();await pick(c=>c.aq===a.resume.mode);
-            if(!(await state()).autoQuestRunning)throw Error('Quest resume not confirmed');
+            if(a.resume.mode==='farm') {
+              if(!destination)throw Error('Farm return map not confirmed');
+              if(norm(destination.name)!==norm(s.zone)) {
+                a.resume.at=now();save();await travel(destination.id);return;
+              }
+              await close();
+              a.farm={map:destination.id,name:destination.name,started:now(),returnMap:destination.id,returnMode:'mq',estimate:false,trial:false};
+              await farmProfile(s);
+              if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
+              if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Farm resume not confirmed');
+            } else {
+              await close();await pick(c=>c.aq===a.resume.mode);
+              if(!(await state()).autoQuestRunning)throw Error('Quest resume not confirmed');
+            }
             a.resume=null;if(a.blocked==='Town trip timed out')a.blocked=null;
           }
-        }else if(a.farm&&norm(a.farm.name)===norm(s.zone)&&!/\bon\b/.test(s.autoHunt||''))await pick(c=>c.id==='autoBtn');
+        }else if(a.farm&&norm(a.farm.name)===norm(s.zone)) {
+          if(a.farm.pendingProfile||leveling()&&targetFor(a.farm.map,s)?.id!==a.farm.target)await farmProfile(s);
+          if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
+        }
       }
       a.last[task]=now();a.lastResult={task,ok:true,at:now()};save();
     } catch(e) {
@@ -351,4 +422,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run};
 }
-module.exports={init,event,catalogChanged,gearForName,progressionGoal,update,chooseTask,trialOption,createController};
+module.exports={init,event,catalogChanged,gearForName,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};

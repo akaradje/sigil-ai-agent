@@ -88,6 +88,15 @@ GitHub Actions รัน tests, ตรวจรายการไฟล์ต้
 ## Dynamic autonomous progression
 
 `SIGIL_AUTONOMY=1` enables the deterministic town/farm/craft controller in `autonomy.js`.
+Set `SIGIL_LEVELING_FOCUS=1` to prefer measured EXP routes while leveling and defer
+secondary crafting trips. Town storage clears identified spare gear to 70% bag
+occupancy over short verified transactions, preserving worn gear, items and potions.
+Leveling hunts select a specific normal monster, excluding bosses and rare elite spawns.
+`SIGIL_LEVELING_MAX_GAP` defaults to three levels above the character and is bounded to
+3–5; increase it only after observing survival and measured EXP. A changed target starts
+a separate EXP measurement.
+Return Scrolls stop native movement before casting and are replenished during potion trips.
+The regular crafting and stockpiling policy resumes at the detected level cap.
 Copy `agent-goal.example.txt` to the private `agent-goal.txt`. Set `GOLD_RESERVE` (default 100000)
 and `CBT_CRYSTAL_BUDGET` (default 0, maximum 5000) in your private `.env`. The separate public
 repository never contains the runtime budget, character inventory, cached catalog or alert state.

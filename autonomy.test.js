@@ -178,3 +178,118 @@ test('availability pauses only after three failures and resumes after two succes
   await h.probe();await h.probe();assert.equal(h.blocked(),false);await h.probe();assert.equal(h.blocked(),true);
   ok=true;await h.probe();assert.equal(h.blocked(),true);await h.probe();assert.equal(h.blocked(),false);
 });
+
+test('leveling focus defers secondary forge detours but preserves supplies, ready weapons and cap progression',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
+  a.goal={slot:'armor',missing:[]};const p={enabled:true,levelingFocus:true};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,p),null);
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:0}),catalog(),clock,p),'town_shop');
+  a.goal.slot='weapon';assert.equal(A.chooseTask(m,state(),catalog(),clock,p),'town_forge');
+  a.goal={slot:'armor',missing:[{id:'unreachable-ore'}]};a.last.farm=0;
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,p),'farm');
+  a.cap={atCap:true};a.goal.missing=[];
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,p),'town_forge');
+});
+
+test('EXP-focused farming is not blocked by an unavailable secondary crafting material',async()=>{
+  const m={},a=A.init(m);a.goal={slot:'armor',missing:[{id:'unreachable-ore'}]};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:'',controls:[{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'all',on:true},{act:'aopt',k:'prio',v:'near',on:true}]}),
+    open:async()=>{},click:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('farm');assert.equal(a.lastResult.ok,true);assert.equal(a.farm.map,'field');
+});
+
+test('leveling storage creates headroom without moving worn gear, items or unknown gear',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'storage',at:clock-6*60000,progressAt:clock-60000,phase:'town'};a.bagUsage=[100,100];a.worn=[{uid:'worn'}];
+  let usage=10;
+  const spares=Array.from({length:6},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'}));
+  const protectedGear=[{uid:'worn',dir:'in',text:'Void Staff'},{uid:'unknown',dir:'in',text:'Unidentified'}];
+  const moved=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'storage',storageUsage:[usage,100],storageGear:[...protectedGear,...spares],
+      controls:[{act:'stmove',key:'potion',dir:'in'},...protectedGear,...spares].map(g=>({...g,act:'stmove'}))}),
+    click:async control=>{assert(control.uid.startsWith('spare'));moved.push(control.uid);spares.splice(spares.findIndex(g=>g.uid===control.uid),1);usage++;},
+    close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(moved.length,3);assert.equal(a.bagUsage[0],97);assert.equal(a.trip.phase,'town');assert.equal(a.trip.progressAt,clock);
+  a.bagUsage=[72,100];await c.run('town');assert.equal(moved.length,6);assert.equal(a.bagUsage[0],69);assert.equal(a.trip.phase,'return');
+});
+
+test('town restock confirms scroll quantity and gold debit before counting fast returns',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'shop',at:clock,phase:'town'};let scrolls=2,gold=120000;
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',hpPotions:30,mpPotions:30,gold,panelText:'Return Scroll have '+scrolls,
+      controls:[{act:'buy',key:'return_scroll',amount:'10',label:'10 5,000 G'}]}),
+    click:async()=>{scrolls+=10;gold-=5000;},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(a.restocked.return_scroll,10);assert.equal(gold,115000);
+});
+
+test('leveling town service stops native movement before casting a Return Scroll',async()=>{
+  const m={},a=A.init(m);a.farm={map:'field',returnMode:'mq'};let hunting=true;const clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:hunting?'on':'',controls:[{id:'autoBtn'},{id:'potTp'}]}),
+    click:async control=>{clicked.push(control.id);if(control.id==='autoBtn')hunting=false;if(control.id==='potTp')assert.equal(hunting,false);},
+    close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town_storage');assert.equal(a.lastResult.ok,true);assert.deepEqual(clicked,['autoBtn','potTp']);assert.equal(a.trip.returnMode,'farm');
+});
+
+test('leveling returns restart farming on the verified map without starting a competing quest route',async()=>{
+  const m={},a=A.init(m);a.resume={map:'field',mode:'farm',at:clock};let hunting=false;
+  const cat=catalog();cat.maps[1].monsters[0].n=3;
+  const c=A.createController({mem:m,getCatalog:()=>cat,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:hunting?'on':'',controls:[{id:'autoBtn'},{aq:'mq'},{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true}]}),
+    click:async control=>{if(control.act==='atab')return;assert.equal(control.id,'autoBtn');hunting=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('autonomy_wait');assert.equal(a.lastResult.ok,true);assert.equal(a.resume,null);assert.equal(a.farm.map,'field');
+});
+
+test('storage cooldown preserves ownership of an active farm route',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.town_storage=clock;
+  a.bagUsage=[95,100];a.farm={map:'field',started:clock};
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true,levelingFocus:true,crystalBudget:0}),'autonomy_wait');
+});
+
+test('leveling targets exclude roaming bosses, rare elites and monsters above the safe bracket',()=>{
+  const cat=catalog();cat.maps[1].monsters=[{id:'mob',n:3},{id:'boss',n:10},{id:'elite',n:0.4},{id:'high',n:5}];
+  cat.monsters.push({id:'boss',boss:true,lv:58,hp:10,exp:9999},{id:'elite',lv:58,hp:10,exp:9999},{id:'high',lv:80,hp:10,exp:9999});
+  assert.equal(A.levelingTarget(cat,'field',state()).id,'mob');assert.equal(A.levelingTarget(cat,'missing',state()),null);
+});
+
+test('a wider normal-target bracket requires an explicit bounded configuration',()=>{
+  const cat=catalog();cat.maps[1].monsters=[{id:'higher',n:3}];cat.monsters.push({id:'higher',lv:61,hp:1500,exp:200});
+  assert.equal(A.levelingTarget(cat,'field',state()),null);
+  assert.equal(A.levelingTarget(cat,'field',state(),4).id,'higher');
+  assert.equal(A.levelingTarget(cat,'field',state(),99),null);
+});
+
+test('periodic leveling review does not start a story boss route or walk back to an inferior map',async()=>{
+  const m={},a=A.init(m);a.farm={map:'field',returnMap:'town',returnMode:'mq',started:clock-31*60000};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state(),click:async()=>assert.fail('review must not dispatch travel or quests'),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('finish_farm');assert.equal(a.lastResult.ok,true);assert.equal(a.farm,null);assert.equal(a.resume,null);assert.equal(a.last.farm,0);
+});
+
+test('a native town recall retains the selected field as the return destination',async()=>{
+  const m={},a=A.init(m);a.farm={map:'field',returnMode:'mq'};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',autoHunt:'',controls:[]}),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town_storage');assert.equal(a.lastResult.ok,true);assert.equal(a.trip.returnMap,'field');assert.equal(a.trip.returnMode,'farm');
+});
+
+test('a cancelled farm teleport retries the verified map after a bounded wait without starting a quest',async()=>{
+  const m={},a=A.init(m);a.resume={map:'field',mode:'farm',at:clock-90000};const clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',autoHunt:'',controls:[{bm:'world'},{wm:'field'},{go:'field'},{aq:'mq'}]}),
+    click:async control=>{assert.equal(control.aq,undefined);clicked.push(control);},key:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('autonomy_wait');assert.equal(clicked.length,3);assert.equal(a.resume.map,'field');assert.equal(a.resume.at,clock);assert.equal(a.farm,undefined);
+  await c.run('autonomy_wait');assert.equal(clicked.length,3);
+});
+
+test('town service interacts with the verified NPC prompt instead of repeatedly walking to it',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'storage',at:clock,phase:'town'};a.bagUsage=[95,100];let panel=null,used=10;
+  const gear=Array.from({length:3},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'})),clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel,autoHunt:'',storageUsage:panel?[used,100]:null,storageGear:panel?gear:[],
+      controls:panel?gear.map(g=>({...g,act:'stmove'})):[{id:'interactBtn',label:'Talk to Storage 120-slot storage shared by all characters F'}]}),
+    click:async control=>{clicked.push(control);if(control.id==='interactBtn')panel='storage';else {gear.splice(gear.findIndex(g=>g.uid===control.uid),1);used++;}},
+    key:async()=>assert.fail('NPC already reached'),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],92);
+});

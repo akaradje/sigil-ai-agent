@@ -53,8 +53,9 @@ function loadEnv() {
   return out;
 }
 const ENV = { ...loadEnv(), ...process.env };
-const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
+const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_LEVELING_FOCUS==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
 autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
+autonomyPolicy.levelingMaxGap=Math.min(5,Math.max(3,Math.floor(Number(ENV.SIGIL_LEVELING_MAX_GAP)||3)));
 const availability=createAvailability({url:ENV.GAME_HEALTH_URL||''});
 availability.probe().catch(()=>{});
 setInterval(()=>{const wasDown=availability.blocked();availability.probe().then(()=>{if(wasDown&&!availability.blocked()){catalogWasConnected=false;catalogRetry=0;}}).catch(()=>{});},60000);
@@ -232,7 +233,7 @@ async function uiClick(c) {
 }
 async function uiScroll(c) {
   await gate();
-  const result=await evalIn(`(function(){const c=${JSON.stringify(c)};const nodes=Array.from(document.querySelectorAll('#pbody button,#pbody [data-act],#menu [data-open],#bigMap button'));const a=nodes.filter(e=>!e.disabled&&!e.closest('[hidden]')&&(c.id?e.id===c.id:c.place?e.dataset.place===c.place:c.wm?e.dataset.wm===c.wm:c.bm?e.dataset.bm===c.bm:c.go?e.dataset.go===c.go:c.act?e.dataset.act===c.act&&(e.dataset.id||null)===c.key&&(e.dataset.k||null)===c.k&&(e.dataset.v||null)===c.v&&(!c.branch||e.dataset.b===c.branch)&&(!c.uid||e.dataset.uid===c.uid&&e.dataset.dir===c.dir):c.open?e.dataset.open===c.open:false));const targets=c.boss?a.filter(e=>e.closest('.bbrow')?.querySelector('.bb-t > b')?.textContent.trim()===c.boss):a;if(targets.length!==1)return 'missing';targets[0].scrollIntoView({block:'center',inline:'nearest'});return 'scrolled';})()`);
+  const result=await evalIn(`(function(){const c=${JSON.stringify(c)};const nodes=Array.from(document.querySelectorAll('#pbody button,#pbody [data-act],#menu [data-open],#bigMap button'));const a=nodes.filter(e=>!e.disabled&&!e.closest('[hidden]')&&(c.id?e.id===c.id:c.place?e.dataset.place===c.place:c.wm?e.dataset.wm===c.wm:c.bm?e.dataset.bm===c.bm:c.go?e.dataset.go===c.go:c.act?e.dataset.act===c.act&&(e.dataset.id||null)===c.key&&(e.dataset.k||null)===c.k&&(e.dataset.v||null)===c.v&&(!c.branch||e.dataset.b===c.branch)&&(!c.amount||e.dataset.n===c.amount)&&(!c.uid||e.dataset.uid===c.uid&&e.dataset.dir===c.dir):c.open?e.dataset.open===c.open:false));const targets=c.boss?a.filter(e=>e.closest('.bbrow')?.querySelector('.bb-t > b')?.textContent.trim()===c.boss):a;if(targets.length!==1)return 'missing';targets[0].scrollIntoView({block:'center',inline:'nearest'});return 'scrolled';})()`);
   if(result!=='scrolled')throw Error('scroll target changed');
 }
 async function uiHold(k,ms,releaseSkill) {
@@ -600,7 +601,7 @@ async function runCycle() {
     }
     if(automatic&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
       if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
-      const routine=['stats','skills','rank','combat','configure'];
+      const routine=['stats','skills','gear','rank','combat','configure'];
       if(automatic==='autonomy_wait'&&routine.includes(planned))await runPolicy(p.state);
       else {actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}
       return;
@@ -760,7 +761,7 @@ setTimeout(() => runCycle().catch((e) => log('first ' + e.message)), 4000);
 
 // Independent bounded panel watchdog also runs while a remote model call is waiting.
 setInterval(async()=>{
-  if(cleanupBusy||actionInFlight||availability.blocked())return;
+  if(paused||cleanupBusy||actionInFlight||availability.blocked())return;
   cleanupBusy=true;
   try {
     const s=(await perceive(false)).state;
