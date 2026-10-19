@@ -60,6 +60,7 @@ const PAGE = `<!doctype html>
   .cell { background:#111621; padding:10px 12px; }
   .cell .k { font-size:11px; color:#7d8aa0; text-transform:uppercase; letter-spacing:.5px; }
   .cell .v { font-size:17px; font-weight:650; margin-top:2px; }
+  .detail { margin-top:5px; font-size:12px; color:#a9b6cc; overflow-wrap:anywhere; }
   .bar { height:6px; background:#1b2130; border-radius:4px; overflow:hidden; margin-top:6px; }
   .bar > i { display:block; height:100%; }
   .hp > i { background:linear-gradient(90deg,#ff6b6b,#ff9f43); }
@@ -101,6 +102,8 @@ const PAGE = `<!doctype html>
           <div class="bar hp"><i id="hpb" style="width:0%"></i></div></div>
         <div class="cell"><div class="k">MP</div><div class="v" id="mp">–</div>
           <div class="bar mp"><i id="mpb" style="width:0%"></i></div></div>
+        <div class="cell"><div class="k">อันดับปัจจุบัน · เลเวล</div><div class="v" id="currentRank">–</div><div class="detail" id="rankAge">รอตารางอันดับสด</div></div>
+        <div class="cell"><div class="k">ระยะห่างจาก Top 10</div><div class="v" id="top10Gap">–</div><div class="detail" id="top10ExpGap">รอตารางอันดับสด</div></div>
         <div class="cell"><div class="k">Gold</div><div class="v" id="gold">–</div></div>
         <div class="cell"><div class="k">Zone</div><div class="v" id="zone" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Crystals</div><div class="v" id="crystals">–</div></div>
@@ -147,6 +150,32 @@ function renderExp(value, text, labelId, barId, progressId) {
   else progress.setAttribute('aria-valuenow', String(percent));
 }
 
+function renderRanking(c, levelText) {
+  const ranked = Number.isInteger(c?.rank) && c.rank > 0;
+  const age = Number.isFinite(c?.rankAt) && c.rankAt > 0 ? Date.now() - c.rankAt : null;
+  const fresh = age !== null && age >= -60000 && age < 20 * 60000;
+  $('currentRank').textContent = ranked ? '#' + c.rank + (fresh ? '' : ' (ล่าสุด)') : '–';
+  $('rankAge').textContent = !ranked || age === null ? 'รอตารางอันดับสด' :
+    (fresh ? 'อัปเดต ' : 'ข้อมูลเก่า · ') + Math.max(0, Math.floor(age / 60000)) + ' นาทีที่แล้ว';
+  $('top10Gap').textContent = '–';
+  $('top10ExpGap').textContent = 'รอตารางอันดับสด';
+  if (!ranked || !fresh) return;
+  if (c.rank <= 10) {
+    $('top10Gap').textContent = 'อยู่ใน Top 10 แล้ว';
+    $('top10ExpGap').textContent = 'อันดับ #' + c.rank;
+    return;
+  }
+  const ownLevel = Number(String(levelText || '').match(/[0-9]+/)?.[0]);
+  const levels = Number.isInteger(c.cutoff?.level) && ownLevel > 0 ? Math.max(0, c.cutoff.level - ownLevel) : null;
+  $('top10Gap').textContent = 'อีก ' + (c.rank - 10) + ' อันดับ' + (levels > 0 ? ' · ' + levels + ' เลเวล' : '');
+  const gap = c.gapExp;
+  if (Array.isArray(gap) && gap.length === 2 && gap.every(n => Number.isFinite(n) && n >= 0) && gap[1] >= gap[0] && gap[1] > 0) {
+    $('top10ExpGap').textContent = 'EXP ที่ขาดประมาณ ' + gap.map(n => Math.ceil(n).toLocaleString('en-US')).join('–') + ' · อันดับ 10 ไม่เผย %EXP';
+  } else {
+    $('top10ExpGap').textContent = levels === 0 ? 'เลเวลถึงเส้นตัดแล้ว · รอเกณฑ์ตัดสินอันดับ' : 'ยังไม่มีข้อมูลพอคำนวณ EXP ที่ขาด';
+  }
+}
+
 async function tickShot() {
   const img = $('shot');
   const url = '/shot.jpg?t=' + Date.now();
@@ -182,6 +211,7 @@ async function tickState() {
     const hold=a.resourceHold;
     $('resourceHold').textContent=hold?.active?(hold.awaitingCatalog?'พักอุปกรณ์รอง · รอตรวจสูตรใหม่':'พักอุปกรณ์รองก่อน Lv'+hold.nextLevel)+' · พบ '+(hold.unlocks?.length||0)+' รายการปลดล็อก':'ใช้นโยบายอัปเกรดปกติ';
     const c=j.strategy?.catchUp?.current,trend={waiting:'รอข้อมูล',uncertain:'ยังแยกความเร็วคู่แข่งไม่ได้',closing:'กำลังตีตื้น',falling:'คู่แข่งโตเร็วกว่า',flat:'EXP ตัวเรายังไม่เพิ่ม',top10:'ติด Top 10 แล้ว','cap-tie':'ต้องตรวจเกณฑ์เสมอที่เพดาน'};
+    renderRanking(c, s.lv);
     const fresh=c&&Date.now()-c.rankAt<20*60000;
     $('catchup').textContent=fresh&&c.cutoff?c.cutoff.name+' Lv'+c.cutoff.level+' · '+trend[c.status]+' · ข้อมูล '+Math.floor((Date.now()-c.rankAt)/60000)+' นาที':'รอตารางอันดับสด';
     const eta=fresh&&(c.etaMovingMinutes||c.etaStaticMinutes);
