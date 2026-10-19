@@ -11,7 +11,7 @@ const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'ga
 const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'ui-resilience.test.js',
   'game-telemetry.test.js', 'progression.test.js', 'session-hygiene.test.js', 'strategy-dna.test.js',
   'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'uptime-worker/monitor.test.mjs']);
-const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'supervisor.js', 'telegram-alerts.js', 'viewer.js',
+const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'package.json', 'supervisor.js', 'telegram-alerts.js', 'viewer.js',
   'self-evolution.js', 'self-evolution-runner.js', 'uptime-worker/monitor.mjs'])]);
 const ACTIVE = new Set(['REPAIRING', 'VERIFYING']);
 const hash = text => crypto.createHash('sha256').update(text).digest('hex');

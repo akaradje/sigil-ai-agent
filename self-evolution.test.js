@@ -19,13 +19,14 @@ function fixture(t,opts={}) {
     const dest=path.join(repo,name);fs.mkdirSync(path.dirname(dest),{recursive:true});
     fs.copyFileSync(path.join(__dirname,name),dest);
     fs.chmodSync(dest,0o600);
+    if(name==='ui-resilience.js')fs.writeFileSync(dest,'// synthetic unit fixture marker\n'+fs.readFileSync(dest,'utf8'));
   }
   const calls=[];
   const engine=new E.SelfEvolutionEngine({dir:path.join(dir,'state'),repoDir:repo,now:()=>NOW,
     repair:async()=>proposal(),verify:async(files,jobDir,label)=>{calls.push(label);return {ok:true};},...opts});
   return {dir,repo,calls,engine,h:health({buildId:E.sourceFingerprint(repo)})};
 }
-function proposal() {return {edits:[{file:'ui-resilience.js',find:'// A shared, UI-only boundary:',replace:'// Verified candidate: a shared, UI-only boundary:'}],
+function proposal() {return {edits:[{file:'ui-resilience.js',find:'// synthetic unit fixture marker',replace:'// repaired synthetic unit fixture marker'}],
   test:"const{test}=require('node:test');const assert=require('node:assert/strict');test('candidate remains closed without state',()=>assert.equal(require('./ui-resilience').assess({}).blocked,true));"};}
 
 test('redaction covers Bearer credentials, key names, JWT and known encoded private values',()=>{
@@ -57,7 +58,7 @@ test('snapshot exports only enumerated health fields, never arbitrary runtime/er
   assert.deepEqual(h.missing,['hp']);assert.equal(JSON.stringify(h).includes('SYNTHETIC_PRIVATE'),false);
 });
 test('proposals cannot traverse paths, edit protected tests, delete or ambiguously replace code',()=>{
-  const p=proposal(),base={'ui-resilience.js':'// A shared, UI-only boundary:'};
+  const p=proposal(),base={'ui-resilience.js':'// synthetic unit fixture marker'};
   assert.equal(E.validateProposal(p,base).changed.length,2);
   for(const file of ['../agent.js','agent.js','ui-resilience.test.js','self-evolution.js','supervisor.js','.env'])
     assert.throws(()=>E.validateProposal({...p,edits:[{...p.edits[0],file}]},base),{code:'EDIT_OUT_OF_SCOPE'});
