@@ -12,6 +12,10 @@
 const http = require('http');
 const fs = require('fs');
 const IQ = require('./game-intelligence');
+const {createAvailability}=require('./server-availability');
+const availability=createAvailability({url:process.env.GAME_HEALTH_URL||''});
+availability.probe().catch(()=>{});
+setInterval(()=>availability.probe().catch(()=>{}),60000);
 
 const path = require('node:path');
 const DIR = process.env.AGENT_DIR || __dirname;
@@ -141,9 +145,11 @@ const mem = {
 };
 
 async function tick() {
+  if(availability.blocked()){log('game unavailable; recovery controls paused');return;}
   let s;
   try {
     s = await readState();
+    if(!s)throw Error('harness returned no readable game state');
     mem.consecutiveFails = 0;
   } catch (e) {
     mem.consecutiveFails++;
@@ -302,7 +308,7 @@ async function restartHarness() {
       return;
     }
     const { execFileSync } = require('node:child_process');
-    execFileSync('/usr/bin/systemctl', ['restart', 'sigil-harness.service'], { stdio: 'ignore', timeout: 15000 });
+    execFileSync('/usr/bin/sudo', ['-n','/usr/bin/systemctl', 'restart', 'sigil-harness.service'], { stdio: 'ignore', timeout: 20000 });
     await sleep(22000);
     mem.consecutiveFails = 0;
   } catch (e) {

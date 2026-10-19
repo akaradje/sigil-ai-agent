@@ -15,7 +15,7 @@ const DIR = process.env.AGENT_DIR || __dirname;
 const PORT = Number(process.env.VIEWER_PORT || 8080);
 const TOKEN_FILE = path.join(DIR, 'viewer-token.txt');
 const TOKEN = (process.env.VIEWER_TOKEN || (fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8') : '')).trim();
-if (!TOKEN || TOKEN.length < 24) throw new Error('Set VIEWER_TOKEN (at least 24 characters) before starting the viewer');
+if (!TOKEN || TOKEN.length < (process.env.VIEWER_ALLOW_LEGACY_TOKEN==='1'?16:24)) throw new Error('Set VIEWER_TOKEN (at least 24 characters) before starting the viewer');
 
 function proxy(base, p, res, type) {
   http.get(base + p, { timeout: 25000 }, (r) => {
@@ -74,7 +74,7 @@ const PAGE = `<!doctype html>
 <body>
 <header>
   <span class="dot" id="dot"></span>
-  <b>ExampleHero</b>
+  <b id="character">Sigil · live</b>
   <span class="badge" id="brain">…</span>
   <span class="badge" id="age">–</span>
   <span style="margin-left:auto;color:#5d6879;font-size:12px">read-only</span>
@@ -96,6 +96,13 @@ const PAGE = `<!doctype html>
           <div class="bar mp"><i id="mpb" style="width:0%"></i></div></div>
         <div class="cell"><div class="k">Gold</div><div class="v" id="gold">–</div></div>
         <div class="cell"><div class="k">Zone</div><div class="v" id="zone" style="font-size:14px">–</div></div>
+        <div class="cell"><div class="k">Crystals</div><div class="v" id="crystals">–</div></div>
+        <div class="cell"><div class="k">Inventory</div><div class="v" id="bag">–</div></div>
+        <div class="cell"><div class="k">Autonomous mode</div><div class="v" id="mode" style="font-size:14px">–</div></div>
+        <div class="cell"><div class="k">Level / refine cap</div><div class="v" id="cap">–</div></div>
+        <div class="cell"><div class="k">Measured EXP / min</div><div class="v" id="expRate">–</div></div>
+        <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
           <div class="v" id="quest" style="font-size:14px">–</div></div>
       </div>
@@ -138,6 +145,17 @@ async function tickState() {
     const j = await r.json();
     const s = j.state || {};
     const b = j.brain || {};
+    const a=j.strategy?.autonomy||{};
+    $('character').textContent=s.name||'Sigil · live';
+    $('crystals').textContent=s.crystals??'–';
+    $('bag').textContent=a.bagUsage?a.bagUsage.join(' / '):'ยังไม่ตรวจ';
+    $('mode').textContent=j.availability?.status==='down'?'พักรอเซิร์ฟเวอร์':a.mode||'ยังไม่เปิด autonomy';
+    $('cap').textContent=(a.cap?.level??'?')+' / +'+(a.catalog?.refineMax??'?');
+    $('expRate').textContent=a.expPerMinute??'กำลังวัด';
+    $('budget').textContent=(a.premium?.spent||0)+' / '+(a.premium?.reserved||0);
+    $('craft').textContent=a.goal?a.goal.name+' · '+(a.craftProgress??0)+'% ของวัตถุดิบ':a.gearCapped?'อุปกรณ์ถึงเพดานที่ตรวจแล้ว':'ยังไม่มีสูตรเป้าหมาย';
+    $('craftbar').style.width=Math.max(0,Math.min(100,a.craftProgress||0))+'%';
+    $('materials').textContent=(a.goal?.missing||[]).map(m=>m.id+': '+m.have+'/'+m.need).join('\\n')+(a.blocked?'\\n'+a.blocked:'');
     $('lv').textContent = s.lv || '–';
     $('jl').textContent = s.jobLv || '–';
     $('hp').textContent = s.hp ? s.hp[0] + ' / ' + s.hp[1] : '–';

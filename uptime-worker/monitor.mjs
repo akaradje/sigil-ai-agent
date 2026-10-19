@@ -74,14 +74,22 @@ async function probe(env) {
   return viewer;
 }
 
-function message(event, test = false) {
+export async function probeGame(env) {
+  try {
+    const response = await fetch(env.GAME_HEALTH_URL, { signal: AbortSignal.timeout(8000), redirect: 'follow' });
+    await response.body?.cancel();
+    return { healthy: response.ok, detail: `Game HTTP ${response.status}` };
+  } catch { return { healthy: false, detail: 'Game HTTP connection failed/timeout' }; }
+}
+
+function message(event, test = false, target = 'VPS / Live Viewer') {
   const time = (at) => new Intl.DateTimeFormat('th-TH', {
     timeZone: 'Asia/Bangkok', dateStyle: 'short', timeStyle: 'short',
   }).format(new Date(at));
   const duration = Math.max(0, Math.round((event.at - event.downAt) / MINUTE));
   const text = event.kind === 'down'
-    ? `🚨 VPS / Live Viewer เข้าไม่ได้จากภายนอก\nตรวจไม่ผ่านติดกัน 3 รอบ (ทุก 1 นาที)\nเริ่มพบปัญหา ${time(event.downAt)}\n${event.detail}`
-    : `✅ VPS / Live Viewer กลับมาเข้าถึงได้แล้ว\nตรวจผ่านติดกัน 2 รอบ\nช่วงที่ตรวจพบปัญหาประมาณ ${duration} นาที\n${event.detail}`;
+    ? `🚨 ${target} เข้าไม่ได้จากภายนอก\nตรวจไม่ผ่านติดกัน 3 รอบ (ทุก 1 นาที)\nเริ่มพบปัญหา ${time(event.downAt)}\n${event.detail}`
+    : `✅ ${target} กลับมาเข้าถึงได้แล้ว\nตรวจผ่านติดกัน 2 รอบ\nช่วงที่ตรวจพบปัญหาประมาณ ${duration} นาที\n${event.detail}`;
   return (test ? '🧪 ทดสอบแจ้งล่ม/กลับมา — ไม่ได้ปิด VPS จริง\n\n' : '') + text + `\nตรวจโดย Cloudflare · ${time(event.at)} (ไทย)`;
 }
 
@@ -112,24 +120,24 @@ async function persist(db, id, owner, state) {
   if (!result.meta.changes) throw new Error('Monitor lease lost');
 }
 
-async function check(env) {
+async function check(env, channel = 'production') {
   const db = env.UPTIME_DB;
   await init(db);
   const now = Date.now(), owner = crypto.randomUUID();
-  await db.prepare('INSERT OR IGNORE INTO uptime_state (id,payload) VALUES (?,?)').bind('production', JSON.stringify(initialState())).run();
+  await db.prepare('INSERT OR IGNORE INTO uptime_state (id,payload) VALUES (?,?)').bind(channel, JSON.stringify(initialState())).run();
   const lease = await db.prepare('UPDATE uptime_state SET lease_until=?, owner=? WHERE id=? AND lease_until<?')
-    .bind(now + 45_000, owner, 'production', now).run();
+    .bind(now + 45_000, owner, channel, now).run();
   if (!lease.meta.changes) return { skipped: 'check already running' };
   try {
-    let state = await load(db, 'production');
+    let state = await load(db, channel);
     if (now - state.lastCheck < 50_000) return { skipped: 'checked recently' };
-    const result = await probe(env);
+    const result = channel==='game' ? await probeGame(env) : await probe(env);
     state = advance(state, result.healthy, now, result.detail);
-    await persist(db, 'production', owner, state);
+    await persist(db, channel, owner, state);
     if (state.pending.length && now >= state.retryAt) {
       const event = state.pending[0];
       try {
-        const id = await send(env, message(event), event.kind === 'up');
+        const id = await send(env, message(event, false, channel==='game'?'Sigil Online':'VPS / Live Viewer'), event.kind === 'up');
         state.pending.shift(); state.retryAt = 0;
         state.lastDelivery = { at: Date.now(), kind: event.kind, messageId: id };
         state.deliveryError = null;
@@ -137,13 +145,13 @@ async function check(env) {
         state.retryAt = Date.now() + Math.max(MINUTE, error.retryMs || MINUTE);
         state.deliveryError = 'Telegram delivery failed; queued for retry';
       }
-      await persist(db, 'production', owner, state);
+      await persist(db, channel, owner, state);
     }
     console.log(JSON.stringify({ type: 'uptime-check', healthy: result.healthy, status: state.status,
       failures: state.failures, successes: state.successes, pending: state.pending.length }));
     return state;
   } finally {
-    await db.prepare('UPDATE uptime_state SET lease_until=0,owner=NULL WHERE id=? AND owner=?').bind('production', owner).run();
+    await db.prepare('UPDATE uptime_state SET lease_until=0,owner=NULL WHERE id=? AND owner=?').bind(channel, owner).run();
   }
 }
 
@@ -182,7 +190,7 @@ async function selftest(env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(check(env));
+    ctx.waitUntil(Promise.all([check(env),...(env.GAME_HEALTH_URL?[check(env,'game')]:[])]));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -191,7 +199,7 @@ export default {
     if (!env.UPTIME_DB || !env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return json({ error: 'configuration incomplete' }, 503);
     if (url.pathname === '/admin/status' && request.method === 'GET') {
       await init(env.UPTIME_DB);
-      return json({ production: await load(env.UPTIME_DB, 'production'), selftest: await load(env.UPTIME_DB, 'selftest') });
+      return json({ production: await load(env.UPTIME_DB, 'production'), selftest: await load(env.UPTIME_DB, 'selftest'), game: await load(env.UPTIME_DB, 'game') });
     }
     if (url.pathname === '/admin/check' && request.method === 'POST') return json(await check(env));
     if (url.pathname === '/admin/test' && request.method === 'POST') return json(await selftest(env));

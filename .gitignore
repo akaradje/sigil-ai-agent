@@ -26,6 +26,7 @@ harness.js
 *.log
 *.jsonl
 agent-memory.json
+game-catalog-cache.json
 telegram-alerts-state.json
 agent-diary.md
 agent-lessons.md

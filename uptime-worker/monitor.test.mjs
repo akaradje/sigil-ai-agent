@@ -4,8 +4,18 @@ import fs from 'node:fs';
 // Cloudflare's sockets are exercised after deployment; isolate the pure state machine here.
 const source = fs.readFileSync(new URL('./monitor.mjs', import.meta.url), 'utf8')
   .replace("import { connect } from 'cloudflare:sockets';", 'const connect = () => { throw new Error("not available in unit tests"); };');
-const { initialState, advance, default: worker } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const { initialState, advance, probeGame, default: worker } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const minute = 60_000;
+test('game HTTP probe uses its separate HTTPS target and does not send any Telegram command',async()=>{
+  const original=globalThis.fetch;const calls=[];
+  try {
+    globalThis.fetch=async url=>{calls.push(url);return new Response('',{status:200});};
+    assert.equal((await probeGame({GAME_HEALTH_URL:'https://game.example.test/'})).healthy,true);
+    globalThis.fetch=async()=>new Response('',{status:503});assert.equal((await probeGame({GAME_HEALTH_URL:'https://game.example.test/'})).healthy,false);
+    globalThis.fetch=async()=>{throw Error('timeout');};assert.equal((await probeGame({GAME_HEALTH_URL:'https://game.example.test/'})).healthy,false);
+    assert.deepEqual(calls,['https://game.example.test/']);
+  }finally{globalThis.fetch=original;}
+});
 
 test('two failed checks are transient; third failure opens one incident', () => {
   let s = advance(initialState(), true, minute);

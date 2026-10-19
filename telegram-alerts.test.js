@@ -11,6 +11,18 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('verified autonomy events persist across restarts without duplicate or inferred claims',()=>{
+  const e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[],mode:'leveling'}};
+  e.observe(s,start);assert.equal(keys(e).some(k=>k.startsWith('autonomy:')),false);
+  s.agent.strategy.autonomy.events=[{id:1,type:'cbt_claimed',detail:{crystals:5000,vip:'VIP3'}},{id:2,type:'cap_expanded',detail:{from:99,to:120}}];
+  e.observe(s,start+1000);const pending=e.db.pending.filter(x=>x.key.startsWith('autonomy:'));assert.equal(pending.length,2);
+  e.acknowledge(pending);const restarted=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+2000);restarted.observe(s,start+3000);
+  assert.equal(restarted.db.pending.filter(x=>x.key.startsWith('autonomy:')).length,0);
+});
+test('managed material farming does not produce a false Auto Quest stopped alert',()=>{
+  const e=new AlertEngine({},start),s=sample({autoQuestRunning:false});s.agent.strategy={autonomy:{farm:{map:'field'},events:[]}};
+  e.observe(s,start);e.observe(s,start+10*MIN);assert.equal(keys(e).some(k=>k.includes('incident:auto')),false);
+});
 function ranked(rank, at, change = {}) {
   const s = sample(change);
   s.agent.strategy = { rank: { kind: 'lv', character: s.agent.state.name, at,

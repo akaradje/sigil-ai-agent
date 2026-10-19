@@ -17,6 +17,9 @@ const path = require('path');
 const {execFile} = require('child_process');
 const nativeKey = (...args) => new Promise((resolve,reject)=>execFile('/usr/bin/xdotool',args,{env:{...process.env,DISPLAY:process.env.DISPLAY || ':99'},timeout:3000},e=>e?reject(e):resolve()));
 const IQ = require('./game-intelligence');
+const Autonomy = require('./autonomy');
+const Catalog = require('./game-catalog');
+const {createAvailability}=require('./server-availability');
 
 const HARNESS = process.env.HARNESS || 'http://127.0.0.1:4799';
 const DIR = process.env.AGENT_DIR || __dirname;
@@ -45,6 +48,10 @@ function loadEnv() {
   return out;
 }
 const ENV = { ...loadEnv(), ...process.env };
+const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
+const availability=createAvailability({url:ENV.GAME_HEALTH_URL||''});
+availability.probe().catch(()=>{});
+setInterval(()=>{const wasDown=availability.blocked();availability.probe().then(()=>{if(wasDown&&!availability.blocked()){catalogWasConnected=false;catalogRetry=0;}}).catch(()=>{});},60000);
 const API_KEY = ENV.META_API_KEY;
 const API_BASE = ENV.AGENT_BASE || 'https://api.meta.ai/v1';
 // Configure one model explicitly; no automatic model fallback.
@@ -105,7 +112,7 @@ async function gate(cleanup=false) {
   while (actionTimes.length && actionTimes[0] < cutoff) actionTimes.shift();
   if (actionTimes.length >= MAX_ACTIONS_PER_MIN-(cleanup?0:2)) {
     const more = actionTimes[0] + 60000 - Date.now();
-    if (more>2000) throw Error('action budget cooling down');
+    if (more>2000) throw Object.assign(new Error('action budget cooling down'),{code:'ACTION_BUDGET'});
     if (more > 0) await sleep(more);
   }
   lastAction = Date.now();
@@ -151,6 +158,7 @@ function knowledge(state={}) {
 async function perceive(withShot) {
   const raw = await evalIn(P.state);
   let state; try { state=JSON.parse(raw); } catch { throw Error('invalid perception'); }
+  if(autonomyPolicy.enabled)Autonomy.update(memory,state,catalog,Date.now(),autonomyPolicy.goldReserve);
   const out={state,buttons:state.buttons,controls:state.controls};
   if(withShot) { try { const buf=await reqBuf('/screenshot'); if(buf.length>2000)out.shot=buf.toString('base64'); } catch {} }
   return out;
@@ -169,7 +177,7 @@ async function uiKey(k) { await gate(k==='Escape');await req('/type?key='+encode
 async function uiClick(c) {
   await gate();
   const st=(await perceive(false)).state;
-  let matches=st.controls.filter(x=>c.id?x.id===c.id:c.act?x.act===c.act&&x.key===c.key&&x.k===c.k&&x.v===c.v&&(!c.branch||x.branch===c.branch):c.open?x.open===c.open:c.aq?x.aq===c.aq:c.go?x.go===c.go:x.label===c.label);
+  let matches=st.controls.filter(x=>c.id?x.id===c.id:c.act?x.act===c.act&&x.key===c.key&&x.k===c.k&&x.v===c.v&&(!c.branch||x.branch===c.branch)&&(!c.amount||x.amount===c.amount):c.open?x.open===c.open:c.aq?x.aq===c.aq:c.go?x.go===c.go:c.bm?x.bm===c.bm:c.wm?x.wm===c.wm:c.place?x.place===c.place:x.label===c.label);
   if(c.boss)matches=matches.filter(x=>x.boss===c.boss);
   if(c.uid)matches=matches.filter(x=>x.uid===c.uid&&x.dir===c.dir);
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
@@ -178,7 +186,7 @@ async function uiClick(c) {
 }
 async function uiScroll(c) {
   await gate();
-  const result=await evalIn(`(function(){const c=${JSON.stringify(c)};const nodes=Array.from(document.querySelectorAll('#pbody button,#pbody [data-act],#menu [data-open],#bigMap button'));const a=nodes.filter(e=>!e.disabled&&!e.closest('[hidden]')&&(c.id?e.id===c.id:c.place?e.dataset.place===c.place:c.act?e.dataset.act===c.act&&(e.dataset.id||null)===c.key&&(e.dataset.k||null)===c.k&&(e.dataset.v||null)===c.v&&(!c.branch||e.dataset.b===c.branch)&&(!c.uid||e.dataset.uid===c.uid&&e.dataset.dir===c.dir):c.open?e.dataset.open===c.open:false));const targets=c.boss?a.filter(e=>e.closest('.bbrow')?.querySelector('.bb-t > b')?.textContent.trim()===c.boss):a;if(targets.length!==1)return 'missing';targets[0].scrollIntoView({block:'center',inline:'nearest'});return 'scrolled';})()`);
+  const result=await evalIn(`(function(){const c=${JSON.stringify(c)};const nodes=Array.from(document.querySelectorAll('#pbody button,#pbody [data-act],#menu [data-open],#bigMap button'));const a=nodes.filter(e=>!e.disabled&&!e.closest('[hidden]')&&(c.id?e.id===c.id:c.place?e.dataset.place===c.place:c.wm?e.dataset.wm===c.wm:c.bm?e.dataset.bm===c.bm:c.go?e.dataset.go===c.go:c.act?e.dataset.act===c.act&&(e.dataset.id||null)===c.key&&(e.dataset.k||null)===c.k&&(e.dataset.v||null)===c.v&&(!c.branch||e.dataset.b===c.branch)&&(!c.uid||e.dataset.uid===c.uid&&e.dataset.dir===c.dir):c.open?e.dataset.open===c.open:false));const targets=c.boss?a.filter(e=>e.closest('.bbrow')?.querySelector('.bb-t > b')?.textContent.trim()===c.boss):a;if(targets.length!==1)return 'missing';targets[0].scrollIntoView({block:'center',inline:'nearest'});return 'scrolled';})()`);
   if(result!=='scrolled')throw Error('scroll target changed');
 }
 async function uiHold(k,ms,releaseSkill) {
@@ -213,6 +221,22 @@ async function uiHold(k,ms,releaseSkill) {
   } finally {await nativeKey('keyup','t');}
 }
 const executor=IQ.createExecutor({observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,hold:uiHold,sleep,log,save:saveMemory,mem:memory});
+let catalog=null,catalogRetry=0;
+const catalogFile=path.join(DIR,'game-catalog-cache.json');
+try {const cached=JSON.parse(fs.readFileSync(catalogFile,'utf8'));catalog=Catalog.validateCatalog(cached.data,cached.at);}catch{}
+let catalogWasConnected=false;
+async function refreshCatalog(s) {
+  const connected=Boolean(s.name),reconnected=connected&&!catalogWasConnected;catalogWasConnected=connected;
+  if(!autonomyPolicy.enabled||!connected||Date.now()<catalogRetry||(!reconnected&&catalog&&Date.now()-catalog.at<6*3600000))return;
+  catalogRetry=Date.now()+5*60000;
+  try {
+    const data=JSON.parse(await evalIn(Catalog.CATALOG_EXPRESSION));catalog=Catalog.validateCatalog(data);
+    Autonomy.catalogChanged(memory,catalog);
+    fs.writeFileSync(catalogFile+'.tmp',JSON.stringify({data,at:catalog.at}),{mode:0o600});fs.renameSync(catalogFile+'.tmp',catalogFile);
+    log('public catalog refreshed; level cap '+(catalog.levelCap??'unknown')+', refine cap '+catalog.refineMax);
+  }catch{log('public catalog unavailable; retaining last verified metadata');}
+}
+const autonomy=Autonomy.createController({mem:memory,observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,log,getCatalog:()=>catalog,policy:autonomyPolicy});
 
 // ------------------------------------------------------------------ tools
 const TOOLS = [
@@ -451,6 +475,9 @@ EFFICIENT CONTROL:
 - The deterministic boss workflow reads the Boss Board Go button, approaches its live position, then resumes class-quest combat. Do not interrupt a boss approach or a Time Eater fight.
 - Gold is numeric. Maintain a 10000 G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
 - Only routine gameplay for this character. No chat/messages, trading, premium purchases, account settings or destructive inventory actions.
+- Autonomous capacity purchases use a separate deterministic workflow and persistent budget; never attempt them through LLM tools. Public catalog definitions are advisory and current live UI must confirm every action.
+- AUTONOMY STATE: ${JSON.stringify(memory.autonomy?{mode:memory.autonomy.mode,cap:memory.autonomy.cap,goal:memory.autonomy.goal,blocked:memory.autonomy.blocked}:null)}
+- Never override an autonomous material farm, town trip or queued return. Do not infer a level cap from a leaderboard, job cap or stalled EXP.
 - Rank is measured about every 5 minutes. Keep the primary Top10 objective; write tactical plans in notes instead of replacing it. Never claim a rank without the fresh level leaderboard.
 - Maximum five tool calls; finish a transaction in the available budget. Prefer no menu when farming is healthy.
 
@@ -482,16 +509,28 @@ let paused = false;
 let directive = '';
 
 async function runCycle() {
-  if (busy || paused) return;
+  if (busy || paused || availability.blocked()) return;
   busy = true;
   cycle++;
   try {
     const p = await perceive(false);
     if (!p.state) { log('no state'); return; }
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||''));
+    await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
-    IQ.updateMetrics(memory,p.state);saveMemory();
+    IQ.updateMetrics(memory,p.state);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
     const planned=IQ.chooseTask(p.state,memory);
+    const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
+    const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(automatic&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
+      if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
+      const routine=['stats','skills','rank','combat','configure'];
+      if(automatic==='autonomy_wait'&&memory.autonomy?.farm&&Date.now()-(memory.last.rank||0)>300000) {
+        actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}
+      }else if(automatic==='autonomy_wait'&&routine.includes(planned))await runPolicy(p.state);
+      else {actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}
+      return;
+    }
     if(planned!=='observe') {
       await runPolicy(p.state);
       fs.appendFileSync(DECISIONS,JSON.stringify({t:Date.now(),cycle,brain:'workflow',task:memory.task,performance:memory.performance})+'\n');
@@ -596,11 +635,11 @@ async function runCycle() {
 http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
-    if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:3,busy,paused}));
+    if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:4,busy,paused,availability:availability.state,autonomy:autonomyPolicy.enabled}));
     if (u.pathname === '/state') {
       const p = await perceive(false);
       return res.end(JSON.stringify({
-        cycle, paused, busy, version:3, strategy:memory, directive, brain: { ...brain, model: MODEL, ready: modelReady() },
+        cycle, paused, busy, version:4, availability:availability.state, strategy:memory, directive, brain: { ...brain, model: MODEL, ready: modelReady() },
         state: p.state, buttons: p.buttons,
       }, null, 1));
     }
@@ -647,7 +686,7 @@ setTimeout(() => runCycle().catch((e) => log('first ' + e.message)), 4000);
 
 // Independent bounded panel watchdog also runs while a remote model call is waiting.
 setInterval(async()=>{
-  if(cleanupBusy||actionInFlight)return;
+  if(cleanupBusy||actionInFlight||availability.blocked())return;
   cleanupBusy=true;
   try {
     const s=(await perceive(false)).state;

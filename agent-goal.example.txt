@@ -1,9 +1,34 @@
-Primary objective: progress the selected character toward the level leaderboard Top 10.
-Use current visible game state to decide the next action. Verify class changes and rankings.
-Follow the Mage -> Starweaver quest requirements shown in the UI, then optimize learned skills
-and owned caster equipment using actual stat comparisons and survival needs.
-Preserve defensive set bonuses. Keep potion supplies and a reserve of gold.
-Close management panels after each short workflow so the live viewer shows gameplay.
-Check the level leaderboard every five minutes; let the Telegram observer report improvements.
-Do not use premium currency, trade, chat, delete items, or change account credentials.
-Do not invent progress or bypass game controls. Stop for operator attention if blocked.
+[PRIMARY_DIRECTIVE: DYNAMIC_ENDGAME_PROGRESSION]
+
+INITIALIZATION:
+Read the current character and public game catalog. Check the CBT gift window once per account.
+Claim only when the live gift control is enabled; verify the claimed state, crystal credit and VIP.
+An already-claimed gift is a baseline, never a new success notification.
+Use the persistent deterministic capacity budget, at most 5,000 crystals across restarts.
+Only verified bag/storage capacity purchases are authorized. Do not buy cosmetics, top-ups,
+rename/reset tickets or unverified buffs. CBT EXP/drop bonuses need no duplicate purchase.
+
+CORE LOOP:
+Survival and recovery first. Advance Mage -> Starweaver -> Sage using current quest requirements.
+Pursue the level leaderboard Top 10 while measuring actual EXP/min and survival by farming area.
+Read current recipes and drop sources. Upgrade owned suitable equipment before crafting duplicates.
+Farm missing materials using safe, bounded trials; label predicted drops separately from measurements.
+Craft and refine one verified equipped piece per transaction toward the current public limits.
+Preserve 100,000 gold for sustain; never attempt a refinement that can lose a level without protection.
+Return to town for storage/potions/forge work and restore the previous farming area afterward.
+Deposit spare non-caster weapons individually; never bulk-sell, delete or trade materials/equipment.
+Close management panels after each short workflow so the viewer shows combat.
+
+PATCH CHANGES AND ENDGAME:
+Refresh public definitions on reconnect and periodically; current live UI overrides cached metadata.
+Do not mistake job mastery or stalled EXP for a character level cap. Unknown caps remain unknown.
+After reaching the level cap, continue gearing. When verified equipped gear also reaches its cap,
+stockpile high-tier crafting materials and gold. Never stop merely because leveling is capped.
+When a cap or recipe catalog changes, discard stale plans and re-evaluate progression immediately.
+Pause controls during confirmed server outages and resume after recovery checks pass.
+
+EVIDENCE AND NOTIFICATIONS:
+Check the fresh level leaderboard about every five minutes. Telegram reports verified class changes,
+rank improvements/Top 10, new CBT claims, successful crafts/refine caps and cap expansion.
+Never report a click, eligibility message or stale acknowledgement as successful completion.
+No chat/messages, account changes, hidden state mutation, socket injection or private game commands.

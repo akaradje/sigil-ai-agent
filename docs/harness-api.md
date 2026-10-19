@@ -19,3 +19,11 @@ commands in the adapter. Use a real display/browser focus compatible with `xdoto
 Only one character controller should own the browser. The viewer receives screenshots/state via
 explicit read-only routes; it must never forward arbitrary harness requests. Keep login recovery,
 browser process lifecycle, cookie storage, and optional `sigil-harness.service` configuration private.
+
+
+The autonomy catalog expression imports only immutable public definitions from the same game's
+`/src/data.js`, `/src/world.js` and `/src/premium-data.js`, and reads the public UI source for its
+level-cap condition. These are ordinary static resources already served to players, not new game
+API endpoints. No internal player object, socket, authentication token or mutation function is used.
+If those public definitions or the rendered selectors change, catalog validation/transactions fail
+closed and the last verified catalog is kept until refresh succeeds.

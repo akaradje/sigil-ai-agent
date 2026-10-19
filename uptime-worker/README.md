@@ -28,3 +28,10 @@ Public `GET /health` reports only Worker liveness, not VPS health. Authenticated
 The test route sends explicitly labeled simulated down/recovery Telegram messages; it does not
 stop the VPS. Do not call it unless you want those messages. Secrets and database identifiers in
 your deployment should stay outside the public source tree.
+
+
+Optional `GAME_HEALTH_URL` adds an independent HTTPS probe of the game's public site with a
+separate D1 incident/outbox named `game`. VPS and game checks cannot overwrite each other's
+incidents. Both keep the same three-failure / two-success hysteresis. `/admin/status` includes
+both channels. The local agent/supervisor separately observe availability to pause/resume controls;
+the external Worker sends alerts only and has no access to game control endpoints.

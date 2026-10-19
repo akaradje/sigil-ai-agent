@@ -9,7 +9,7 @@
     "supervisor": "node --env-file-if-exists=.env supervisor.js",
     "viewer": "node --env-file-if-exists=.env viewer.js",
     "alerts": "node --env-file-if-exists=.env telegram-alerts.js",
-    "test": "node --test game-intelligence.test.js telegram-alerts.test.js uptime-worker/monitor.test.mjs viewer.test.js",
+    "test": "node --test game-intelligence.test.js autonomy.test.js telegram-alerts.test.js uptime-worker/monitor.test.mjs viewer.test.js",
     "security:files": "python scripts/check-public-files.py"
   }
 }

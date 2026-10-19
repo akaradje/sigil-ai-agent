@@ -84,3 +84,50 @@ GitHub Actions รัน tests, ตรวจรายการไฟล์ต้
 
 ใช้งานเฉพาะบัญชีและระบบที่คุณมีสิทธิ์ และตรวจข้อกำหนดของเกมก่อนเปิดระบบอัตโนมัติ
 การจัดอันดับขึ้นอยู่กับเกม ผู้เล่นอื่น ทรัพยากร และเสถียรภาพ ไม่มีการรับประกัน Top 10
+
+## Dynamic autonomous progression
+
+`SIGIL_AUTONOMY=1` enables the deterministic town/farm/craft controller in `autonomy.js`.
+Copy `agent-goal.example.txt` to the private `agent-goal.txt`. Set `GOLD_RESERVE` (default 100000)
+and `CBT_CRYSTAL_BUDGET` (default 0, maximum 5000) in your private `.env`. The separate public
+repository never contains the runtime budget, character inventory, cached catalog or alert state.
+
+- `game-catalog.js` reads immutable public definitions served to the game page: recipes, drops,
+  maps, job caps, EXP curve and refine cap. It does not access player memory, private APIs or send
+  game intents. The current character cap is parsed from the public UI's `EXP MAX` condition;
+  unknown formats remain unknown. This is adaptive metadata discovery, not a promise that every
+  future game UI or protocol will remain compatible.
+- Catalog refresh runs on reconnect and every six hours. A changed fingerprint discards stale plans;
+  cap expansion produces a durable Telegram event. Current visible controls and materials must
+  independently authorize a craft or refinement before normal mouse/keyboard input is sent.
+- Inventory/gear snapshots identify upgrade targets and material deficits. Resource routes are
+  bounded ten-minute trials, restricted by monster level; predicted drop chance is separate from
+  measured EXP/min. Native story progression resumes afterward. Historical samples are not proof
+  of a globally optimal map.
+- Capacity purchases are restricted to bag/storage products shown by the UI and only when near full.
+  Budget is reserved and persisted before a purchase. An ambiguous result retains that reservation
+  and stops further automated purchases for operator reconciliation. No cosmetics or unverified
+  paid buffs are purchased. EXP/drop CBT bonuses are already provided by the event.
+- Forge work handles one equipped item per visit/transaction. It preserves a sustain reserve,
+  verifies live material quantities and acknowledges success before notifying. Refinements that
+  can lose a level require Guardian Stone protection. Missing or inaccessible materials remain a
+  visible bottleneck; the controller does not invent a drop route or a successful action.
+- Confirmed cap plus verified maxed equipped gear selects stockpiling instead of stopping.
+  Town tasks remember the previous map, restock empty potion slots and return via visible map controls.
+- `server-availability.js` checks `GAME_HEALTH_URL` each minute. Three failures pause agent and
+  supervisor controls; two successes resume. HTTP availability alone does not prove a game session
+  or WebSocket is healthy, so existing connection recovery still observes the game UI.
+
+The read-only dashboard displays mode, crystals, bag usage, current caps, measured EXP/min,
+material completion and reserved/spent crystal budget. Telegram includes verified CBT claims,
+crafts, refine caps and catalog/cap changes, with persisted deduplication across restarts.
+
+
+`sigil-viewer.service` keeps the read-only viewer running after a process exit. The optional
+`sigil-harness.service` runs an **operator-supplied private** browser adapter; it does not contain
+any login code or credentials. Match its user, display, Node path and directory to your environment.
+For a non-root supervisor to restart it, grant only `systemctl restart sigil-harness.service` through
+a narrowly scoped sudoers rule, validate that rule with `visudo`, then opt into
+`HARNESS_RESTART_SYSTEMD=1`. Do not grant general passwordless shell/systemctl access.
+A pre-existing 16-character viewer link can be retained explicitly with
+`VIEWER_ALLOW_LEGACY_TOKEN=1`; new deployments should generate a token of at least 24 characters.

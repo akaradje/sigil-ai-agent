@@ -31,7 +31,7 @@ function normalize(agent) {
   const dead = Boolean(s.dead && (s.hp?.[0] === 0 || reviveVisible));
   return {
     name: s.name, job: s.job, lv: num(s.lv), jl: num(s.jobLv),
-    gold: num(s.gold), hp: s.hp, mp: s.mp, zone: s.zone, quest: s.quest,
+    gold: num(s.gold), hp: s.hp, mp: s.mp, zone: s.zone, quest: s.quest,exp:s.exp,
     dead, disconnected: Boolean(s.disconnected || s.atCharSelect),
     auto: Boolean(s.autoQuestRunning), paused: Boolean(agent.paused),
     cycle: agent.cycle, brain: agent.brain || {},
@@ -108,6 +108,24 @@ class AlertEngine {
     // Declines update the baseline silently, so a later genuine recovery can be reported.
     this.db.levelRanking = r;
   }
+  observeAutonomy(agent) {
+    const a=agent?.strategy?.autonomy;if(!a)return;
+    const d=this.db;d.autonomySeen ||= {};
+    const character=agent.state?.name;if(!character)return;
+    const cursor=d.autonomySeen[character]||0;
+    const types={
+      cbt_claimed:e=>`🎁 รับของขวัญ CBT สำเร็จ: +${e.crystals} คริสตัล · ${e.vip||'ตรวจ VIP จากเกม'}`,
+      cap_expanded:e=>`🚀 ตรวจพบเพดานเลเวลใหม่ ${e.from} → ${e.to} กำลังกลับเข้าสู่ลูปพัฒนา`,
+      catalog_changed:e=>`🔄 ข้อมูลเกมเปลี่ยน กำลังวิเคราะห์สูตรใหม่ · Lv cap ${e.levelCap??'?'} / refine +${e.refineMax}`,
+      gear_crafted:e=>`⚒ ${e.kind==='upgrade'?'อัปขั้น':'คราฟต์'} ${e.name} สำเร็จ${e.topTier?' · เทียร์สูงสุดที่พบในข้อมูลแพตช์':''}`,
+      refine_max:e=>`✨ ${e.name} ตีบวกถึง +${e.cap} ตามเพดานปัจจุบันแล้ว`,
+      capacity_bought:e=>`🎒 เพิ่มช่อง ${e.id} สำเร็จ ใช้ ${e.cost} คริสตัล`,
+    };
+    for(const e of (a.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>cursor).sort((x,y)=>x.id-y.id)) {
+      if(types[e.type])this.enqueue(`autonomy:${character}:${e.id}`,types[e.type](e.detail||{}));
+      d.autonomySeen[character]=e.id;
+    }
+  }
   observe(sample, now = Date.now()) {
     const d = this.db;
     const s = normalize(sample.agent);
@@ -127,7 +145,9 @@ class AlertEngine {
       '🚨 เกมหลุด/ค้างหน้าเลือกตัวละครเกิน 90 วินาที', true);
     this.condition('paused', s.paused, now, 2 * MIN, '⚠️ AI ถูกพักเกิน 2 นาที');
     this.condition('dead', s.dead, now, 90_000, '🚨 ตัวละครล้มและยังฟื้นไม่ได้เกิน 90 วินาที', true);
-    this.condition('auto', !s.auto && !s.disconnected && !s.dead && !s.paused, now, 2 * MIN,
+    const autonomous=sample.agent?.strategy?.autonomy;
+    const managed=Boolean(autonomous?.trip||autonomous?.farm||autonomous?.resume||sample.agent?.availability?.status==='down');
+    this.condition('auto', !s.auto && !managed && !s.disconnected && !s.dead && !s.paused, now, 2 * MIN,
       '⚠️ Auto Quest หยุดเกิน 2 นาที');
     if (s.dead && !last?.dead) d.deaths.push(now);
     d.deaths = d.deaths.filter((t) => t >= now - 10 * MIN);
@@ -157,17 +177,19 @@ class AlertEngine {
     }
     if (s.job) d.lastKnownJob = s.job;
     this.observeRanking(sample.agent, now);
+    this.observeAutonomy(sample.agent);
+    this.condition('autonomy-blocked',Boolean(autonomous?.blocked),now,5*MIN,`⚠️ งานอัตโนมัติต้องตรวจเพิ่ม: ${autonomous?.blocked||''}`);
     if (last && !restarted) {
       if (s.lv > last.lv && Math.floor(s.lv / 5) > Math.floor(last.lv / 5)) {
         this.enqueue(`level:${Math.floor(s.lv / 5)}`, `🎉 ถึง Lv ${s.lv} แล้ว`);
       }
     }
-    const cap = { Novice: 10, Mage: 40, Starweaver: 50 }[s.job];
+    const cap = autonomous?.cap?.jobCap ?? { Novice: 10, Mage: 40, Starweaver: 50 }[s.job];
     this.condition('jobcap', Boolean(cap && s.jl >= cap), now, 0,
       `✨ ${s.job} Job ${s.jl}: ถึงเกณฑ์เปลี่ยนอาชีพแล้ว`, false, false);
-    if (!last || s.lv !== last.lv || s.jl !== last.jl || s.job !== last.job ||
+    if (!last || s.lv !== last.lv || s.jl !== last.jl || s.job !== last.job || s.exp!==last.exp ||
         (s.quest && s.quest !== last.quest) || s.disconnected || s.paused) d.progressAt = now;
-    this.condition('stall', !s.disconnected && !s.paused && now - d.progressAt >= 30 * MIN,
+    this.condition('stall', !managed && !s.disconnected && !s.paused && now - d.progressAt >= 30 * MIN,
       now, 0, '⚠️ เลเวล/Job/ความคืบหน้าเควสไม่เปลี่ยนเกิน 30 นาที');
     if (s.gold != null) {
       // Hysteresis prevents repeated alerts around the low-gold threshold.

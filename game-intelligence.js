@@ -28,6 +28,9 @@ function readUI() {
     if(e.dataset.uid)item.uid=e.dataset.uid;
     if(e.dataset.dir)item.dir=e.dataset.dir;
     if(e.dataset.place)item.place=e.dataset.place;
+    if(e.dataset.bm)item.bm=e.dataset.bm;
+    if(e.dataset.wm)item.wm=e.dataset.wm;
+    if(e.dataset.n)item.amount=e.dataset.n;
     const bossRow=e.closest('.bbrow');
     if(bossRow)item.boss=bossRow.querySelector('.bb-t > b')?.textContent?.trim();
     if(hit&&(e===hit||e.contains(hit)))controls.push(item);
@@ -40,9 +43,33 @@ function readUI() {
   const jobQuestProgress=/(Mage|Starweaver|Sage) Quest/.test(quest)?questProgress.split('Chapter')[0].trim():null;
   const questRunning=!!document.querySelector('#jqCard [data-aq="stop"]');
   const autoQuestMode=questRunning?(jobQuestProgress&&!document.querySelector('#jqCard [data-aq="jq"]')?'jq':'mq'):null;
+  const body=panel?txt('pbody'):'';
+  const cells=Array.from(document.querySelectorAll('#pbody [data-act="isel"][data-it]'));
+  const inventoryItems={};
+  for(const e of cells)if(e.dataset.it?.startsWith('i:'))inventoryItems[e.dataset.it.slice(2)]=number(e.querySelector?.('.u-count')?.textContent||'')||1;
+  const inventoryGear=cells.filter(e=>e.dataset.it?.startsWith('g:')).map(e=>({uid:e.dataset.it.slice(2),text:e.getAttribute?.('aria-label')||e.innerText||'',art:e.querySelector?.('img')?.getAttribute?.('src')||'',equipped:!!e.querySelector?.('u')}));
+  const worn=Array.from(document.querySelectorAll('#pbody [data-act="dslot"][data-id]')).map(e=>({slot:e.dataset.id,uid:e.querySelector?.('[data-it]')?.dataset.it?.replace(/^g:/,''),text:e.innerText||''})).filter(e=>e.uid);
+  const smithRows=panel==='smith'?Array.from(document.querySelectorAll('#pbody .shoprow')).map(e=>{
+    const b=e.querySelector?.('button[data-act]')||e.nextElementSibling;
+    const mats=Array.from(e.querySelectorAll?.('.mat[data-it]')||[]).map(m=>{const nums=(m.title||'').replace(/,/g,'').match(/\d+/g)||[];return {id:m.dataset.it?.replace(/^i:/,''),have:nums.length>1?+nums[0]:null,need:nums.length>1?+nums[1]:null,text:m.innerText||''};});
+    const step=(e.querySelector?.('.rf-to')?.textContent||'').match(/\+(\d+)\s*→\s*\+(\d+)/);
+    const risk=e.querySelector?.('.rf-risk')?.textContent||'';
+    return {uid:e.dataset.it?.replace(/^[gu]:/,''),name:e.querySelector?.('b')?.textContent?.trim(),text:e.innerText||'',
+      act:b?.dataset?.act,key:b?.dataset?.id,disabled:!!b?.disabled,button:b?.innerText||'',worn:/\(equipped\)|\(สวมอยู่\)/i.test(e.innerText||''),mats,
+      gold:number(e.querySelector?.('.mat.gold')?.textContent||''),refine:step?+step[1]:null,nextRefine:step?+step[2]:null,
+      chance:number((risk.match(/[\d.]+%/)||[])[0]||''),risk,costText:e.querySelector?.('.rf-cost')?.textContent||'',max:/^MAX$/.test(b?.innerText?.trim()||'')};
+  }):[];
   return {name:txt('pName'),job:txt('pJob'),lv:txt('pLv'),jobLv:txt('pJl'),hp,mp,
     gold:number(txt('gold')),crystals:number(txt('crys')),quest,questProgress,jobQuestProgress,autoQuestMode,zone:txt('zone'),zoneLv:txt('zoneLv'),
     target:txt('tgName'),targetHP:txt('tgTxt'),targetHpRatio:parseFloat($('tgFill')?.style.width||'')/100,bossMechanic:txt('bossMech'),tension:number(txt('tenTxt')),weak:txt('tgElem'),exp:number(txt('expTxt')),jobExp:number(txt('jexpTxt')),
+    expText:txt('expTxt')+(/EXP\s+MAX/.test(body)?' EXP MAX':''),jobExpText:txt('jexpTxt'),cbtText:txt('cbtPill'),vipText:txt('vipTag'),
+    cbtClaimed:panel==='cbt'?/This account has it|บัญชีนี้รับแล้ว/i.test(body):null,
+    bagUsage:panel==='bag'?pair(document.querySelector('#pbody .sx-foot .cap')?.innerText||''):null,
+    inventoryComplete:panel==='bag'&&!!document.querySelector('#pbody [data-act="ifilter"][data-id="all"].on')&&!document.getElementById('invQ')?.value,
+    inventoryItems,inventoryGear,worn,smithRows,forgeResult:panel==='smith'?(document.querySelector('#pbody .refres.ok')?.innerText||''):null,
+    storageGear:panel==='storage'?Array.from(document.querySelectorAll('#pbody [data-act="stmove"][data-uid]')).map(e=>({uid:e.dataset.uid,dir:e.dataset.dir,text:e.innerText||'',art:e.querySelector?.('img')?.getAttribute?.('src')||''})):[],
+    storageUsage:panel==='storage'?pair(document.querySelector('#pbody .stbox > div:nth-child(2) > b > small')?.textContent||''):null,
+    premiumRows:panel==='prem'?Array.from(document.querySelectorAll('#pbody .prem-item')).map(e=>{const b=e.querySelector?.('[data-act="crbuy"]'),owned=e.querySelector?.('em')?.textContent;return {id:b?.dataset.id,disabled:!!b?.disabled,price:number(b?.innerText||''),owned:owned?number(owned):0,text:e.innerText||''};}):[],
     autoQuestRunning:questRunning,
     autoHunt: $('autoBtn')?.className || '',
     statBlocked:(quest.match(/(?:Spend|stat points|stats)\s*(\d+)/i)||[])[1]||null,
