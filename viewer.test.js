@@ -234,3 +234,13 @@ test('authenticated status endpoint reads the nested agent health and preserves 
   assert.equal(isolated.stage,'PASSED');assert.equal(isolated.pipeline.phase,'ROLLED_BACK');
   assert.equal((await fetch(base+'/self-healing-test.json',{method:'POST',headers:{cookie:'v='+token}})).status,405);
 });
+
+test('sales dashboard separates equipment, withdrawn bank weapons, materials and current Gold',()=>{
+  const vm=require('node:vm'),nodes=new Map(),context={$:id=>{if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id);},Date};
+  vm.runInNewContext(PAGE.slice(PAGE.indexOf('function renderSales'),PAGE.indexOf('function renderRanking')),context);
+  const a={sales:{count:18,gold:54000,storageCount:4,storageGold:13500,materials:{count:4690,kinds:18,gold:431292}},storageCleanup:{remaining:12,checkedAt:Date.now()}};
+  context.renderSales(a);assert.equal(nodes.get('soldCount').textContent,'18 ชิ้น');assert.equal(nodes.get('soldGold').textContent,'485,292 G');
+  assert.match(nodes.get('soldStorage').textContent,/4 ชิ้น · 13,500 G/);assert.match(nodes.get('soldMaterials').textContent,/4,690 ชิ้น · 18 ชนิด/);assert.match(nodes.get('storageCleanup').textContent,/12 ชิ้น/);
+  context.renderSales({});assert.equal(nodes.get('soldCount').textContent,'–');assert.equal(nodes.get('soldGold').textContent,'–');
+  context.renderSales({sales:{count:-1,gold:Infinity}});assert.equal(nodes.get('soldCount').textContent,'–');assert.equal(nodes.get('soldGold').textContent,'–');
+});

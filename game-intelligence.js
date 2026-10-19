@@ -93,6 +93,7 @@ function readUI() {
     inventoryComplete:panel==='bag'&&!!document.querySelector('#pbody [data-act="ifilter"][data-id="all"].on')&&!document.getElementById('invQ')?.value,
     inventoryItems,inventoryGear,worn,smithRows,forgeResult:panel==='smith'?(document.querySelector('#pbody .refres.ok')?.innerText||''):null,
     storageGear:panel==='storage'?Array.from(document.querySelectorAll('#pbody [data-act="stmove"][data-uid]')).map(e=>({uid:e.dataset.uid,dir:e.dataset.dir,text:e.innerText||'',art:e.querySelector?.('img')?.getAttribute?.('src')||''})):[],
+    storageComplete:panel==='storage'&&document.getElementById('stQ')?.value==='',
     storageUsage:panel==='storage'?pair(document.querySelector('#pbody .stbox > div:nth-child(2) > b > small')?.textContent||''):null,
     premiumRows:panel==='prem'?Array.from(document.querySelectorAll('#pbody .prem-item')).map(e=>{const b=e.querySelector?.('[data-act="crbuy"]'),owned=e.querySelector?.('em')?.textContent;return {id:b?.dataset.id,disabled:!!b?.disabled,price:number(b?.innerText||''),owned:owned?number(owned):0,text:e.innerText||''};}):[],
     autoQuestRunning:questRunning,

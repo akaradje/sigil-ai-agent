@@ -294,7 +294,7 @@ test('town service interacts with the verified NPC prompt instead of repeatedly 
   await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],92);
 });
 
-function saleHarness({wrongDialog=false,missingCredit=false,blocked=false,delayedCredit=false}={}) {
+function saleHarness({wrongDialog=false,missingCredit=false,blocked=false,delayedCredit=false,fromStorage=false}={}) {
   const mem={},a=A.init(mem),worn={uid:'worn',slot:'weapon',text:'Void Staff'};
   a.worn=[worn];a.trip={kind:'shop',phase:'town',at:clock};
   let panel='shop',selected=false,modal=false,gold=120000,inventory=[{uid:'unused',text:'Void Blade',art:'/gear/blade5.png',protected:false}],confirmations=0,settlementReads=0;
@@ -302,6 +302,7 @@ function saleHarness({wrongDialog=false,missingCredit=false,blocked=false,delaye
     panelText:panel==='bag'?'In Bag\nVoid Blade\nRefine +0/15 · Sell 500 G':'',
     modalText:modal?'Sell equipment?\nVoid Blade for '+(wrongDialog?501:500)+' G':'',
     controls:modal?[{label:'Sell'}]:panel==='bag'?[{act:'isel',key:'g:unused'},...(selected?[{act:'isellg',key:'unused',label:'Sell 500 G'}]:[])]:[{id:'interactBtn',label:'Talk to Shop'}]});};
+  if(fromStorage)a.storageOrigins={unused:{status:'withdrawn',name:'Void Blade'}};
   if(blocked)a.saleIntent={uid:'previous',status:'confirming'};
   const controller=A.createController({mem,getCatalog:()=>catalog(),policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
     observe,open:async p=>{panel=p;},close:async()=>{panel=null;modal=false;},sleep:async()=>{},save:()=>{},log:()=>{},
@@ -344,8 +345,8 @@ test('stored cleanup withdraws only identified off-class weapons and is bounded 
   const storage=[{uid:'off',dir:'out',art:'/gear/blade5.png'}, {uid:'caster',dir:'out',art:'/gear/staff5.png'}, {uid:'item',dir:'out',art:'/items/potion.png'}];
   const clicked=[];
   const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,
-    observe:async()=>state({zone:'Town',panel:'storage',storageGear:storage,controls:storage.map(g=>({...g,act:'stmove'}))}),
-    click:async g=>{clicked.push(g.uid);storage.splice(storage.findIndex(x=>x.uid===g.uid),1);},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+    observe:async()=>state({zone:'Town',panel:'storage',storageComplete:true,storageGear:storage,controls:storage.map(g=>({...g,act:'stmove'}))}),
+    click:async g=>{clicked.push(g.uid);const i=storage.findIndex(x=>x.uid===g.uid);storage.push({...storage[i],dir:'in'});storage.splice(i,1);},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await c.run('town');assert.deepEqual(clicked,['off']);assert.equal(a.trip.kind,'shop');assert.equal(a.trip.salesDone,false);assert.equal(a.trip.storageScanned,true);
 });
 
@@ -376,4 +377,35 @@ test('late UI settlement is observed without selling twice and a verified restar
   h.mem.autonomy.saleIntent.status='uncertain';h.mem.autonomy.sales={count:0,gold:0,history:[]};h.mem.autonomy.trip.sales=0;h.mem.autonomy.trip.salesDone=false;
   await h.controller.run('town');assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);
   await h.controller.run('town');assert.equal(h.confirmations(),1);assert.equal(h.mem.autonomy.sales.count,1);
+});
+
+test('bank weapons are checked before bag sales so the per-visit quota cannot starve storage cleanup',async()=>{
+  const m={},a=A.init(m);a.trip={kind:'shop',phase:'town',at:clock,sales:2};a.bagUsage=[50,100];a.storageUsage=[10,100];
+  const stock=[{uid:'banked',dir:'out',art:'/gear/blade5.png'}];const clicked=[];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'storage',storageComplete:true,storageGear:stock,controls:stock.map(g=>({...g,act:'stmove'}))}),
+    click:async g=>{clicked.push(g.uid);stock[0].dir='in';},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.deepEqual(clicked,['banked']);assert.equal(a.storageOrigins.banked.status,'withdrawn');assert.equal(a.trip.storageScanned,true);assert.equal(a.storageCleanup.remaining,0);
+});
+test('bank candidates include obsolete caster staves but preserve future upgrades and unknown items',()=>{
+  const c=catalog(),s=state(),worn=[{uid:'worn',slot:'weapon',text:'Void Staff'}];
+  const rows=[{uid:'old',dir:'out',art:'/gear/staff4.png'},{uid:'same',dir:'out',art:'/gear/staff5.png'},{uid:'other',dir:'out',art:'/gear/blade5.png'},
+    {uid:'worn',dir:'out',art:'/gear/staff5.png'},{uid:'unknown',dir:'out',art:'/items/shard.png'}];
+  assert.deepEqual(A.storedSurplus(c,s,worn,rows).map(g=>g.uid),['old','same','other']);
+  c.gear[1].lv=75;assert.deepEqual(A.storedSurplus(c,s,worn,rows).map(g=>g.uid),['old','other']);
+});
+test('bank provenance is counted only after a verified sale and survives restart without double counting',async()=>{
+  const h=saleHarness({fromStorage:true});await h.controller.run('town');
+  assert.equal(h.mem.autonomy.sales.storageCount,1);assert.equal(h.mem.autonomy.sales.storageGold,500);assert.equal(h.mem.autonomy.sales.history[0].source,'storage');assert.equal(h.mem.autonomy.storageOrigins.unused,undefined);
+  await h.controller.run('town');assert.equal(h.mem.autonomy.sales.storageCount,1);
+  const e=saleHarness({fromStorage:true,missingCredit:true});await e.controller.run('town');assert.equal(e.mem.autonomy.sales,undefined);assert.equal(e.mem.autonomy.saleIntent.source,'storage');
+});
+test('bank cleanup keeps a bounded cooldown, can be explicitly requested, and stops revisiting an empty scan',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;a.last.town_shop=clock;
+  a.bagUsage=[50,100];a.storageUsage=[100,100];
+  const p={enabled:true,sellSurplus:true,levelingFocus:true};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,p),null);
+  a.storageCleanup={requestedAt:clock};assert.equal(A.chooseTask(m,state(),catalog(),clock,p),'town_shop');
+  a.storageCleanup={remaining:0,checkedAt:clock,job:'Starweaver',fingerprint:'version-a'};a.last.town_shop=0;
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,p),null);
 });

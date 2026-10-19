@@ -37,6 +37,19 @@ function surplusGear(catalog,s,worn) {
     return [...keys].every(k=>(gear.stats[k]||0)<=(current.stats[k]||0));
   });
 }
+function storedSurplus(catalog,s,worn,entries=[]) {
+  const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];if(!job)return [];
+  const current=gearForName(catalog,worn?.find(w=>w.slot==='weapon')?.text);
+  return entries.filter(item=>{
+    if(item.dir!=='out'||!item.uid||worn?.some(w=>w.uid===item.uid))return false;
+    const gear=gearForName(catalog,item.art||item.text);
+    return gear?.slot==='weapon'&&gear.fam&&(gear.fam!==job.weapon||current&&gear.lv<=level(s)&&gear.lv<=current.lv&&gear.tier<=current.tier);
+  });
+}
+function storageNeedsScan(a,catalog,s,now) {
+  const c=a.storageCleanup;
+  return a.storageUsage?.[0]>0&&(!c||c.requestedAt||c.remaining>0||c.job!==s.job||c.fingerprint!==catalog?.fingerprint||now-c.checkedAt>6*60*MIN);
+}
 function commonLootSurplus(catalog,worn=[]) {
   if(!catalog?.gear?.length)return false;
   const tier=Math.max(...catalog.gear.map(g=>g.tier));
@@ -137,6 +150,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
     if(!policy.sellSurplus&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
     return due(policy.sellSurplus?'town_shop':'town_storage',5*MIN)?(policy.sellSurplus?'town_shop':'town_storage'):a.farm?'autonomy_wait':null;
   }
+  if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&a.bagUsage&&a.bagUsage[0]<=a.bagUsage[1]-14&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
   if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
   if(a.goal&&!a.goal.missing.length&&(!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
@@ -291,7 +305,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(after.inventoryComplete&&Number.isFinite(intent.gold)&&Number.isFinite(intent.price)&&
         !after.inventoryGear.some(g=>g.uid===intent.uid)&&after.gold===intent.gold+intent.price) {
         intent.status='confirmed';a.sales ||= {count:0,gold:0,history:[]};
-        a.sales.count++;a.sales.gold+=intent.price;a.sales.history.push({name:intent.name,price:intent.price,at:now()});a.sales.history=a.sales.history.slice(-30);
+        a.sales.count++;a.sales.gold+=intent.price;
+        if(intent.source==='storage'){a.sales.storageCount=(a.sales.storageCount||0)+1;a.sales.storageGold=(a.sales.storageGold||0)+intent.price;}
+        a.sales.history.push({name:intent.name,price:intent.price,source:intent.source||'bag',at:now()});
+        if(a.storageOrigins)delete a.storageOrigins[intent.uid];a.sales.history=a.sales.history.slice(-30);
         trip.sales=(trip.sales||0)+1;trip.progressAt=now();save();return true;
       }
       if(attempt<4)await sleep(900); // Settlement only: no repeated input.
@@ -303,7 +320,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(['uncertain','confirming'].includes(a.saleIntent?.status)&&!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
     for(let i=0;i<2;i++) {
       if((trip.sales||0)>=8)return;
-      const before=await state(),item=surplusGear(getCatalog(),before,a.worn).find(g=>!trip.keepUIDs?.includes(g.uid));
+      const before=await state(),item=surplusGear(getCatalog(),before,a.worn).sort((x,y)=>Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])).find(g=>!trip.keepUIDs?.includes(g.uid));
       if(!item){trip.salesDone=true;return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
       const detail=await state(),gear=gearForName(getCatalog(),item.art||item.text);
@@ -319,7 +336,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(!/Sell (?:gear|equipment)|ขายอุปกรณ์/i.test(confirm.modalText)||!confirm.modalText.includes(gear.name)||
         Number(confirm.modalText.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1])!==price)throw Error('Sale confirmation changed');
       // No retry after ambiguous confirmation. Persist before the irreversible input.
-      a.saleIntent={uid:item.uid,name:gear.name,price,gold:before.gold,at:now(),status:'confirming'};save();
+      a.saleIntent={uid:item.uid,name:gear.name,price,source:a.storageOrigins?.[item.uid]?'storage':'bag',gold:before.gold,at:now(),status:'confirming'};save();
       try{await pick(c=>/^(Sell|ขาย)$/.test(c.label));}
       catch(e){a.saleIntent.status=e.code==='ACTION_BUDGET'||e.message==='autonomy action budget exceeded'?'cancelled-before-input':'uncertain';save();throw e;}
       if(!await settleSale(a.saleIntent,trip))throw Error('Sale outcome uncertain');
@@ -356,7 +373,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       await resume(trip);return;
     }
-    if(policy.sellSurplus&&trip.kind==='storage')trip.kind='liquidate';
+    if(policy.sellSurplus&&(trip.kind==='storage'||trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
       const names={smith:/Talk to (?:Blacksmith|Smith)|คุย.*(?:ช่างตีเหล็ก|ตีบวก)/i,storage:/Talk to Storage|คุย.*คลัง/i,shop:/Talk to Shop|คุย.*ร้านขาย/i,church:/Talk to (?:Cathedral|Church)|คุย.*(?:โบสถ์|มหาวิหาร)/i};
@@ -378,18 +395,31 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       trip.kind='shop';return;
     }
     if(trip.kind==='liquidate') {
-      const job=getCatalog().jobs[String(s.job).toLowerCase()];
-      for(let i=0;i<5;i++) {
+      if(s.storageComplete!==true)throw Error('Storage is filtered or incomplete');
+      a.storageOrigins ||= {};
+      for(let i=0;i<4;i++) {
         const current=await state();
-        if(!a.bagUsage||a.bagUsage[0]>=a.bagUsage[1]-10){trip.storageScanned=true;break;}
-        // Withdraw only identified off-class weapons. Re-check lock/favourite/cards in the bag before selling.
-        const spare=(current.storageGear||[]).find(g=>g.dir==='out'&&(()=>{const gear=gearForName(getCatalog(),g.art||g.text);return gear?.slot==='weapon'&&gear.fam&&gear.fam!==job?.weapon;})());
-        if(!spare){trip.storageScanned=true;break;}
-        await pick(c=>c.act==='stmove'&&c.uid===spare.uid&&c.dir==='out');
-        if((await state()).storageGear.some(g=>g.uid===spare.uid&&g.dir==='out'))throw Error('Surplus withdrawal not confirmed');
-        a.bagUsage=[a.bagUsage[0]+1,a.bagUsage[1]];trip.progressAt=now();
+        if(current.storageComplete!==true)throw Error('Storage snapshot changed');
+        if(!a.bagUsage||a.bagUsage[0]>=a.bagUsage[1]-10)break;
+        const spare=storedSurplus(getCatalog(),current,a.worn,current.storageGear)[0];
+        if(!spare)break;
+        const gear=gearForName(getCatalog(),spare.art||spare.text);
+        a.storageOrigins[spare.uid]={name:gear.name,at:now(),status:'withdrawing'};save();
+        try{await pick(c=>c.act==='stmove'&&c.uid===spare.uid&&c.dir==='out');}
+        catch(e){if(e.code==='ACTION_BUDGET'||e.message==='autonomy action budget exceeded')delete a.storageOrigins[spare.uid];save();throw e;}
+        let verified=false;
+        for(let attempt=0;attempt<5;attempt++){
+          const after=await state();
+          if(after.storageComplete===true&&!after.storageGear.some(g=>g.uid===spare.uid&&g.dir==='out')&&after.storageGear.some(g=>g.uid===spare.uid&&g.dir==='in')){verified=true;break;}
+          if(attempt<4)await sleep(500);
+        }
+        if(!verified)throw Error('Surplus withdrawal not confirmed');
+        a.storageOrigins[spare.uid].status='withdrawn';a.bagUsage=[a.bagUsage[0]+1,a.bagUsage[1]];trip.progressAt=now();save();
       }
-      trip.kind='shop';trip.salesDone=false;return;
+      const current=await state();
+      if(current.storageComplete!==true)throw Error('Storage count not verified');
+      a.storageCleanup={checkedAt:now(),remaining:storedSurplus(getCatalog(),current,a.worn,current.storageGear).length,job:s.job,fingerprint:getCatalog().fingerprint,requestedAt:null};
+      trip.storageScanned=true;trip.kind='shop';trip.salesDone=false;return;
     }
     if(trip.kind==='storage') {
       // Leveling may store any identified spare gear. Deposits are reversible;
@@ -437,7 +467,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         }
       }
     }
-    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageUsage?.[0]>0){trip.kind='liquidate';return;}
+    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';return;}
     a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
@@ -520,4 +550,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run};
 }
-module.exports={init,event,catalogChanged,gearForName,surplusGear,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};
+module.exports={init,event,catalogChanged,gearForName,surplusGear,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};

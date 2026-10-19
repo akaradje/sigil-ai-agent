@@ -246,6 +246,9 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">Zone</div><div class="v" id="zone" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Crystals</div><div class="v" id="crystals">–</div></div>
         <div class="cell"><div class="k">Inventory</div><div class="v" id="bag">–</div></div>
+        <div class="cell"><div class="k">อุปกรณ์ขายแล้ว · NPC</div><div class="v" id="soldCount">–</div><div class="detail" id="soldStorage">จากคลัง: รอข้อมูล</div></div>
+        <div class="cell"><div class="k">รายได้จากขายที่ยืนยัน</div><div class="v" id="soldGold">–</div><div class="detail" id="soldBreakdown">แยกจาก Gold ปัจจุบัน</div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="detail" id="soldMaterials">วัสดุ: รอข้อมูล</div><div class="detail" id="storageCleanup">คลัง: รอตรวจ</div><div class="detail">ยอดสะสมที่ยืนยันผ่าน NPC · ยังไม่รวมขายทันทีที่ดรอปซึ่งไม่มีบันทึกรายชิ้น</div></div>
         <div class="cell"><div class="k">Autonomous mode</div><div class="v" id="mode" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Level / refine cap</div><div class="v" id="cap">–</div></div>
         <div class="cell"><div class="k">Measured EXP / min</div><div class="v" id="expRate">–</div></div>
@@ -303,6 +306,18 @@ function renderPopulation(s,rank) {
   $('onlinePlayers').textContent=Number.isSafeInteger(online)&&online>=0?online.toLocaleString('en-US')+' คน':'–';
   const fresh=rank?.kind==='lv'&&rank.character===s.name&&Number.isFinite(rank.at)&&Date.now()-rank.at>=-5000&&Date.now()-rank.at<20*60000;
   $('rankScope').textContent=fresh&&Array.isArray(rank.rows)?'ตารางล่าสุดแสดง '+rank.rows.length+' รายชื่อ · ไม่จำกัดคนออนไลน์':'อันดับรวม ไม่จำกัดคนออนไลน์';
+}
+function renderSales(a={}) {
+  const x=a.sales,n=v=>Number.isSafeInteger(v)&&v>=0?v:null,f=v=>v===null?'–':v.toLocaleString('en-US');
+  const count=n(x?.count),gold=n(x?.gold),stored=n(x?.storageCount??(x?0:null)),storedGold=n(x?.storageGold??(x?0:null));
+  const mat=x?.materials,matCount=n(mat?.count),matGold=n(mat?.gold),kinds=n(mat?.kinds);
+  $('soldCount').textContent=f(count)+(count===null?'':' ชิ้น');
+  $('soldStorage').textContent='จากคลัง '+f(stored)+' ชิ้น · '+f(storedGold)+' G';
+  $('soldGold').textContent=f(gold===null?null:gold+(matGold||0))+(gold===null?'':' G');
+  $('soldBreakdown').textContent='อุปกรณ์ '+f(gold)+' G · วัสดุ '+f(matGold)+' G';
+  $('soldMaterials').textContent=mat?'วัสดุขายที่ยืนยัน '+f(matCount)+' ชิ้น · '+f(kinds)+' ชนิด':'วัสดุ: ยังไม่มีผลขายที่บันทึกไว้';
+  const c=a.storageCleanup,remaining=n(c?.remaining);
+  $('storageCleanup').textContent=c?.requestedAt?'คลัง: รอถอนอาวุธส่วนเกินรอบถัดไป':remaining!==null?'คลัง: เหลืออาวุธที่ต้องตรวจ '+f(remaining)+' ชิ้น · ตรวจ '+new Date(c.checkedAt).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):'คลัง: รอตรวจ';
 }
 function renderRanking(c, levelText) {
   const target=c?.targetRank===5?5:10;
@@ -462,6 +477,7 @@ async function tickState() {
     const hold=a.resourceHold;
     $('resourceHold').textContent=hold?.active?(hold.awaitingCatalog?'พักอุปกรณ์รอง · รอตรวจสูตรใหม่':'พักอุปกรณ์รองก่อน Lv'+hold.nextLevel)+' · พบ '+(hold.unlocks?.length||0)+' รายการปลดล็อก':'ใช้นโยบายอัปเกรดปกติ';
     const c=j.strategy?.catchUp?.current,trend={waiting:'รอข้อมูล',uncertain:'ยังแยกความเร็วคู่แข่งไม่ได้',closing:'กำลังตีตื้น',falling:'คู่แข่งโตเร็วกว่า',flat:'EXP ตัวเรายังไม่เพิ่ม',top5:'ติด Top 5 แล้ว',top10:'ติด Top 10 แล้ว','cap-tie':'ต้องตรวจเกณฑ์เสมอที่เพดาน'};
+    renderSales(a);
     renderRanking(c, s.lv);
     renderCombat(j.strategy?.combatSummary,s);
     renderPopulation(s,j.strategy?.rank);
