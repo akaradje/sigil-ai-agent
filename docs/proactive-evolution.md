@@ -28,6 +28,10 @@ are separated by ten minutes; hazards and inadequate potions veto input. AUTO ta
 and activation must be verified in the rendered UI. Reward still requires 60 seconds
 of observed combat warm-up followed by a separate measurement window. Probe clicks
 and walking never count as successful experiments.
+Mining trips also require real progress. Five continuously observed minutes without
+mining EXP/level or material changes, with at least ten fresh observations, ends the
+trip and restores leveling for a thirty-minute resource cooldown. The stall becomes
+an evidence-backed development opportunity; a healthy progressing trip is retained.
 
 Development opportunities are persisted and deduplicated: repeated enabled unknown
 navigation, new public maps/recipes/caps, thirty continuous minutes of flat comparable

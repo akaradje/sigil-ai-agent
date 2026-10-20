@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const MIN = 60_000;
 const REPAIR_EDITABLE = Object.freeze(['game-intelligence.js', 'game-telemetry.js', 'ui-resilience.js', 'cognitive-brain.js', 'cognitive-brain.test.js']);
 const EDITABLE = Object.freeze([...REPAIR_EDITABLE,'progression.js','character-development.js','strategy-dna.js']);
-const OPPORTUNITY_REASONS=new Set(['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE']);
+const OPPORTUNITY_REASONS=new Set(['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL']);
 const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'game-intelligence.js',
   'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js', 'cognitive-brain.js', 'runtime-paths.js','world-knowledge.js','proactive-planner.js']);
 const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'character-development.test.js', 'ui-resilience.test.js',

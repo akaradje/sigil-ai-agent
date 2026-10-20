@@ -2,6 +2,15 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('continuously stalled mining yields back to leveling and survives restart with a resource cooldown',async()=>{
+ let clock=now;const m={autonomy:{wingPriority:true,inventory:{items:{}},goal:{slot:'wing',missing:[{id:'mithril'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',tier:1,map:'south',returnMap:'original',started:now}}},visited=[];
+ const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,inventoryComplete:true}),scan:async()=>null,
+  scene:async()=>({available:true,map:'south',mineLv:1,mineExp:0,materials:{},nodes:[]}),sceneAction:async()=>{},travel:async id=>visited.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>clock});
+ for(let i=0;i<=30;i++){clock=now+i*10000;await ctl.run('growth_materials');}
+ assert.equal(m.development.excursion,null);assert.deepEqual(visited,['original']);assert.equal(m.autonomy.resume.map,'original');
+ assert.equal(m.development.resourceStalled.samples,31);const restored=JSON.parse(JSON.stringify(m));restored.autonomy.resume=null;
+ assert.equal(D.materialReady(restored,state({hpPotions:25,mpPotions:25}),clock+60000),false);
+});
 test('temporary ore depletion waits for respawn and a ready boss deadline ends the mining stage',async()=>{
   const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'gear'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',tier:1,returnMap:'old',started:now-10000}}};let inputs=0;
   const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25}),scan:async()=>null,scene:async()=>({available:true,map:'south',mineLv:1,mineExp:0,nodes:[]}),sceneAction:async()=>inputs++,travel:async()=>inputs++,click:async()=>inputs++,open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({monsters:[{id:'time',boss:true,drops:[['gear',1]]}]}),now:()=>now});

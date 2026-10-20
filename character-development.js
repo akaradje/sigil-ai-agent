@@ -44,10 +44,10 @@ function routineReady(mem,s){
   return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.45&&
     s.hpPotions>10&&s.mpPotions>10&&!!bag&&bag[0]<Math.floor(bag[1]*0.95);
 }
-function materialReady(mem,s){
+function materialReady(mem,s,now=Date.now()){
   const a=mem.autonomy||{};
   // The game's capacity is for gear; mining materials stack outside those slots.
-  return !!a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20;
+  return now>=(mem.development?.resourceBackoffUntil||0)&&!!a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20;
 }
 function worthOffer(d,s){
   const pets=d.snapshots?.ranch?.pets||[],offer=norm(s.tameOffer);
@@ -69,7 +69,7 @@ function chooseTask(mem,s,catalog,now=Date.now()){
   const offered=s.controls?.some(c=>c.id==='tameYes');
   if(offered&&worthOffer(d,s)&&due(d,'tame',now,5000))return 'tame';
   if(mem.autonomy?.resume||mem.autonomy?.farm?.pendingProfile||mem.autonomy?.trip||s.autoQuestMode==='jq')return null;
-  if(materialReady(mem,s)&&due(d,'growth_materials',now,MIN))return 'growth_materials';
+  if(materialReady(mem,s,now)&&due(d,'growth_materials',now,MIN))return 'growth_materials';
   if(due(d,'pets',now,10*MIN))return 'pets';
   if(due(d,'growth_buffs',now,5*MIN))return 'growth_buffs';
   if(['Mage','Starweaver','Sage'].includes(s.job)&&due(d,'runes',now,d.runesPending?MIN:10*MIN))return 'runes';
@@ -285,6 +285,16 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
           }
         }else{
           const raw=await scene(),s=await observe();
+          if(trip.kind==='mine'&&raw.available&&raw.map===trip.map&&Number.isFinite(raw.mineLv)&&Number.isFinite(raw.mineExp)){
+            const signature=JSON.stringify([raw.mineLv,raw.mineExp,raw.materials||null]),previous=trip.progressProbe;
+            if(!previous||previous.signature!==signature||now()-previous.lastAt>30000)trip.progressProbe={signature,since:now(),lastAt:now(),samples:1};
+            else if(now()-previous.lastAt>=10000){previous.lastAt=now();previous.samples++;}
+            const observed=trip.progressProbe;
+            if(now()-observed.since>=5*MIN&&observed.samples>=10){
+              trip.done=true;trip.stalled=true;d.resourceBackoffUntil=now()+30*MIN;
+              d.resourceStalled={at:now(),map:trip.map,tier:trip.tier,samples:observed.samples,durationSec:(now()-observed.since)/1000};
+            }
+          }else trip.progressProbe=null;
           if(raw.available&&raw.map!==trip.map&&now()-trip.started>45000&&(trip.warpAttempts??(trip.warpTried?1:0))<2&&raw.freeWarps>0&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
             trip.warpAttempts=(trip.warpAttempts??(trip.warpTried?1:0))+1;trip.warpTried=true;save();await close();await freeWarp(trip.map,raw);
             if(trip.kind==='boss'){await open('bosses');const live=await observe(),boss=live.bossRows.find(b=>b.name===trip.boss&&b.up);
@@ -300,7 +310,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
             if(trip.kind==='boss'&&guaranteed.some(id=>raw.materials[id]>(trip.initialAmounts?.[id]??Infinity))){trip.done=true;d.bossRetryAt=now()+5*MIN;}
           }
           if(now()-trip.started>(mem.autonomy?.wingPriority?15:5)*MIN||s.hp[0]/s.hp[1]<0.65||s.hpPotions<10||s.mpPotions<10||trip.done){
-            if(mem.autonomy?.wingPriority&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20){
+            if(mem.autonomy?.wingPriority&&!trip.stalled&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20){
               await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
               const a=mem.autonomy;
               if(a.goal&&!a.goal.missing.length){

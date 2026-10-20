@@ -195,7 +195,7 @@ class AlertEngine {
         if(/^[a-f0-9-]{36}$/.test(e.jobId||'')){
           if(e.status==='PUBLISHED'&&/^[a-f0-9]{40}$/.test(e.commit||''))this.enqueue('publication:'+publication.identity+':'+e.jobId,
             '🧬 พัฒนากลยุทธ์/ความสามารถผ่านเทสต์และ canary แล้ว · บันทึกขึ้น GitHub สำเร็จ\n'+
-            (['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','UI_SCHEMA_CHANGED'].includes(e.purpose)?e.purpose+'\n':'')+
+            (['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL','UI_SCHEMA_CHANGED'].includes(e.purpose)?e.purpose+'\n':'')+
             (e.files||[]).filter(f=>['game-intelligence.js','game-telemetry.js','ui-resilience.js','cognitive-brain.js','cognitive-brain.test.js','progression.js','character-development.js','strategy-dna.js'].includes(f)).join(', ')+'\nhttps://github.com/akaradje/sigil-ai-agent/commit/'+e.commit);
           if(e.status==='PUBLICATION_FAILED')this.condition('publication:'+e.jobId,true,now,0,'⚠️ โค้ดผ่าน canary แต่เผยแพร่ GitHub ยังไม่สำเร็จ · '+(/^[A-Z_]{3,64}$/.test(e.reason||'')?e.reason:'PUBLICATION_FAILED'),true);
         }

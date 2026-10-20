@@ -11,6 +11,9 @@ function offer(p,reason,evidence,context,now){const key=hash([reason,context]);i
   p.opportunities.push({key,reason,evidence,at:now});p.opportunities=p.opportunities.slice(-30);}
 function update(mem,s,catalog,now=Date.now()){
   const p=init(mem),lv=Number(String(s.lv||'').match(/\d+/)?.[0]),cap=resolveCap(s,catalog);
+  const stalled=mem.development?.resourceStalled;
+  if(stalled&&now-stalled.at>=0&&now-stalled.at<60*MIN&&stalled.samples>=10&&stalled.durationSec>=300)
+    offer(p,'VERIFIED_RESOURCE_STALL',stalled,[s.name,catalog?.fingerprint,stalled.map,stalled.tier],now);
   const context=hash([s.name,s.job,lv,catalog?.fingerprint,mem.dna?.context,s.zone]);
   if(p.context!==context){p.context=context;p.samples=[];p.idleSince=null;}
   const free=available(mem,s,catalog,now)&&!managed(mem,s)&&!mem.autonomy?.resourceHold?.active;
