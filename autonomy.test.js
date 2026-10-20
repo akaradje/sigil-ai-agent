@@ -137,6 +137,19 @@ function catalog(extra={}) {return {levelCap:99,capSource:'public-ui-definition'
   items:{shard:{name:'Shard'}},maps:[{id:'town',name:'Town',town:true,monsters:[]},{id:'field',name:'Field',monsters:[{id:'mob'}]}],
   monsters:[{id:'mob',lv:58,hp:1000,exp:100,drops:[['shard',0.4]]}],expByLevel:{57:1000000,58:1200000},...extra};}
 function state(extra={}) {return {name:'Hero',job:'Starweaver',lv:'Lv 57',hp:[900,1000],exp:10,gold:120000,crystals:5000,zone:'Field',controls:[],offscreen:[],autoHunt:'on',autoQuestMode:'mq',...extra};}
+
+test('cognitive risk-adjusted ranking influences measured farm choices without admitting excluded routes',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  c.maps.push({id:'second',name:'Second Field',monsters:[{id:'mob'}]});
+  a.farmRates={field:{expPerMinute:1000,minutes:3,at:clock},second:{expPerMinute:800,minutes:3,at:clock}};
+  m.cognitive={enabled:true,mapPredictions:[{mapName:'Field',durationSec:180,predictedUtility:1},
+    {mapName:'Second Field',durationSec:180,predictedUtility:100},{mapName:'Unsafe',durationSec:180,predictedUtility:1e6}]};
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state(),close:async()=>{},key:async()=>{},click:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('farm');assert.equal(a.farm.map,'second');
+  a.farm=null;m.dna={avoidMaps:['second']};
+  await ctl.run('farm');assert.equal(a.farm.map,'field');
+});
 test('power progression services ready secondary gear while pursuing the level leaderboard',()=>{
   const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
   a.goal={slot:'armor',missing:[]};

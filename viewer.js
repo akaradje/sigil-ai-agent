@@ -11,20 +11,21 @@ const path = require('path');
 
 const HARNESS = process.env.HARNESS || 'http://127.0.0.1:4799';
 const AGENT = process.env.AGENT_URL || 'http://127.0.0.1:4801';
-const DIR = process.env.AGENT_DIR || __dirname;
+const PATHS = require('./runtime-paths').resolveRuntimePaths();
+const DIR = PATHS.stateDir;
 const PORT = Number(process.env.VIEWER_PORT || 8080);
-const TOKEN_FILE = path.join(DIR, 'viewer-token.txt');
+const TOKEN_FILE = path.join(PATHS.configDir, 'viewer-token.txt');
 const TOKEN = (process.env.VIEWER_TOKEN || (fs.existsSync(TOKEN_FILE) ? fs.readFileSync(TOKEN_FILE, 'utf8') : '')).trim();
 if (require.main === module && (!TOKEN || TOKEN.length < (process.env.VIEWER_ALLOW_LEGACY_TOKEN==='1'?16:24))) throw new Error('Set VIEWER_TOKEN (at least 24 characters) before starting the viewer');
 
 const DEPLOY_PHASES = new Set(['PREPARED','INSTALLING','STARTING','CANARY','COMMITTED','ROLLING_BACK','ROLLED_BACK','ROLLBACK_FAILED','SUPERSEDED']);
 const REPAIR_PHASES = new Set(['REPAIRING','VERIFYING','READY_REVIEW','FAILED','INTERRUPTED','DEPLOYED','ROLLED_BACK']);
-const EDITABLE = new Set(['game-intelligence.js','game-telemetry.js','ui-resilience.js']);
+const EDITABLE = new Set(['game-intelligence.js','game-telemetry.js','ui-resilience.js','cognitive-brain.js','cognitive-brain.test.js']);
 const digest = x => typeof x === 'string' && /^[a-f0-9]{64}$/.test(x) ? x : null;
 const jobId = x => typeof x === 'string' && /^[a-f0-9-]{36}$/.test(x) ? x : null;
 const timestamp = x => Number.isSafeInteger(x) && x > 0 ? x : null;
 const recent = (x, now, age) => timestamp(x) !== null && now - x >= -5000 && now - x < age;
-const patchFiles = x => Array.isArray(x) ? [...new Set(x.filter(n => EDITABLE.has(n)))].slice(0, 3) : [];
+const patchFiles = x => Array.isArray(x) ? [...new Set(x.filter(n => EDITABLE.has(n)))].slice(0, EDITABLE.size) : [];
 
 // Read only the public projections, never private journals, patches or backups.
 function readProjection(file) {
@@ -259,6 +260,7 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">ETA range · conditional estimate</div><div class="v" id="eta" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Browser session age</div><div class="v" id="sessionAge" style="font-size:14px">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Strategy DNA</div><div class="v" id="dna" style="font-size:14px">–</div><pre id="dnaGenes"></pre></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">Cognitive memory · observed mastery</div><div class="v" id="mastery" style="font-size:14px">–</div><div class="detail" id="curriculum"></div><div class="detail" id="cognitiveSkill"></div></div>
         <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
@@ -503,6 +505,15 @@ async function tickState() {
     const session=j.strategy?.sessionHygiene;
     $('sessionAge').textContent=Number.isFinite(session?.ageHours)?session.ageHours.toFixed(1)+' ชม. · '+(session.pending?'กำลังกู้เซสชัน':'รอจบธุระในเมืองเมื่อครบอายุ'):'รอข้อมูลอายุหน้าเกม';
     const dna=j.strategy?.dna;
+    const cognitive=j.strategy?.cognitive;
+    $('mastery').textContent=cognitive?.enabled?'Mastery '+cognitive.masteryIndex+' / 100 · '+cognitive.totalExperiences+' ประสบการณ์ · '+cognitive.knownMapsCount+' บริบทแมป':cognitive?.issue||'รอข้อมูลการเรียนรู้';
+    const curriculum=cognitive?.activeCurriculum;
+    $('curriculum').textContent=curriculum?curriculum.currentGoal+' · '+curriculum.targetMetric+' '+curriculum.baselineValue+' → '+curriculum.targetValue:'';
+    $('cognitiveSkill').textContent=cognitive?.enabled?'โปรไฟล์ที่สังเกต: '+(cognitive.workingMemory?.activeSkillId||'รอช่วงฟาร์ม')+' · คำแนะนำ: '+(cognitive.workingMemory?.recommendedSkillId||'รอข้อมูล'):'';
+    if(cognitive?.enabled) {
+      const phase=cognitive.workingMemory?.learningPhase;
+      $('cognitiveSkill').textContent+=' · '+(phase==='warming'?'อุ่นเครื่องอีก '+cognitive.workingMemory.warmupRemainingSec+' วินาที':phase==='measuring'?'กำลังวัดผลหลังอุ่นเครื่อง':'รอหลักฐานการต่อสู้');
+    }
     const dnaMode={waiting:'รอบริบทฟาร์ม',baseline:'เก็บ baseline',experiment:'ทดลองหนึ่งยีน',elite:'ใช้ Elite','hyper-validation':'เร่งตรวจกลยุทธ์'};
     $('dna').textContent=dna?.enabled?'รุ่น '+dna.generation+' · '+(dna.needsApply?'รอยืนยันค่าจากเกม':dnaMode[dna.mode]||dna.mode)+' · เก็บรอบ '+dna.windowMinutes+' นาที · '+dna.windows+' ผลวัด · Fitness '+(dna.windows?dna.fitness.toFixed(4):'ยังไม่มีผล')+' · ภูมิคุ้มกัน '+dna.immunityCount:(dna?.issue||'ยังไม่เปิด DNA');
     $('dnaGenes').textContent=dna?.enabled?JSON.stringify(dna.genes,null,2):'';

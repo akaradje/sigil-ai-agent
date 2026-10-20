@@ -12,6 +12,7 @@
 | --- | --- |
 | `agent.js` | LLM วางแผนด้วย tool ที่อ้างอิง UI พร้อมจำกัดความถี่และบันทึกผล |
 | `game-intelligence.js` | อ่าน DOM ที่แสดงอยู่ วางลำดับเควสต์/อาชีพ สกิล อุปกรณ์และอันดับ |
+| `cognitive-brain.js` | ความจำถาวร ประสบการณ์ โมเดลผลฟาร์ม คะแนนความชำนาญ และเป้าหมายฝึกฝน |
 | `supervisor.js` | ตรวจการเชื่อมต่อและช่วยกู้การเล่นผ่าน UI |
 | `viewer.js` | แสดงภาพและสถานะแบบดูอย่างเดียว ต้องมี token และ bind loopback เป็นค่าเริ่มต้น |
 | `telegram-alerts.js` | แจ้งเปลี่ยนอาชีพ อันดับดีขึ้น เข้า Top 10 และปัญหาการทำงาน พร้อมคิวส่งซ้ำ |
@@ -47,6 +48,10 @@ npm run alerts
 `/opt/sigil-agent` และแก้พาธ Node ให้ตรงเครื่องก่อน ใช้ `EnvironmentFile` เพื่ออ่าน `.env`
 สิทธิ์ไฟล์ secret ควรเป็น `0600` และ directory ของ runtime ควรเขียนได้เฉพาะ service user
 
+ใช้ `SIGIL_STATE_DIR` แบบ absolute เพื่อเก็บความจำและ runtime ไว้นอกซอร์ส โดยตั้งค่าเดียวกัน
+ให้ทุกบริการ ดู [การแยก runtime และย้ายความจำเดิม](docs/runtime-storage.md) พร้อมเครื่องมือ
+คัดลอกแบบ dry-run ที่ไม่ลบต้นฉบับหรือเขียนทับปลายทาง หากไม่ตั้งค่านี้จะยังใช้ตำแหน่งเดิม
+
 Agent/supervisor/observer ใช้พอร์ต loopback 4801/4800/4802 ส่วน harness ใช้ 4799
 ห้ามเปิดพอร์ตควบคุมเหล่านี้สู่อินเทอร์เน็ต หน้า viewer เริ่มที่ `127.0.0.1:8080`
 เข้า `/` พร้อม `?k=<VIEWER_TOKEN>` และใช้ HTTPS/authentication ผ่าน reverse proxy สำหรับดูจากภายนอก
@@ -73,12 +78,17 @@ Agent/supervisor/observer ใช้พอร์ต loopback 4801/4800/4802 ส�
 
 ```bash
 npm test
+python -m unittest discover -s scripts -p 'test_*.py'
 python scripts/check-public-files.py
 gitleaks dir . --redact --no-banner
 gitleaks git . --redact --no-banner --log-opts=--all
 ```
 
-GitHub Actions รัน tests, ตรวจรายการไฟล์ต้องห้าม และ Gitleaks สำหรับประวัติที่ checkout มา
+GitHub Actions รันตัวตรวจไฟล์เผยแพร่แบบ strict และชุดทดสอบของตัวตรวจด้วย Python 3.12 ก่อนรัน tests
+ด้วย Node.js 22 บน Linux และ Windows ตัวตรวจจะบล็อกทั้งไฟล์ลับที่ติดตามใน Git
+และ secret ที่ยังค้างใน staging แม้ไฟล์บนดิสก์แก้สะอาดแล้ว ดู [นโยบายการเผยแพร่](docs/publication-policy.md)
+หากไม่มี Git จะตรวจทั้งโฟลเดอร์ รวมไฟล์ runtime ที่ต้องแยกออกจากชุดซอร์สสำหรับเผยแพร่
+CI ตรวจซ้ำหลัง Node tests และไม่สร้าง Python bytecode cache ในชุดซอร์ส
 การตรวจช่วยลดความเสี่ยง แต่ผู้ดูแลยังต้องตรวจ diff ทุกครั้งก่อนเผยแพร่ โดยเฉพาะไฟล์ใหม่
 หากเคย push secret ให้เพิกถอน/หมุนค่า secret นั้นทันที การลบไฟล์ใน commit ถัดไปไม่ล้างประวัติ
 
@@ -282,8 +292,9 @@ live deployment before new repair work is accepted.
 
 The configured `AGENT_MODEL` receives only enumerated public source files, missing HUD field
 names and redacted test feedback. It returns bounded JSON edits, without tools or shell access.
-Only `game-intelligence.js`, `game-telemetry.js` and `ui-resilience.js` can be proposed for change;
-existing tests, controllers, supervisor, credentials and this repair engine are protected. A new
+Only `game-intelligence.js`, `game-telemetry.js`, `ui-resilience.js`, `cognitive-brain.js` and
+`cognitive-brain.test.js` can be proposed for change; all other existing tests, controllers,
+supervisor, credentials and this repair engine are protected. A new
 regression test is required. Both the unchanged baseline and each candidate run syntax checks
 and the complete fixed test suite. Failed attempts restart from the baseline, up to three times.
 
@@ -305,7 +316,8 @@ environment. No general sudoers grant or additional coding CLI login is needed.
 With `SELF_HEAL_AUTO_DEPLOY=1`, passing patches enter a separately journaled deployment. It
 rechecks the complete source baseline, defers human pauses/maintenance/reloads, pauses controls,
 backs up only the changed allowlisted modules, stops the agent/supervisor, replaces files with
-fsync plus atomic rename, then restarts both services. Existing tests are never deployed as model
+fsync plus atomic rename, then restarts both services. Existing tests other than the explicitly
+editable `cognitive-brain.test.js` are never deployed as model
 changes. Git is never committed/pushed/reset/cleaned by the worker. Without the flag, candidates
 remain at **READY_REVIEW**. Enabling it later revalidates pending candidates before deployment.
 
@@ -424,3 +436,62 @@ the existing typed UI tools. Reviews run at most every two hours, or after a new
 five-level bracket/class with a 15-minute cooldown. The deadline persists across restarts.
 Survival, bag/potion emergencies, active trips and UI recovery retain priority; reviews preserve
 the elite companion, useful equipment, wing materials, gold reserve and farming destination.
+
+## Cognitive memory and continual practice
+
+The agent creates one CognitiveBrain instance in AGENT_DIR. Its working memory follows
+each UI perception; only the independent telemetry sampler records experience. Read-only
+viewer requests cannot add training samples. Learning requires a verified public catalog,
+equipment context, fresh validated position and an observed native Auto Quest or confirmed
+AUTO profile. Each new map/profile first needs 60 seconds of continuous combat evidence
+(actual observed target HP damage, with at most ten seconds between evidence/samples).
+Only then is a fresh EXP/gold baseline taken for a separate 60-second measurement window;
+the first normal episode therefore arrives no earlier than 120 seconds after combat begins.
+Death/confirmed position-fault incidents remain immediate, including during warm-up.
+Menu/town/resource-excursion
+time, missing EXP tables, gaps over ten seconds, map changes and profile/context changes
+invalidate the current window. EXP is cumulative across levels using progression.js.
+Death and confirmed position-fault edges remain incident evidence even when the farming
+window was censored; those incidents earn no unobserved skill credit.
+
+Four memory stores contain working state, bounded state/action/reward/next-state episodes,
+measured map models and procedural skill statistics. UCB balances context-specific reward
+(normalized to keep exploration meaningful) and exploration. Character, catalog fingerprint,
+class, level/job bands, equipment and refinement context separate incompatible observations.
+Before prediction or EXP farming selection, normal-monster routes are limited to the
+character's current level minus five through the existing upper safety limit. Beginner,
+town, boss-only and DNA-quarantined routes are excluded, including with empty brain memory.
+Material-specific objectives keep their original public-drop routing. Map prediction
+ranks only already eligible catalog routes with at least two minutes of
+comparable evidence. Material objectives, DNA exclusions and guarded exploration trials
+retain control. Predictions older than 30 minutes are excluded from the runtime ranking.
+
+The burst_aoe_pull, single_target_snipe and kite_and_sustain macros are advisory templates.
+The current UI adapter cannot verify arbitrary pull counts, skill sequences or kiting
+distances. It records native_all_learned, native_hotbar or native_quest as the executed
+profile, and DNA remains responsible for applying and validating its native settings.
+A remembered hazardous resource destination is rejected before scene input. Native quest
+routing and world-map travel expose no verified arrival coordinates, so the agent cannot
+promise to steer those routes around individual cells. The world model estimates observed
+EXP, net gold, target-bar time and incident frequency; it does not invent drop rates or
+crafting ROI where no attributable outcome was observed. This is continual learning
+instrumentation, not evidence of general intelligence or guaranteed skill improvement.
+
+After verified town services, session-hygiene.js consolidates new episodes into bounded
+lessons and a measurable curriculum. Consolidation is idempotent until new experience
+arrives, and never increases pull counts simply because it ran again. Persistence uses
+fsync and atomic replacement, a previous valid snapshot, schema/size validation and bounded
+histories in .agi-brain-memory.json. The file, previous snapshot and temporary writes
+are ignored by Git. A storage error suspends learning while existing gameplay continues.
+The dashboard reads a summary through the existing authenticated agent proxy. The Telegram
+observer queues each ten-point mastery milestone once per memory identity, using its
+existing durable outbox; unit tests never send a real message. Mastery is an experience
+score, not a measured probability of winning.
+
+Run npm test (including cognitive-brain.test.js), or node --test cognitive-brain.test.js.
+The self-evolution snapshot, isolated verifier, runtime fingerprint, deployment allowlist
+and dashboard patch history include the new module and its test. Update any root-owned
+trusted source snapshot together with these reviewed sources before deploying; this local
+change does not update or restart a running service.
+
+Before a Linux deployment, follow [the Linux preflight](docs/linux-preflight.md).

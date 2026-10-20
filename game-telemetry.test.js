@@ -4,7 +4,7 @@ const T=require('./game-telemetry');
 const now=1800000000000;
 const sample=()=>({available:true,running:true,ready:true,loading:false,map:'town',world:'town',x:500,y:500,width:96,height:68});
 test('public state projection never serializes player, network, account or token fields',()=>{
-  const g={running:true,ready:true,p:{map:'town',x:500,y:500,target:'monster-1',token:'private',inventory:['private']},world:{id:'town',w:96,h:68},link:{secret:'private'}};
+  const g={running:true,ready:true,p:{map:'town',x:500,y:500,target:'monster-1',token:'synthetic-private',inventory:['synthetic-private']},world:{id:'town',w:96,h:68},link:{secret:'synthetic-private'}};
   const s=JSON.parse(vm.runInNewContext(T.EXPRESSION,{window:{SIGIL:g}}));
   assert.equal(s.targetId,'monster-1');assert.doesNotMatch(JSON.stringify(s),/private|token|inventory|link/);
   assert.equal(vm.runInNewContext(T.EXPRESSION,{window:{}}),'{"available":false}');

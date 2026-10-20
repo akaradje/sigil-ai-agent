@@ -34,10 +34,12 @@ function store(ledger,report) {
 async function production() {
   const response=await fetch('http://127.0.0.1:4801/health',{signal:AbortSignal.timeout(3000)});
   assert.equal(response.ok,true,'PRODUCTION_UNREACHABLE');const h=await response.json();assert.ok(h.selfHealing?.bootId);
+  const paths=require('./runtime-paths').resolveRuntimePaths({repoDir:process.env.SIGIL_DIR||'/home/asteria/sigil'});
   return {bootId:h.selfHealing.bootId,buildId:h.selfHealing.buildId,paused:h.paused,
     pid:execFileSync('/usr/bin/systemctl',['show','sigil-agent.service','--property=MainPID','--value'],{encoding:'utf8'}).trim(),
-    files:Object.fromEntries([...E.SOURCES,'.env','telegram.env','viewer-token.txt'].map(n=>{
-      const p=path.join('/home/asteria/sigil',n);return [n,fs.existsSync(p)?hash(fs.readFileSync(p)):null];}))};
+    files:Object.fromEntries([...E.SOURCES.map(n=>[n,path.join(paths.sourceDir,n)]),
+      ...require('./runtime-paths').CONFIG_FILES.map(n=>['config/'+n,path.join(paths.configDir,n)])].map(([n,p])=>
+      [n,fs.existsSync(p)?hash(fs.readFileSync(p)):null]))};
 }
 
 // FIXTURE_SCRIPTS (generated from the previously verified, credential-free fixture).

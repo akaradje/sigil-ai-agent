@@ -31,4 +31,18 @@ function completed(mem,s,now=Date.now()) {
     !(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||'')))return false;
   h.completedAt=now;h.pending=null;return true;
 }
-module.exports={observe,due,eligible,prepare,completed};
+function consolidateTown(mem,s,catalog,brain,now=Date.now()) {
+  const a=mem.autonomy,t=mem.gameTelemetry;
+  const serviced=a?.trip?.phase==='return' || !!a?.townVisit?.servicedAt;
+  const town=catalog?.maps?.some(m=>m.town&&m.id===t?.map&&String(m.name).trim()===String(s.zone||'').trim());
+  if(!serviced||!town||!t?.validated||t.positionFault||now-t.checkedAt<0||now-t.checkedAt>=5000||
+    s.dead||!(s.hp?.[0]>0)||s.hpPotions<20||s.mpPotions<20||s.hpPotions==null||s.mpPotions==null||
+    s.target||s.autoQuestRunning||/\bon\b/.test(s.autoHunt||'')||s.panelOpen||s.menuOpen||s.mapOpen||s.modalText||
+    mem.uiHealth?.safeIdle||['reserved','unknown'].includes(a.purchase?.status)||
+    !(a.bagUsage?.[0]<a.bagUsage?.[1]*0.95)||!brain.state.totalTicksPlayed||
+    brain.state.consolidatedThrough===brain.state.totalTicksPlayed)return null;
+  const result=brain.consolidateMemory();
+  (mem.sessionHygiene ||= {}).consolidatedAt=now;
+  return result;
+}
+module.exports={observe,due,eligible,prepare,completed,consolidateTown};

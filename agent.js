@@ -26,18 +26,17 @@ const Autonomy = require('./autonomy');
 const Development = require('./character-development');
 const Catalog = require('./game-catalog');
 const SelfHealing = require('./self-evolution');
+const {CognitiveBrain,learningFarmingOptions} = require('./cognitive-brain');
 const {createAvailability}=require('./server-availability');
+const {resolveRuntimePaths,ensureStateDir}=require('./runtime-paths');
 
 const HARNESS = process.env.HARNESS || 'http://127.0.0.1:4799';
-const DIR = process.env.AGENT_DIR || __dirname;
+const SOURCE_DIR = process.env.AGENT_DIR || process.env.SIGIL_DIR || __dirname;
 const selfHealingBootId = require('node:crypto').randomUUID();
-const selfHealingBuildId = SelfHealing.sourceFingerprint(DIR);
+const selfHealingBuildId = SelfHealing.sourceFingerprint(SOURCE_DIR);
 let cycleCompletedAt = 0;
 let cycleErrorAt = 0;
 let healingState = {};
-const DIARY = path.join(DIR, 'agent-diary.md');
-const DECISIONS = path.join(DIR, 'agent-decisions.jsonl');
-const LESSONS = path.join(DIR, 'agent-lessons.md');
 const STATUS_PORT = Number(process.env.AGENT_PORT || 4801);
 
 const TICK_MS = 15000;
@@ -48,7 +47,7 @@ const MAX_TOOL_CALLS = 5;
 // ------------------------------------------------------------------ env
 function loadEnv() {
   const out = {};
-  const p = path.join(DIR, '.env');
+  const p = path.join(resolveRuntimePaths({repoDir:SOURCE_DIR}).configDir, '.env');
   if (!fs.existsSync(p)) return out;
   for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
     const s = line.trim();
@@ -60,6 +59,11 @@ function loadEnv() {
   return out;
 }
 const ENV = { ...loadEnv(), ...process.env };
+const PATHS=ensureStateDir(resolveRuntimePaths({repoDir:SOURCE_DIR,env:ENV}));
+const DIR=PATHS.stateDir;
+const DIARY = path.join(DIR, 'agent-diary.md');
+const DECISIONS = path.join(DIR, 'agent-decisions.jsonl');
+const LESSONS = path.join(DIR, 'agent-lessons.md');
 const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_LEVELING_FOCUS==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
 autonomyPolicy.sellSurplus=ENV.SIGIL_SELL_SURPLUS==='1';
 autonomyPolicy.powerProgression=ENV.SIGIL_POWER_PROGRESSION==='1';
@@ -147,7 +151,7 @@ async function evalIn(expr) {
 const P = {state: 'JSON.stringify('+IQ.PERCEPTION+')'};
 
 function knowledge(state={}) {
-  const p = path.join(DIR, 'data', 'tables.json');
+  const p = path.join(SOURCE_DIR, 'data', 'tables.json');
   if (!fs.existsSync(p)) return '';
   try {
     const t = JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -178,6 +182,7 @@ function knowledge(state={}) {
 async function perceive(withShot) {
   const raw = await evalIn(P.state);
   let state; try { state=JSON.parse(raw); } catch { throw Error('invalid perception'); }
+  cognitiveBrain.perceive(state);
   if(IQ.rememberCombat(memory,state))saveMemory();
   healingState={dead:Boolean(state.dead)};
   const previous=memory.uiHealth?.safeIdle,sequence=memory.autonomy?.sequence;
@@ -197,6 +202,23 @@ const MEMORY=path.join(DIR,'agent-memory.json');
 let memory=IQ.freshMemory();
 try { memory={...memory,...JSON.parse(fs.readFileSync(MEMORY,'utf8'))}; } catch {}
 if(memory.bossBuildVersion!==2){memory.bossBuild={};memory.bossBuildVersion=2;}
+const cognitiveBrain=new CognitiveBrain({memoryFile:path.join(DIR,'.agi-brain-memory.json')});
+memory.cognitive=cognitiveBrain.view();
+function updateCognition(s,observe=false) {
+  if(memory.cognitive?.issue)return;
+  try {
+    if(observe)cognitiveBrain.observe(s,memory,catalog);
+    const view=cognitiveBrain.view();
+    view.mapPredictions=learningFarmingOptions(catalog,s,memory,autonomyPolicy.levelingMaxGap).map(m=>cognitiveBrain.predictBestFarmingZone([m.name],{explore:false}))
+      .filter(p=>p&&!p.isExploration&&Number.isFinite(p.predictedUtility)&&Date.now()-p.lastAt<30*60000);
+    memory.cognitive=view;
+  } catch {memory.cognitive={enabled:false,issue:'Cognitive memory unavailable; learning suspended'};}
+}
+function consolidateCognition(s) {
+  if(memory.cognitive?.issue)return;
+  try {Hygiene.consolidateTown(memory,s,catalog,cognitiveBrain);updateCognition(s);}
+  catch {memory.cognitive={enabled:false,issue:'Cognitive memory unavailable; learning suspended'};}
+}
 function saveMemory() { fs.writeFileSync(MEMORY+'.tmp',JSON.stringify(memory,null,2));fs.renameSync(MEMORY+'.tmp',MEMORY); }
 let dnaEnabled=autonomyPolicy.enabled&&ENV.SIGIL_DNA!=='0';
 const dnaEngine=new DNA.Engine({store:new DNA.FileStore(path.join(DIR,'dna-memory.json')),lastEventStore:memory.dnaEventStore,lastEventId:memory.dnaEventsSeen});
@@ -234,6 +256,7 @@ async function uiClick(c) {
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
+  if(fresh.act==='ahot'||fresh.act==='aopt')delete memory.nativeCombatProfile;
   if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
   if(dnaEnabled){
     updateDNA(st);const boundary=DNA.nativeControl(fresh,memory);
@@ -304,13 +327,14 @@ async function refreshCatalog(s) {
     log('public catalog refreshed; level cap '+(catalog.levelCap??'unknown')+', refine cap '+catalog.refineMax);
   }catch{log('public catalog unavailable; retaining last verified metadata');}
 }
-const autonomy=Autonomy.createController({mem:memory,observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,log,getCatalog:()=>catalog,policy:autonomyPolicy,developAtSmith:()=>development.run('runes')});
+const autonomy=Autonomy.createController({mem:memory,observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,log,getCatalog:()=>catalog,policy:autonomyPolicy,onTownServiced:consolidateCognition,developAtSmith:()=>development.run('runes')});
 async function resourceSceneInput(id,tier){
   await gate();UI.assertReady(memory.uiHealth);
   const s=(await perceive(false)).state,raw=JSON.parse(await evalIn(Development.SCENE_EXPRESSION));
   if(s.dead||!s.hp||s.hp[0]/s.hp[1]<0.65||s.panelOpen||s.menuOpen||s.mapOpen||/\bon\b/.test(s.autoHunt||'')||!raw.available||raw.mining)throw Error('Resource input safety changed');
   const nodes=(tier==='boss'?raw.bosses||[]:raw.nodes).filter(n=>n.id===id&&(tier==='boss'||n.tier===tier)&&[n.x,n.y,n.wx,n.wy].every(Number.isFinite));if(nodes.length!==1)throw Error('Resource target changed');
   const n=nodes[0];
+  if(cognitiveBrain.isHazardPosition(s.zone,{x:n.wx,y:n.wy}))throw Error('Resource destination is a remembered hazard');
   if(n.visible){await req('/click?x='+n.x+'&y='+n.y);return;}
   const dx=n.wx-raw.x,dy=n.wy-raw.y;if(Math.hypot(dx,dy)<50)throw Error('Resource node obscured by HUD');
   const keys=[];if(Math.abs(dx)>40)keys.push(dx>0?'Right':'Left');if(Math.abs(dy)>40)keys.push(dy>0?'Down':'Up');
@@ -613,6 +637,7 @@ async function runCycle() {
     IQ.updateMetrics(memory,p.state);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
     updateDNA(p.state,true);
     if(Hygiene.eligible(memory,p.state,catalog,Date.now(),autonomyPolicy.sessionRefreshHours)){
+      consolidateCognition(p.state);
       Hygiene.prepare(memory);Autonomy.event(Autonomy.init(memory),'session_refreshing',{});saveMemory();
       await evalIn("setTimeout(()=>location.reload(),100);'town browser refresh scheduled'");return;
     }
@@ -675,6 +700,7 @@ async function runCycle() {
           developmentReview?'CHARACTER DEVELOPMENT REVIEW: Inspect the native guide and all accessible solo power systems. Check earned caches/supply boxes, cooking and life skills, companion growth/league/breeding, equipment sets/options, card caps, skill evolutions and runes. Use only verified current UI. Preserve the active elite pet, useful gear/cards, reserved wing materials and sustain gold. Prefer guaranteed useful gains; do not gamble away good options, buy premium items, trade, message other players or change account settings. Keep the saved leveling destination and close panels after short actions. Record missing requirements as a tactic for the next review.':'',
           developmentReview?'VERIFIED DEVELOPMENT STATE: '+JSON.stringify({last:memory.development.result,runeNext:memory.development.runeNext,resources:memory.autonomy?.goal,knownPanels:Object.keys(memory.development.snapshots||{})}):'',
           'MEASURED PERFORMANCE: '+JSON.stringify(memory.performance),
+          'COGNITIVE MEMORY (observed native profiles; macro templates are advisory, not verified executable combos): '+JSON.stringify(memory.cognitive),
           'RECENT TASK / FAILURES: '+JSON.stringify({task:memory.task,failures:memory.failures,rank:memory.rank}),
           directive ? `OPERATOR DIRECTIVE (follow it this cycle): ${directive}` : '',
 
@@ -836,6 +862,8 @@ setInterval(async()=>{
     const s=(await perceive(false)).state;
     const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
     updateDNA(s);
+    updateCognition(s,true);
+    consolidateCognition(s);
     Hygiene.observe(memory,raw);
     if(Hygiene.completed(memory,s)){Autonomy.event(Autonomy.init(memory),'session_refreshed',{});saveMemory();}
     if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){

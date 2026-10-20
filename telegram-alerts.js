@@ -159,6 +159,21 @@ class AlertEngine {
     }
   }
   observe(sample, now = Date.now()) {
+    const cognition=sample.agent?.strategy?.cognitive;
+    if(cognition?.enabled && /^[a-f0-9-]{36}$/.test(cognition.identity||'') &&
+      Number.isFinite(cognition.updatedAt) && now-cognition.updatedAt>=-5000 && now-cognition.updatedAt<2*MIN &&
+      Number.isSafeInteger(cognition.totalExperiences) && cognition.totalExperiences>0 &&
+      Number.isFinite(cognition.masteryIndex) && cognition.masteryIndex>=1 && cognition.masteryIndex<=100) {
+      const milestone=Math.floor(cognition.masteryIndex/10)*10;
+      const saved=this.db.cognitiveMilestones ||= {};
+      const previous=saved[cognition.identity]||0;
+      if(milestone>=10 && milestone>previous) {
+        this.enqueue('cognitive:'+cognition.identity+':'+milestone,
+          '🧠 ความชำนาญจากประสบการณ์ถึงระดับ '+milestone+'/100 · '+cognition.totalExperiences+' รอบที่สังเกต (คะแนนการเรียนรู้ ไม่ใช่การรับประกันผลเล่น)');
+        saved[cognition.identity]=milestone;
+        const ids=Object.keys(saved);for(const id of ids.slice(0,Math.max(0,ids.length-16)))delete saved[id];
+      }
+    }
     const d = this.db;
     const check=sample.selfHealingTest;
     if(check?.version===1&&check.kind==='isolated-e2e'){
@@ -357,7 +372,8 @@ function save(file, db) {
 }
 
 async function main() {
-  const dir = process.env.SIGIL_DIR || __dirname;
+  const paths = require('./runtime-paths').ensureStateDir(require('./runtime-paths').resolveRuntimePaths());
+  const dir = paths.stateDir;
   const stateFile = path.join(dir, 'telegram-alerts-state.json');
   let saved = {};
   if (fs.existsSync(stateFile)) saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -365,7 +381,7 @@ async function main() {
   let validated = '', nextSendAt = 0, failures = 0;
   const health = { configured: false, validated: false, lastPoll: null, lastSent: null, lastMessageId: null, error: null };
   function config() {
-    return { ...readEnv(path.join(dir, '.env')), ...readEnv(path.join(dir, 'telegram.env')), ...process.env };
+    return { ...readEnv(path.join(paths.configDir, '.env')), ...readEnv(path.join(paths.configDir, 'telegram.env')), ...process.env };
   }
   function viewerLink() {
     // A clean authenticated viewer URL can be supplied privately. No access token in notifications.

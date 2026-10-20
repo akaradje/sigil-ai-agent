@@ -3,7 +3,8 @@ const {resolveCap,bottlenecks,farmOptions}=require('./game-catalog');
 const Progression=require('./progression');
 const Hygiene=require('./session-hygiene');
 const DNA=require('./strategy-dna');
-const {combatSnapshot}=require('./game-intelligence');
+const {combatSnapshot,rankFarmingOptions}=require('./game-intelligence');
+const {learningFarmingOptions}=require('./cognitive-brain');
 const MIN=60000;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
@@ -223,7 +224,9 @@ function trialOption(mem,s,catalog,now=Date.now(),policy={}) {
   if(mem.uiHealth?.safeIdle||a.trip||s.hp?.[0]/s.hp?.[1]<0.75||!Number.isFinite(s.hpPotions)||!Number.isFinite(s.mpPotions)||s.hpPotions<20||s.mpPotions<20||
     !ttk||norm(ttk.zone)!==norm(s.zone)||now-ttk.at>10000||ttk.count<5||ttk.medianSeconds>DNA.profile(mem).ttkToleranceSec)return null;
   const missing=policy.levelingFocus&&!a.cap?.atCap?[]:a.goal?.missing?.filter(m=>m.id!=='gold')||[];
-  const options=farmOptions(catalog,s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id)),current=options.find(m=>norm(m.name)===norm(s.zone));
+  const options=missing.length?farmOptions(catalog,s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id)):
+    learningFarmingOptions(catalog,s,mem,policy.levelingMaxGap);
+  const current=options.find(m=>norm(m.name)===norm(s.zone));
   const rate=current&&a.farmRates[current.id];
   if(!rate||now-rate.at>5*MIN||rate.minutes<2||rate.expPerMinute<=0)return null;
   const next=options.filter(m=>m.id!==current.id&&m.monsterLevel>current.monsterLevel&&m.monsterLevel<=current.monsterLevel+5&&
@@ -231,7 +234,7 @@ function trialOption(mem,s,catalog,now=Date.now(),policy={}) {
   return next?{...next,baseline:rate.expPerMinute}:null;
 }
 
-function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,developAtSmith,now=Date.now}) {
+function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,developAtSmith,onTownServiced,now=Date.now}) {
   let actions=0;
   const a=init(mem);
   const leveling=()=>!!policy.levelingFocus&&!a.cap?.atCap;
@@ -285,6 +288,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   async function resume(trip) {
     await close();
     const current=await state();
+    if(onTownServiced)onTownServiced(current);
     if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&
       getCatalog().maps.some(m=>m.town&&norm(m.name)===norm(current.zone))&&current.hp?.[0]/current.hp?.[1]>=0.85&&current.hpPotions>=20&&current.mpPotions>=20){
       a.returnMap=trip.returnMap||a.returnMap;a.farm=null;a.resume=null;a.trip=null;
@@ -660,12 +664,16 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function farm(s,trial=false) {
     const missing=leveling()?[]:a.goal?.missing?.filter(m=>m.id!=='gold')||[];
-    const options=farmOptions(getCatalog(),s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id));
+    const safeOptions=missing.length?
+      farmOptions(getCatalog(),s,missing,a.farmRates).filter(m=>!mem.dna?.avoidMaps?.includes(m.id)):
+      learningFarmingOptions(getCatalog(),s,mem,policy.levelingMaxGap);
+    const options=missing.length?safeOptions:rankFarmingOptions(safeOptions,mem.cognitive);
     if(!options.length){a.blocked=missing.length?'No currently safe public drop route for missing materials':null;a.last.farm=now();return;}
     const current=options.find(m=>norm(m.name)===norm(s.zone));
     const measured=options.filter(m=>a.farmRates[m.id]?.minutes>=2&&now()-a.farmRates[m.id].at<30*MIN&&(!leveling()||a.farmRates[m.id].target===targetFor(m.id,s)?.id)).sort((x,y)=>y.measuredExpPerMinute-x.measuredExpPerMinute);
     const proposal=trialOption(mem,s,getCatalog(),now(),policy);
-    const best=proposal||(!trial?(!missing.length&&measured.length?measured[0]:current&&current.score>=options[0].score*0.8?current:options[0]):null);
+    const rankedMeasured=missing.length?measured:rankFarmingOptions(measured,mem.cognitive);
+    const best=proposal||(!trial?(!missing.length&&rankedMeasured.length?rankedMeasured[0]:current&&current.score>=options[0].score*0.8?current:options[0]):null);
     if(!best)return;
     trial=!!proposal;
     a.farm={map:best.id,name:best.name,started:now(),returnMap:returnPoint(s),returnMode:s.autoQuestMode||'mq',expectedDrops:best.materialChance,estimate:true,trial,baseline:best.baseline,pendingProfile:leveling()};

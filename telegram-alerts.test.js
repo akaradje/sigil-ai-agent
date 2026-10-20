@@ -11,6 +11,20 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+
+test('cognitive milestones require fresh observed evidence and survive restart without duplicate alerts',()=>{
+  const s=sample();s.agent.strategy={cognitive:{enabled:true,identity:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    updatedAt:start,totalExperiences:6,masteryIndex:29}};
+  let e=new AlertEngine({},start);e.observe(s,start);
+  let events=e.db.pending.filter(p=>p.key.startsWith('cognitive:'));
+  assert.equal(events.length,1);assert.match(events[0].text,/20\/100/);
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);
+  e.observe(s,start+MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('cognitive:')).length,0);
+  s.agent.strategy.cognitive.masteryIndex=35;s.agent.strategy.cognitive.updatedAt=start+MIN;
+  e.observe(s,start+MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('cognitive:')).length,1);
+  e.acknowledge([...e.db.pending]);s.agent.strategy.cognitive.masteryIndex=45;
+  e.observe(s,start+10*MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('cognitive:')).length,0);
+});
 test('verified wing completion includes its measured power delta and cannot resend after acknowledgement and restart',()=>{
   let e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[{id:1,type:'wing_completed',detail:{name:'Arcane Wing',before:900,after:975,delta:75}}]}};
   e.observe(s,start);const alerts=e.db.pending.filter(p=>p.key.includes('autonomy:'));assert.equal(alerts.length,1);assert.match(alerts[0].text,/900 → 975 \(\+75\)/);

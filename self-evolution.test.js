@@ -29,6 +29,16 @@ function fixture(t,opts={}) {
 function proposal() {return {edits:[{file:'ui-resilience.js',find:'// synthetic unit fixture marker',replace:'// repaired synthetic unit fixture marker'}],
   test:"const{test}=require('node:test');const assert=require('node:assert/strict');test('candidate remains closed without state',()=>assert.equal(require('./ui-resilience').assess({}).blocked,true));"};}
 
+test('cognitive runtime and tests are included in isolated repair snapshots and proposal scope',()=>{
+  assert.ok(E.RUNTIME.includes('cognitive-brain.js'));
+  assert.ok(E.TESTS.includes('cognitive-brain.test.js'));
+  for(const file of ['cognitive-brain.js','cognitive-brain.test.js']) {
+    const base={[file]:'// unique cognitive fixture'};
+    const result=E.validateProposal({edits:[{file,find:base[file],replace:'// updated cognitive fixture'}],test:'// separate regression'},base);
+    assert.ok(result.changed.includes(file));
+  }
+});
+
 test('redaction covers Bearer credentials, key names, JWT and known encoded private values',()=>{
   const secret='synthetic-private-value-only',r=E.createRedactor([secret]);
   const input=`Authorization: Bearer ${secret}\nMETA_API_KEY="${secret}"\n${encodeURIComponent(secret)} ${Buffer.from(secret).toString('base64')} eyJabc.defgh.ijklmn`;
@@ -158,8 +168,8 @@ test('model transport sends secrets only on stdin, demands JSON and does not exp
   await assert.rejects(invalid([]),{code:'INVALID_MODEL_RESPONSE'});
 });
 test('prompt incident data is allowlisted and excludes raw DOM, errors and arbitrary telemetry',()=>{
-  const messages=E.buildEvolutionPrompt({reason:'UI_SCHEMA_CHANGED',missing:['hp'],domSnapshot:'PRIVATE_RAW_DOM',telemetry:{token:'PRIVATE_RAW_DOM'}},{},[], 'Authorization: Bearer PRIVATE_FEEDBACK');
-  assert.equal(JSON.stringify(messages).includes('PRIVATE_RAW_DOM'),false);assert.equal(JSON.stringify(messages).includes('PRIVATE_FEEDBACK'),false);
+  const messages=E.buildEvolutionPrompt({reason:'UI_SCHEMA_CHANGED',missing:['hp'],domSnapshot:'SYNTHETIC_PRIVATE_RAW_DOM',telemetry:{token:'SYNTHETIC_PRIVATE_RAW_DOM'}},{},[], 'Authorization: Bearer SYNTHETIC_PRIVATE_FEEDBACK');
+  assert.equal(JSON.stringify(messages).includes('SYNTHETIC_PRIVATE_RAW_DOM'),false);assert.equal(JSON.stringify(messages).includes('SYNTHETIC_PRIVATE_FEEDBACK'),false);
   assert.match(messages[0].content,/untrusted data/);
 });
 test('automatic mode sends only sandbox-verified candidates to the separate broker',async t=>{

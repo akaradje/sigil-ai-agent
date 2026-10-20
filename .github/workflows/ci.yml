@@ -4,17 +4,39 @@ permissions:
   contents: read
 jobs:
   verify:
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test publication guard
+        run: python -m unittest discover -s scripts -p "test_*.py"
+      - name: Enforce reviewed public paths
+        run: python scripts/check-public-paths.py
+      - name: Reject private files and embedded credentials
+        run: python scripts/check-public-files.py --all-files
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Verify source tree remains clean after tests
+        run: python scripts/check-public-files.py --all-files
+  secrets:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: npm test
-      - run: python3 scripts/check-public-files.py
       - name: Download and verify Gitleaks
         env:
           GH_TOKEN: ${{ github.token }}

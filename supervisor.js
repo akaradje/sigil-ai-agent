@@ -21,7 +21,7 @@ availability.probe().catch(()=>{});
 setInterval(()=>availability.probe().catch(()=>{}),60000);
 
 const path = require('node:path');
-const DIR = process.env.AGENT_DIR || __dirname;
+const DIR = require('./runtime-paths').ensureStateDir(require('./runtime-paths').resolveRuntimePaths()).stateDir;
 const HARNESS = process.env.HARNESS || 'http://127.0.0.1:4799';
 const LOG = path.join(DIR, 'supervisor.log');
 const METRICS = path.join(DIR, 'metrics.jsonl');

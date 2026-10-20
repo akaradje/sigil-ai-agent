@@ -48,7 +48,7 @@ function observeCombat(mem,s,now=Date.now()) {
   if(!p||p.name!==s.target||p.identity!==(s.targetIdentity||null)||p.zone!==s.zone||now-p.last>3000||ratio>p.ratio+0.01){
     p=c.active={name:s.target,identity:s.targetIdentity||null,zone:s.zone,at:now,last:now,ratio,full:ratio>=0.95,damaged:false};
   }else {
-    if(ratio<p.ratio)p.damaged=true;
+    if(ratio<p.ratio){p.damaged=true;c.lastDamage={zone:s.zone,at:now};}
     if(ratio===0&&p.ratio>0&&p.full&&p.damaged){
       const seconds=(now-p.at)/1000;
       if(seconds>=0.5&&seconds<=120)c.samples.push({zone:s.zone,target:s.target,seconds,at:now});

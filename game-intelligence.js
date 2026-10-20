@@ -116,6 +116,7 @@ function readUI() {
 const PERCEPTION = '('+readUI.toString().split('\n').filter(l=>!l.trimStart().startsWith('//')).map(l=>l.trim()).join('\n')+')()';
 const {bracketHold}=require('./progression');
 const DNA=require('./strategy-dna');
+const {rankFarmingOptions}=require('./cognitive-brain');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function controllerFallbackReady(mem,alive,now=Date.now()){
@@ -309,6 +310,7 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
             await pick(c=>c.act==='ahot'&&/All learned|ทุกสกิลที่เรียน/i.test(c.label)&&!c.on,true);
             throw Error('hotbar scope lacks verified defensive buff/skills');
           }
+          mem.nativeCombatProfile={character:before.name,job:before.job,genes:{...g},at:Date.now()};
           mem.combatJob=before.job;mem.last.combat=Date.now();result='verified native DNA profile: HP '+threshold+'%, MP 30%, '+g.skillScope;break;
         }
         case 'class': {
@@ -440,4 +442,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   }
   return {run,open,close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

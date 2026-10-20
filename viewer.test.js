@@ -1,6 +1,23 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+
+test('cognitive card shows observed mastery, curriculum and storage failures as text',()=>{
+  const {PAGE}=require('./viewer'),vm=require('node:vm'),nodes=new Map();
+  const start=PAGE.indexOf('const cognitive=j.strategy?.cognitive;'),end=PAGE.indexOf('const dnaMode=',start);
+  const render=j=>vm.runInNewContext(PAGE.slice(start,end),{j,$:id=>{
+    if(!nodes.has(id))nodes.set(id,{textContent:''});return nodes.get(id);
+  }});
+  render({strategy:{cognitive:{enabled:true,masteryIndex:31,totalExperiences:9,knownMapsCount:2,
+    activeCurriculum:{currentGoal:'<script>unsafe</script>',targetMetric:'expPerMin',baselineValue:100,targetValue:105},
+    workingMemory:{activeSkillId:'native_quest',recommendedSkillId:'kite_and_sustain'}}}});
+  assert.match(nodes.get('mastery').textContent,/31 \/ 100/);
+  assert.match(nodes.get('curriculum').textContent,/<script>unsafe<\/script>/);
+  assert.match(nodes.get('cognitiveSkill').textContent,/native_quest/);
+  render({strategy:{cognitive:{enabled:false,issue:'Storage unavailable'}}});
+  assert.equal(nodes.get('mastery').textContent,'Storage unavailable');
+  assert.equal(nodes.get('curriculum').textContent,'');
+});
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const fs = require('node:fs');
@@ -36,18 +53,18 @@ test('isolated test reports require ten-minute evidence, confirmed rollback and 
 test('isolated test projection is separate, allowlisted and absent until a real report exists', () => {
   assert.deepEqual(healingTestView(null,NOW),{available:false});
   assert.equal(healingTestView({...testReport(),kind:'production'},NOW).available,false);
-  const report={...testReport(),secret:'PRIVATE',control:{token:'PRIVATE'},notifications:[...testReport().notifications,{status:'unknown',messageId:103,at:NOW,secret:'PRIVATE'}]};
+  const report={...testReport(),secret:'SYNTHETIC_PRIVATE',control:{token:'SYNTHETIC_PRIVATE'},notifications:[...testReport().notifications,{status:'unknown',messageId:103,at:NOW,secret:'SYNTHETIC_PRIVATE'}]};
   const view=healingTestView(report,NOW);
-  assert.equal(JSON.stringify(view).includes('PRIVATE'),false);assert.equal(view.notifications.length,2);
+  assert.equal(JSON.stringify(view).includes('SYNTHETIC_PRIVATE'),false);assert.equal(view.notifications.length,2);
   assert.equal(healingView(deployment(),null,health(),NOW).current.kind,'patch');
 });
 test('quiet daily success requires suppressed alert evidence and cannot claim actual Telegram delivery',()=>{
   const report={...testReport(),notificationPolicy:'failed_runs_only',notifications:[],suppressedNotifications:['COMMITTED','ROLLED_BACK'],
-    schedule:{enabled:true,hour:7,minute:0,timeZone:'Asia/Bangkok',nextRunAt:NOW+86400000},history:[{runId:JOB,stage:'PASSED',finishedAt:NOW,secret:'PRIVATE'}]};
+    schedule:{enabled:true,hour:7,minute:0,timeZone:'Asia/Bangkok',nextRunAt:NOW+86400000},history:[{runId:JOB,stage:'PASSED',finishedAt:NOW,secret:'SYNTHETIC_PRIVATE'}]};
   const view=healingTestView(report,NOW);assert.equal(view.stage,'PASSED');assert.deepEqual(view.notifications,[]);assert.equal(view.failureNotification,null);
-  assert.equal(view.schedule.hour,7);assert.equal(view.history.length,1);assert.equal(JSON.stringify(view).includes('PRIVATE'),false);
+  assert.equal(view.schedule.hour,7);assert.equal(view.history.length,1);assert.equal(JSON.stringify(view).includes('SYNTHETIC_PRIVATE'),false);
   assert.equal(healingTestView({...report,suppressedNotifications:['COMMITTED']},NOW).stage,'INCOMPLETE');
-  const failed=healingTestView({...report,stage:'FAILED'},NOW,[{runId:JOB,messageId:555,at:NOW,token:'PRIVATE'}]);
+  const failed=healingTestView({...report,stage:'FAILED'},NOW,[{runId:JOB,messageId:555,at:NOW,token:'SYNTHETIC_PRIVATE'}]);
   assert.deepEqual(failed.failureNotification,{messageId:555,at:NOW});
 });
 
@@ -90,14 +107,14 @@ test('dashboard never presents stale, mismatched or missing health as an active 
 });
 
 test('dashboard allowlists public metadata, merges event times and handles older projection formats', () => {
-  const d = deployment(); d.secret = 'PRIVATE'; d.active.source = 'PRIVATE'; d.active.files.push('../.env');
-  d.events[0] = {...d.events[0], secret:'PRIVATE', reason:'PRIVATE\nraw error', files:['.env','ui-resilience.js']};
+  const d = deployment(); d.secret = 'SYNTHETIC_PRIVATE'; d.active.source = 'SYNTHETIC_PRIVATE'; d.active.files.push('../.env');
+  d.events[0] = {...d.events[0], secret:'SYNTHETIC_PRIVATE', reason:'PRIVATE\nraw error', files:['.env','ui-resilience.js']};
   d.events.push(null, {id:2, jobId:JOB, status:'<script>', at:NOW});
   const repair = {version:1, events:[{id:1, jobId:JOB, status:'VERIFYING', at:NOW-500}]};
   const view = healingView(d, repair, health(), NOW);
   assert.equal(view.events.length, 2); assert.equal(view.events[0].status, 'VERIFYING');
   assert.deepEqual(view.files, ['ui-resilience.js']); assert.deepEqual(view.events[1].files, ['ui-resilience.js']);
-  assert.equal(JSON.stringify(view).includes('PRIVATE'), false); assert.equal(JSON.stringify(view).includes('.env'), false);
+  assert.equal(JSON.stringify(view).includes('SYNTHETIC_PRIVATE'), false); assert.equal(JSON.stringify(view).includes('.env'), false);
   const old = healingView({mode:'automatic-deployment', phase:'COMMITTED', checkedAt:NOW, events:[{id:1,jobId:JOB,status:'COMMITTED',at:NOW}]}, null, health(), NOW);
   assert.equal(old.current.kind, 'unconfirmed'); assert.equal(old.events.length, 1);
   assert.equal(healingView({...d, events:Array(41).fill(d.events[0])}, null, health(), NOW).available, false);
@@ -150,7 +167,7 @@ test('viewer fails closed without a token', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sigil-viewer-test-'));
   try {
     const child = spawn(process.execPath, [path.join(__dirname, 'viewer.js')], {
-      env: { ...process.env, AGENT_DIR: dir, VIEWER_TOKEN: '' }, stdio: ['ignore', 'ignore', 'pipe'],
+      env: { ...process.env, SIGIL_STATE_DIR:'', SIGIL_CONFIG_DIR:'', AGENT_DIR: dir, VIEWER_TOKEN: '' }, stdio: ['ignore', 'ignore', 'pipe'],
     });
     let error = '';
     child.stderr.on('data', chunk => { error += chunk; });
@@ -165,7 +182,7 @@ test('viewer requires authentication, limits routes to read-only and sets privac
   const token = crypto.randomBytes(32).toString('hex');
   const port = await freePort();
   const child = spawn(process.execPath, [path.join(__dirname, 'viewer.js')], {
-    env: { ...process.env, AGENT_DIR: dir, VIEWER_TOKEN: token, VIEWER_PORT: String(port), VIEWER_HOST: '127.0.0.1' },
+    env: { ...process.env, SIGIL_STATE_DIR:'', SIGIL_CONFIG_DIR:'', AGENT_DIR: dir, VIEWER_TOKEN: token, VIEWER_PORT: String(port), VIEWER_HOST: '127.0.0.1' },
     stdio: 'ignore',
   });
   const base = `http://127.0.0.1:${port}`;
@@ -207,14 +224,14 @@ test('authenticated status endpoint reads the nested agent health and preserves 
   const agent = require('node:http').createServer((req,res) => {
     if(!agentUp) {res.writeHead(503);return res.end();}
     res.setHeader('content-type','application/json');
-    res.end(JSON.stringify({secret:'PRIVATE', selfHealing:{...health(BEFORE), updatedAt:Date.now()-100, observedAt:Date.now()}}));
+    res.end(JSON.stringify({secret:'SYNTHETIC_PRIVATE', selfHealing:{...health(BEFORE), updatedAt:Date.now()-100, observedAt:Date.now()}}));
   });
   await new Promise(resolve=>agent.listen(agentPort,'127.0.0.1',resolve));
   const file = path.join(dir, 'events.json');
-  fs.writeFileSync(file, JSON.stringify({...deployment('ROLLED_BACK'), checkedAt:Date.now(), secret:'PRIVATE'}));
+  fs.writeFileSync(file, JSON.stringify({...deployment('ROLLED_BACK'), checkedAt:Date.now(), secret:'SYNTHETIC_PRIVATE'}));
   const reportFile=path.join(dir,'e2e.json');fs.writeFileSync(reportFile,JSON.stringify(testReport()));
   const child = spawn(process.execPath, [path.join(__dirname, 'viewer.js')], {
-    env:{...process.env, AGENT_DIR:dir, VIEWER_TOKEN:token, VIEWER_PORT:String(port), VIEWER_HOST:'127.0.0.1',
+    env:{...process.env, SIGIL_STATE_DIR:'', SIGIL_CONFIG_DIR:'', AGENT_DIR:dir, VIEWER_TOKEN:token, VIEWER_PORT:String(port), VIEWER_HOST:'127.0.0.1',
       AGENT_URL:`http://127.0.0.1:${agentPort}`, SELF_HEAL_STATUS_FILE:file, SELF_HEAL_REPAIR_FILE:path.join(dir,'missing.json'), SELF_HEAL_TEST_FILE:reportFile}, stdio:'ignore'});
   t.after(async () => {const exited=once(child,'exit');child.kill();await exited;await new Promise(resolve=>agent.close(resolve));fs.rmSync(dir,{recursive:true,force:true});});
   const base = `http://127.0.0.1:${port}`;
@@ -225,7 +242,7 @@ test('authenticated status endpoint reads the nested agent health and preserves 
   assert.equal(response.status,200); assert.equal(response.headers.get('cache-control'),'no-store');
   const status = await response.json();
   assert.equal(status.phase,'ROLLED_BACK'); assert.equal(status.current.kind,'restored');
-  assert.equal(status.events[0].status,'ROLLED_BACK'); assert.equal(JSON.stringify(status).includes('PRIVATE'),false);
+  assert.equal(status.events[0].status,'ROLLED_BACK'); assert.equal(JSON.stringify(status).includes('SYNTHETIC_PRIVATE'),false);
   agentUp = false;
   const offline = await (await fetch(base+'/self-healing.json', {headers:{cookie:'v='+token}})).json();
   assert.equal(offline.current.kind,'unconfirmed'); assert.equal(offline.events[0].status,'ROLLED_BACK');

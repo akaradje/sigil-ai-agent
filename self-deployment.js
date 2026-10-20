@@ -41,7 +41,7 @@ class DeploymentBroker {
     const d=E.readJson(this.file,{version:1,identity:crypto.randomUUID(),sequence:0,events:[],rejected:[],active:null});
     if(d.version!==1||!uuid(d.identity)||!Number.isSafeInteger(d.sequence)||!Array.isArray(d.events)||d.events.length>40||!Array.isArray(d.rejected))throw error('DEPLOYMENT_STATE_INVALID');
     const j=d.active;
-    if(j&&(!uuid(j.id)||!Array.isArray(j.files)||j.files.length<1||j.files.length>3||j.files.some(f=>!E.EDITABLE.includes(f.name)||!digest(f.before)||!digest(f.after))))throw error('DEPLOYMENT_STATE_INVALID');
+    if(j&&(!uuid(j.id)||!Array.isArray(j.files)||j.files.length<1||j.files.length>E.EDITABLE.length||j.files.some(f=>!E.EDITABLE.includes(f.name)||!digest(f.before)||!digest(f.after))))throw error('DEPLOYMENT_STATE_INVALID');
     return d;
   }
   save(d){
