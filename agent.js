@@ -620,7 +620,14 @@ async function runCycle() {
       }
       return;
     }
-    if(memory.uiHealth?.safeIdle&&!memory.uiHealth.login){saveMemory();return;}
+    if(memory.uiHealth?.safeIdle&&!memory.uiHealth.login){
+      if(UI.recoveryDue(memory,p.state)){
+        const now=Date.now();memory.uiRecovery={at:now,pending:true,history:[...(memory.uiRecovery?.history||[]).filter(t=>now-t<3600000),now]};
+        Autonomy.event(Autonomy.init(memory),'hud_reloading',{reason:'over-cap HP'});saveMemory();
+        await evalIn("setTimeout(()=>location.reload(),100);'HUD browser reload scheduled'");
+      }
+      saveMemory();return;
+    }
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||''));
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
@@ -651,8 +658,7 @@ async function runCycle() {
     }
     // Finish owned travel and native AUTO activation before ordinary growth or rank checks.
     // Waiting for the input budget must not let another workflow spend that budget first.
-    if(autonomyPolicy.enabled&&automatic&&!critical.includes(planned)&&
-      (memory.autonomy?.trip||memory.autonomy?.resume||memory.autonomy?.farm?.pendingProfile||memory.autonomy?.farm?.pendingActivation)){
+    if(autonomyPolicy.enabled&&!critical.includes(planned)&&Autonomy.ownsWorkflow(memory,p.state,catalog,automatic)){
       if(actionTimes.filter(t=>Date.now()-t<60000).length<=3){
         actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}
       }
@@ -885,6 +891,9 @@ setInterval(async()=>{
     consolidateCognition(s);
     Hygiene.observe(memory,raw);
     if(Hygiene.completed(memory,s)){Autonomy.event(Autonomy.init(memory),'session_refreshed',{});saveMemory();}
+    if(memory.uiRecovery?.pending&&memory.gameTelemetry.validated&&!memory.uiHealth.safeIdle){
+      memory.uiRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'hud_recovered',{});saveMemory();
+    }
     if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){
       memory.positionRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'position_recovered',{});saveMemory();
     }

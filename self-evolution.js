@@ -73,7 +73,7 @@ function healthSnapshot({memory, bootId, buildId, completedAt, paused, availabil
   return { updatedAt: completedAt, observedAt: h.checkedAt || 0, bootId, buildId,
     safeIdle: Boolean(h.safeIdle), badSince: h.badSince || null, paused: Boolean(paused),
     offline: availability?.status === 'down', login: Boolean(h.login),
-    expectedReload: Boolean(memory.sessionHygiene?.pending || memory.positionRecovery?.pending),
+    expectedReload: Boolean(memory.sessionHygiene?.pending || memory.positionRecovery?.pending || memory.uiRecovery?.pending&&now-memory.uiRecovery.at<90000),
     cycleErrorAt,completedCycles,dead:Boolean(state.dead),positionFault:Boolean(memory.gameTelemetry?.positionFault),
     missing: (h.missing || []).filter(x => ['name','job','level','jobLevel','hp','mp','gold','crystals','zone','exp'].includes(x)) };
 }

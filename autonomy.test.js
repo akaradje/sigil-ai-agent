@@ -5,6 +5,13 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+
+test('reconnect preparation and essential town work claim the queue before optional development reviews',()=>{
+  const c=catalog(),m={};
+  for(const task of ['cbt','town_shop','town_storage','town_rest'])assert.equal(A.ownsWorkflow(m,state(),c,task),true);
+  for(const task of ['inventory','equipment']){assert.equal(A.ownsWorkflow(m,state({zone:'Town'}),c,task),true);assert.equal(A.ownsWorkflow(m,state(),c,task),false);}
+  m.autonomy={resume:{map:'field'}};assert.equal(A.ownsWorkflow(m,state(),c,'autonomy_wait'),true);assert.equal(A.ownsWorkflow(m,state(),c,null),false);
+});
 test('the final reserved wing ore is never refined away or topped up merely to fund optional refinement',async()=>{
   const m={},a=A.init(m),c=catalog();c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8,sigil_ore:10}}});
   a.wingPriority=true;a.powerProgression=true;a.inventory={items:{sigil_ore:10},gear:[]};a.worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];a.trip={kind:'forge',phase:'town',at:clock,salesDone:true,advancedChecked:true};const spending=[];

@@ -18,7 +18,7 @@ function update(mem,s,now=Date.now()) {
   if(report.blocked) {
     h.safeIdle=true;h.healthySince=null;h.badSince??=now;
     // Stop immediately, notify after a sustained observation rather than a loading frame.
-    const expectedReload=mem.positionRecovery?.pending&&now-mem.positionRecovery.at<90000||mem.sessionHygiene?.pending&&now-mem.sessionHygiene.pending.at<90000;
+    const expectedReload=mem.positionRecovery?.pending&&now-mem.positionRecovery.at<90000||mem.sessionHygiene?.pending&&now-mem.sessionHygiene.pending.at<90000||mem.uiRecovery?.pending&&now-mem.uiRecovery.at<90000;
     if(!h.notified&&!expectedReload&&now-h.badSince>=15000){emit('ui_changed');h.notified=true;}
   }else {
     h.badSince=null;
@@ -35,6 +35,18 @@ function update(mem,s,now=Date.now()) {
 }
 function assertReady(h,now=Date.now()) {
   if(!h||(h.safeIdle&&!h.login)||h.blocked||now-h.checkedAt>10000)throw Object.assign(Error('UI schema unavailable: Safe Idle'),{code:'UI_SAFE_IDLE'});
+}
+function recoveryDue(mem,s,now=Date.now()) {
+  const h=mem.uiHealth,t=mem.gameTelemetry,r=mem.uiRecovery||{},a=mem.autonomy||{},report=assess(s);
+  if(!h?.safeIdle||h.character!==s.name||!s.name||s.dead||s.disconnected||s.atCharSelect||
+    s.panelOpen||s.menuOpen||s.mapOpen||s.modalText||report.missing.length!==1||report.missing[0]!=='hp'||
+    !Array.isArray(s.hp)||s.hp.length!==2||!s.hp.every(Number.isFinite)||s.hp[1]<=0||s.hp[0]<=s.hp[1]||
+    !Number.isFinite(h.badSince)||now-h.badSince<30000||!Number.isFinite(h.checkedAt)||now-h.checkedAt<0||now-h.checkedAt>10000||
+    !t?.validated||t.loading||t.positionFault||!Number.isFinite(t.checkedAt)||now-t.checkedAt<0||now-t.checkedAt>5000||
+    ['reserved','unknown'].includes(a.purchase?.status)||['confirming','uncertain'].includes(a.saleIntent?.status)||
+    mem.positionRecovery?.pending||mem.sessionHygiene?.pending)return false;
+  const recent=(r.history||[]).filter(at=>Number.isFinite(at)&&now-at>=0&&now-at<3600000);
+  return recent.length<2&&(!Number.isFinite(r.at)||now-r.at>=600000);
 }
 // Only completed, fully observed HP bars count. A target disappearing, visibly switching,
 // healing or a polling gap is censored; HP drops are not assumed to be hit counts.
@@ -60,4 +72,4 @@ function observeCombat(mem,s,now=Date.now()) {
   c.current={zone:s.zone,count:here.length,medianSeconds:here.length?here[Math.floor(here.length/2)]:null,estimated:true,at:now};
   return c;
 }
-module.exports={assess,update,assertReady,observeCombat};
+module.exports={assess,update,assertReady,recoveryDue,observeCombat};

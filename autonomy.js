@@ -16,6 +16,12 @@ function event(a,type,detail,now=Date.now()) {
   a.events.push({id:++a.sequence,type,detail,at:now});a.events=a.events.slice(-80);
 }
 function wingReserve(a,reserve=100000){return a.wingPriority&&a.goal?.slot==='wing'?reserve+(a.goal.cost?.gold||0):reserve;}
+function ownsWorkflow(mem,s,catalog,task){
+  const a=mem.autonomy||{};
+  return !!task&&(!!(a.trip||a.resume||a.farm?.pendingProfile||a.farm?.pendingActivation)||
+    ['cbt','town_shop','town_storage','town_rest'].includes(task)||
+    ['inventory','equipment'].includes(task)&&!!catalog?.maps.some(m=>m.town&&norm(m.name)===norm(s.zone)));
+}
 function bagCapacityNeeded(a){
   const bag=a.bagUsage;if(!bag||bag[1]<=0)return false;
   if(bag[0]>=Math.floor(bag[1]*0.95))return true;
@@ -807,4 +813,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run,travel:async id=>{actions=0;await travel(id);}};
 }
-module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,protectCombat,progressionGoal,update,chooseTask,trialOption,createController,refineCandidates,wingReserve};
+module.exports={init,event,ownsWorkflow,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,protectCombat,progressionGoal,update,chooseTask,trialOption,createController,refineCandidates,wingReserve};

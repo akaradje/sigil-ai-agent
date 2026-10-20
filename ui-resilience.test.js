@@ -3,6 +3,24 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const UI=require('./ui-resilience');
 const healthy=()=>({name:'Hero',job:'Starweaver',lv:'Lv 59',jobLv:'Job 14',hp:[900,1000],mp:[700,900],gold:120000,crystals:5000,zone:'Field',exp:40,controls:[]});
+
+test('sustained over-cap HP allows a bounded reload while gameplay remains blocked',()=>{
+  const now=1800000000000,s={...healthy(),hp:[1050,1000]},m={gameTelemetry:{validated:true,checkedAt:now}};
+  UI.update(m,s,now-30000);UI.update(m,s,now);
+  assert.equal(UI.recoveryDue(m,s,now),true);assert.throws(()=>UI.assertReady(m.uiHealth,now),/Safe Idle/);
+  m.uiRecovery={at:now,pending:true,history:[now]};assert.equal(UI.recoveryDue(m,s,now),false);
+  m.gameTelemetry.checkedAt=now+600000;UI.update(m,s,now+600000);assert.equal(UI.recoveryDue(m,s,now+600000),true);
+  m.uiRecovery={at:now+600000,pending:true,history:[now,now+600000]};
+  m.gameTelemetry.checkedAt=now+1200000;UI.update(m,s,now+1200000);assert.equal(UI.recoveryDue(JSON.parse(JSON.stringify(m)),s,now+1200000),false);
+});
+
+test('HUD reload cannot bypass loading, missing fields, recent faults or unsettled purchases',()=>{
+  const now=1800000000000;
+  for(const change of [x=>{x.s.hp=null;},x=>{x.s.gold=null;},x=>{x.s.modalText='Buy?';},x=>{x.m.gameTelemetry.loading=true;},x=>{x.m.gameTelemetry.checkedAt=now-6000;},x=>{x.m.autonomy.purchase={status:'unknown'};},x=>{x.m.uiHealth.badSince=now-29999;}]){
+    const x={s:{...healthy(),hp:[1050,1000]},m:{gameTelemetry:{validated:true,checkedAt:now}}};UI.update(x.m,x.s,now-30000);UI.update(x.m,x.s,now);change(x);
+    assert.equal(UI.recoveryDue(x.m,x.s,now),false);
+  }
+});
 test('fixed schema blocks an initially broken page and critical HP loss even below 30 percent',()=>{
   assert.equal(UI.assess(healthy()).blocked,false);
   const s=healthy();delete s.hp;assert.equal(UI.assess(s).blocked,true);
