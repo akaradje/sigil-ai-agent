@@ -284,6 +284,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function resume(trip) {
     await close();
+    const current=await state();
+    if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&
+      getCatalog().maps.some(m=>m.town&&norm(m.name)===norm(current.zone))&&current.hp?.[0]/current.hp?.[1]>=0.85&&current.hpPotions>=20&&current.mpPotions>=20){
+      a.returnMap=trip.returnMap||a.returnMap;a.farm=null;a.resume=null;a.trip=null;
+      if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();save();return;
+    }
     if(trip.returnMap)await travel(trip.returnMap);
     if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();
     a.farm=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};a.trip=null;save();
@@ -356,7 +362,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     a.gearCapped=rows.length>=a.worn.length&&a.worn.length>=8&&rows.every(r=>r.max);
     const row=refineCandidates(catalog,s,a.worn,rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))))[0];
     const reserve=wingReserve(a,policy.goldReserve),oreReserve=a.wingPriority&&goal?.slot==='wing'?(goal.cost?.mats?.sigil_ore||0):0;
-    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve+(row?.refine>=catalog.refineSafe?2:1)){
+    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve){
       await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state(),ore=shop.smithRows.find(r=>r.act==='buy'&&r.key==='sigil_ore'),unit=Number(ore?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
       if(unit>0&&shop.gold-unit*10>=reserve){
         const stock=a.inventory?.items?.sigil_ore||0;await pick(c=>c.act==='buy'&&c.key==='sigil_ore'&&c.amount==='10');
@@ -366,6 +372,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         return true;
       }return false;
     }
+    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve+(row?.refine>=catalog.refineSafe?2:1))return false;
     if(!row){
       if(policy.powerProgression&&rows.some(r=>!r.max)&&s.gold-reserve>10000){
         await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state();
@@ -427,9 +434,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(actions>6)return; // Leave room for select, dialog and confirmation this slice.
       const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
       const isWeapon=g=>gearForName(getCatalog(),g.art||g.text)?.slot==='weapon';
+      const inspectionLimit=a.wingPriority&&a.goal?.slot==='wing'&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3?4:8;
       const item=surplusGear(getCatalog(),before,a.worn)
         .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])||(x.rarity??99)-(y.rarity??99))
-        .find(g=>!trip.keepUIDs?.includes(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<8));
+        .find(g=>!trip.keepUIDs?.includes(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
       if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
       if(!isWeapon(item))trip.secondaryInspections=(trip.secondaryInspections||0)+1;
@@ -643,10 +651,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageCleanup?.requestedAt&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
-    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&a.bagUsage?.[0]>=Math.floor(a.bagUsage?.[1]*0.95)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&(!a.wingPriority||a.bagUsage?.[0]>a.bagUsage?.[1]-3)&&a.bagUsage?.[0]>=Math.floor(a.bagUsage?.[1]*0.95)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
       trip.kind='capacity';trip.progressAt=now();return;
     }
-    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';trip.progressAt=now();return;}
+    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>m.id==='sigil_ore')||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
     if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
     if(trip.kind==='forge'||!policy.powerProgression)a.last.forge=now();trip.phase='return';
   }

@@ -5,6 +5,20 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('the final reserved wing ore is never refined away or topped up merely to fund optional refinement',async()=>{
+  const m={},a=A.init(m),c=catalog();c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8,sigil_ore:10}}});
+  a.wingPriority=true;a.powerProgression=true;a.inventory={items:{sigil_ore:10},gear:[]};a.worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];a.trip={kind:'forge',phase:'town',at:clock,salesDone:true,advancedChecked:true};const spending=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000,powerProgression:true,wingPriority:true},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'smith',gold:900000,hpPotions:25,mpPotions:25,smithRows:[{act:'refine',key:'w',worn:true,refine:0,chance:100,disabled:false,max:false,costText:'400 G',name:'Void Staff'}],controls:[{act:'smtab',key:'refine'},{act:'refine',key:'w'}]}),
+    click:async x=>{if(['refine','buy'].includes(x.act))spending.push(x);},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.deepEqual(spending,[]);assert.equal(a.inventory.items.sigil_ore,10);
+});
+test('supplied wing focus departs directly from town instead of taking an EXP-map detour',async()=>{
+  const m={},a=A.init(m),c=catalog();c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8}}});
+  a.wingPriority=true;a.powerProgression=true;a.inventory={items:{},gear:[]};a.worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];a.trip={kind:'shop',phase:'return',returnMap:'field',returnMode:'farm',at:clock,salesDone:true,salePolicyVersion:2};const keys=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000,wingPriority:true},now:()=>clock,observe:async()=>state({zone:'Town',hpPotions:25,mpPotions:25,gold:900000,autoHunt:''}),key:async k=>keys.push(k),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(a.trip,null);assert.equal(a.resume,null);assert.equal(a.returnMap,'field');assert.deepEqual(keys,[]);assert.equal(a.townVisit.servicedAt,clock);
+});
 test('bounded town inspections reach ordinary surplus before retained option pieces can monopolize the quota',async()=>{
   const m={},a=A.init(m),c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
   a.worn=[{uid:'w',slot:'armor',text:'+5 Test Armor'}];a.trip={kind:'shop',phase:'town',at:clock,salesDone:false,salePolicyVersion:2,storageScanned:true};
