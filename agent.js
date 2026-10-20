@@ -658,6 +658,9 @@ async function runCycle() {
       }
       return;
     }
+    if(autonomyPolicy.enabled&&!critical.includes(planned)&&Autonomy.protectCombat(memory,p.state)){
+      saveMemory();return;
+    }
     if(!critical.includes(planned)&&memory.autonomy?.gearPending&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;try{const result=await executor.run('gear');if(result.ok)memory.autonomy.gearPending=false;saveMemory();}finally{actionInFlight=false;}return;
     }

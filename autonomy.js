@@ -112,6 +112,19 @@ function levelingTarget(catalog,mapId,state,maxGap=3) {
     .filter(m=>m.id&&!m.boss&&!m.elite&&m.n>=1&&m.hp>0&&m.exp>0&&m.lv<=lv+gap&&m.lv>=Math.max(1,lv-5))
     .sort((x,y)=>(y.exp/y.hp*y.n)-(x.exp/x.hp*x.n))[0]||null;
 }
+function protectCombat(mem,s,now=Date.now()) {
+  const a=mem.autonomy,f=a?.farm,damage=mem.combatTelemetry?.lastDamage,native=mem.nativeCombatProfile;
+  if(!f||!Number.isFinite(f.activatedAt)||f.pendingProfile||f.pendingActivation||f.abort||a.trip||a.resume||a.gearPending||
+    mem.development?.excursion||mem.uiHealth?.safeIdle||mem.dna?.needsApply||s.dead||
+    norm(f.name)!==norm(s.zone)||!s.hp||s.hp[0]/s.hp[1]<0.75||s.hpPotions<=10||s.mpPotions<=10||
+    !Number.isFinite(s.hpPotions)||!Number.isFinite(s.mpPotions)||!a.bagUsage||a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)||
+    s.panelOpen||s.menuOpen||s.mapOpen||s.modalText||!(/\bon\b/.test(s.autoHunt||'')||s.autoQuestRunning)||
+    native?.character!==s.name||native.job!==s.job||!Number.isFinite(native.at)||now-native.at<0||now-native.at>30*MIN||
+    damage?.zone!==s.zone||!Number.isFinite(damage.at)||now-damage.at<0||now-damage.at>10000)return false;
+  // One bounded exposure per farm activation; missing damage never receives protection or reward.
+  f.protectedUntil ??= now+3*MIN;
+  return now<f.protectedUntil;
+}
 function progressionGoal(catalog,state,a,reserve) {
   if(!a.inventory||!catalog)return null;
   const job=catalog.jobs[String(state.job||'').toLowerCase()];if(!job)return null;
@@ -785,4 +798,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run,travel:async id=>{actions=0;await travel(id);}};
 }
-module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController,refineCandidates,wingReserve};
+module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,protectCombat,progressionGoal,update,chooseTask,trialOption,createController,refineCandidates,wingReserve};

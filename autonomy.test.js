@@ -396,6 +396,19 @@ test('unfinished native AUTO activation keeps ownership ahead of inventory and o
   assert.equal(A.chooseTask(m,state({lv:'Lv 76'}),catalog(),clock,{enabled:true,levelingFocus:true}),'farm');
 });
 
+test('observed native combat gets one bounded learning exposure without delaying safety work',()=>{
+  const make=()=>({autonomy:{farm:{map:'field',name:'Field',activatedAt:clock},bagUsage:[50,100]},nativeCombatProfile:{character:'Hero',job:'Starweaver',at:clock},combatTelemetry:{lastDamage:{zone:'Field',at:clock}}});
+  const s=state({hpPotions:30,mpPotions:30}),m=make();assert.equal(A.protectCombat(m,s,clock),true);
+  m.combatTelemetry.lastDamage.at=clock+179000;assert.equal(A.protectCombat(m,s,clock+179000),true);
+  m.combatTelemetry.lastDamage.at=clock+180000;assert.equal(A.protectCombat(m,s,clock+180000),false);
+  m.combatTelemetry.lastDamage.at=clock+900000;assert.equal(A.protectCombat(m,s,clock+900000),false);
+  for(const change of [x=>{x.autonomy.bagUsage=[95,100];},x=>{x.autonomy.trip={};},x=>{x.autonomy.resume={};},x=>{x.development={excursion:{}};},x=>{x.dna={needsApply:true};},x=>{x.combatTelemetry.lastDamage.at=clock-11000;},x=>{delete x.nativeCombatProfile;}]){
+    const unsafe=make();change(unsafe);assert.equal(A.protectCombat(unsafe,s,clock),false);assert.equal(unsafe.autonomy.farm.protectedUntil,undefined);
+  }
+  for(const changed of [{hpPotions:10},{mpPotions:null},{hp:[600,1000]},{panelOpen:true},{autoHunt:''},{zone:'Town'},{dead:true}])assert.equal(A.protectCombat(make(),{...s,...changed},clock),false);
+  const restored=JSON.parse(JSON.stringify(m));restored.combatTelemetry.lastDamage.at=clock+900000;assert.equal(A.protectCombat(restored,s,clock+900000),false);
+});
+
 test('a saved farming return is revalidated after leveling and activates AUTO on the replacement map',async()=>{
   const m={},a=A.init(m),c=catalog();a.resume={map:'old',mode:'farm',at:clock};
   c.maps.push({id:'old',name:'Old',monsters:[{id:'low',n:4}]});c.monsters.push({id:'low',lv:40,hp:1,exp:9999,drops:[]});
