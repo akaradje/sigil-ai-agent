@@ -654,9 +654,12 @@ async function prepareClassBoss(s){
   if(s.autoQuestRunning&&s.autoQuestMode==='jq'){await run('boss_rebuild');return true;}
   const a=Autonomy.init(memory),automatic=Autonomy.chooseTask(memory,s,catalog,now,autonomyPolicy);
   // An unbroken shield is a damage problem: put the set in order (the native
-  // gear goal refines or upgrades) before the next trial is allowed.
+  // gear goal refines or upgrades) before the next trial is allowed. The forge
+  // is bounded, so a goal whose materials are missing cannot keep the
+  // character in town instead of fighting.
   const shieldAbort=IQ.wardAbortOf(b);
-  if(shieldAbort&&automatic==='town_forge'){
+  if(shieldAbort&&automatic==='town_forge'&&now-(b.setPrepAt||0)>600000){
+    b.setPrepAt=now;
     actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}
     return true;
   }
