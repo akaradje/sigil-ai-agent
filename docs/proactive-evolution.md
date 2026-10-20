@@ -132,10 +132,13 @@ observed progress; enabling native AUTO alone never demonstrates model participa
 Generic boss approaches retain their observed destination for up to five minutes;
 handoff requires a fresh validated position near that exact map/coordinate. Local native
 combat then owns the fight, so restarting the class runner cannot pull the character
-back to an obsolete boss-spawn map. The bounded class review uses a small 400-token
+back to an obsolete boss-spawn map. The bounded class review uses a 1600-token
 response and 60-second request deadline; a failed model request may retry after one
 minute while retaining the same three-per-hour budget.
 The persisted `classObjective` clock advances only when the observed quest objective
 changes. Retrying a command, missing tracker during loading and unrelated EXP cannot
 reset it. Older installations can retain the same objective's prior observed review
 timestamp without treating a retry request as successful progress.
+An HTTP success or token-limited empty completion does not count as a usable model
+reply. The transport requires nonempty answer text or a tool call before recording
+model availability; class recommendations still require independent evidence validation.

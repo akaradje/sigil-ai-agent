@@ -3,6 +3,15 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const IQ=require('./game-intelligence');
 
+test('production model transport rejects empty capped replies and counts only usable text or tool calls',async()=>{
+ const source=require('node:fs').readFileSync(require.resolve('./agent'),'utf8'),start=source.indexOf('async function chat('),end=source.indexOf('// Keep the configured model',start);
+ assert.ok(start>0&&end>start);let response={choices:[{finish_reason:'length',message:{content:''}}]},up=0,request;
+ const chat=vm.runInNewContext('('+source.slice(start,end).trim()+')',{MODEL:'synthetic-model',rawCall:async(body,timeout)=>{request={body,timeout};return response;},markModelUp:()=>up++});
+ await assert.rejects(()=>chat([]),/no usable answer/);assert.equal(up,0);
+ response={choices:[{message:{content:'{"action":"navigate_boss"}'}}]};await chat([],undefined,{maxTokens:1600,timeoutSec:60});assert.equal(up,1);assert.equal(request.body.max_tokens,1600);assert.equal(request.timeout,60);
+ response={choices:[{message:{content:null,tool_calls:[{id:'fixture',type:'function',function:{name:'look',arguments:'{}'}}]}}]};await chat([]);assert.equal(up,2);assert.equal(request.timeout,60);
+});
+
 test('external panel transactions do not exhaust a counter retained from earlier workflows',async()=>{
   const mem=IQ.freshMemory();let panel=null,menu=false,clicks=0;
   const e=IQ.createExecutor({mem,observe:async()=>({...healthy(),panel,panelOpen:!!panel,menuOpen:menu,controls:menu?[{open:'bag'}]:[{id:'menuBtn'}]}),
