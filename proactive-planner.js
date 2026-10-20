@@ -15,6 +15,9 @@ function update(mem,s,catalog,now=Date.now()){
   const activity=mem.activityWatchdog,evidence=activity?.evidence;
   if(activity?.status==='escalated'&&evidence&&now-evidence.at>=0&&now-evidence.at<60*MIN&&evidence.samples>=30&&evidence.durationSec>=180)
     offer(p,'VERIFIED_ACTIVITY_STALL',{...evidence,reason:activity.incident?.reason},[s.name,catalog?.fingerprint,evidence.map,evidence.mode,activity.incident?.id],now);
+  if(activity?.status==='recovery-pending'&&evidence?.mode==='class'&&now-evidence.at>=0&&now-evidence.at<MIN&&evidence.samples>=30&&evidence.durationSec>=300&&
+    ((mem.classReview?.history||[]).filter(at=>now>=at&&now-at<3600000).length>=2||(mem.failures?.class_boss?.count||0)>=2))
+    offer(p,'VERIFIED_ACTIVITY_STALL',{...evidence,reason:'CLASS_OBJECTIVE_STALLED'},[s.name,catalog?.fingerprint,evidence.map,'class',activity.incident?.id],now);
   if(stalled&&now-stalled.at>=0&&now-stalled.at<60*MIN&&stalled.samples>=10&&stalled.durationSec>=300)
     offer(p,'VERIFIED_RESOURCE_STALL',stalled,[s.name,catalog?.fingerprint,stalled.map,stalled.tier],now);
   const context=hash([s.name,s.job,lv,catalog?.fingerprint,mem.dna?.context,s.zone]);

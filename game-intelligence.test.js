@@ -170,6 +170,41 @@ test('active Sage quest keeps native quest ownership and resumes it when stopped
  assert.equal(IQ.chooseTask({...s,dead:true},m,now),'revive');assert.equal(IQ.chooseTask({...s,hp:[100,1800]},m,now),'survive');
 });
 
+test('trash EXP and damage cannot hide a stalled Sage boss objective; actual boss combat is protected',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',autoQuestRunning:true,autoQuestMode:'jq',zone:'Wrong Field',target:'Lv 67 Storm Narwhal',exp:99};
+ m.jobQuestAt=now-180000;m.combatTelemetry={lastDamage:{zone:s.zone,at:now}};
+ assert.equal(IQ.classBossObjective(s),'Ignar the Flame Tyrant');assert.equal(IQ.classObjectiveStalled(s,m,now),true);assert.equal(IQ.chooseTask(s,m,now),'class_boss');
+ s.target='Lv 66 Ignar the Flame Tyrant';assert.equal(IQ.classObjectiveStalled(s,m,now),false);assert.equal(IQ.chooseTask(s,m,now),'observe');
+ m.classBossTrip={at:now,boss:'Ignar the Flame Tyrant'};assert.equal(IQ.chooseTask({...s,target:''},m,now+60000),'observe');assert.equal(IQ.chooseTask({...s,target:''},m,now+90001),'boss_engage');
+});
+
+test('stalled class model reviews use durable cooldown/budget and only verified gameplay decisions',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',autoQuestRunning:true};m.jobQuestAt=now-300000;
+ assert.equal(IQ.classReviewDue(s,m,now),true);assert.equal(IQ.classReviewTask(s,m,'{"action":"navigate_boss"}',now),'class_boss');
+ for(const response of ['not JSON','{"action":"purchase"}','{"action":"wait"}','{"action":"resume_quest"}','{"action":"navigate_boss","command":"bad"}'])assert.equal(IQ.classReviewTask(s,m,response,now),null);
+ assert.equal(IQ.classReviewTask({...s,autoQuestRunning:false,controls:[{aq:'jq'}]},m,'{"action":"resume_quest"}',now),'job_retry');
+ m.classBoss={name:'Ignar the Flame Tyrant',up:false,at:now};assert.equal(IQ.classReviewTask(s,m,'{"action":"wait"}',now),'observe');
+ m.classReview={at:now,history:[now]};assert.equal(IQ.classReviewDue(s,m,now+10000),false);
+ m.classReview=JSON.parse(JSON.stringify({at:now-300001,history:[now-300001,now-600000,now-900000]}));assert.equal(IQ.classReviewDue(s,m,now),false);
+});
+
+test('a class boss route selects the actual objective, disables trash hunting, and persists its destination',async()=>{
+ let panel=null,menu=false,auto=true,hunt=true;const clicks=[],mem=IQ.freshMemory(),boss='Ignar the Flame Tyrant',key='molten,512,640';
+ const state=()=>({...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt '+boss+' 0/1',autoQuestRunning:auto,panel,panelOpen:!!panel,menuOpen:menu,
+  controls:panel==='bosses'?[{act:'bbgo',key,boss}]:menu?[{open:'bosses'}]:[...(auto?[{aq:'stop'}]:[{aq:'jq'}]),{id:'autoBtn',on:hunt},{id:'menuBtn'}],
+  bossRows:panel==='bosses'?[{name:'Time Eater',up:true,key:'wrong'},{name:boss,up:true,key}]:[]});
+ const e=IQ.createExecutor({mem,observe:async()=>state(),save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{panel=null;menu=false;},click:async c=>{clicks.push(c.aq||c.id||c.open||c.boss);if(c.aq==='stop')auto=false;if(c.id==='autoBtn')hunt=false;if(c.id==='menuBtn')menu=true;if(c.open){panel=c.open;menu=false;}if(c.act==='bbgo'){assert.equal(c.boss,boss);assert.equal(c.key,key);panel=null;}}});
+ assert.equal((await e.run('class_boss')).ok,true);assert.deepEqual(clicks.slice(0,2),['stop','autoBtn']);assert.equal(mem.classBossTrip.boss,boss);assert.equal(mem.classBossTrip.key,key);
+});
+
+test('missing or duplicate quest boss rows restore the native quest and never navigate arbitrarily',async()=>{
+ for(const duplicate of [false,true]){
+  let panel=null,menu=false,auto=true;const mem=IQ.freshMemory(),boss='Ignar the Flame Tyrant';
+  const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{panel=null;menu=false;},observe:async()=>({...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt '+boss+' 0/1',autoQuestRunning:auto,panel,panelOpen:!!panel,menuOpen:menu,controls:panel?[]:menu?[{open:'bosses'}]:[auto?{aq:'stop'}:{aq:'jq'},{id:'menuBtn'}],bossRows:panel&&duplicate?[{name:boss,up:true,key:'a'},{name:boss,up:true,key:'b'}]:[]}),click:async c=>{if(c.aq)auto=c.aq==='jq';if(c.id)menu=true;if(c.open){panel='bosses';menu=false;}if(c.act==='bbgo')assert.fail('ambiguous route');}});
+  assert.equal((await e.run('class_boss')).ok,false);assert.equal(auto,true);assert.equal(mem.classBossTrip,undefined);
+ }
+});
+
 test('class completion requires the observed new job for the same character and emits one durable event',()=>{
  const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver'};
  m.autonomy={events:[],sequence:0,farm:{map:'field'}};m.classAdvancement={character:s.name,from:'Starweaver',to:'sage',phase:'quest'};m.classTrip={job:'Starweaver',at:now};
@@ -284,7 +319,7 @@ test('boss approach gets time to finish and an actual Time Eater fight is not in
 test('live boss workflow uses the matching boss Go control and persists its approach',async()=>{
   let panel=null,menu=false,auto=true,went=false;const mem=preparedMemory();
   const executor=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{panel=null;menu=false;},
-    observe:async()=>({...healthy(),panel,panelOpen:!!panel,menuOpen:menu,
+    observe:async()=>({...healthy(),jobQuestProgress:'Starweaver Quest Chrono Gear 0/1',panel,panelOpen:!!panel,menuOpen:menu,
       controls:panel==='bosses'?[{act:'bbgo',key:'crystal,5424,2096',boss:'Time Eater'}]:menu?[{open:'bosses'}]:[...(auto?[{aq:'stop'}]:[]),{id:'menuBtn'}],
       bossRows:panel==='bosses'?[{name:'Time Eater',up:true,key:'crystal,5424,2096',text:'Time Eater In Shimmerdeep'}]:[]}),
     click:async c=>{if(c.aq==='stop')auto=false;if(c.id==='menuBtn')menu=true;if(c.open==='bosses'){menu=false;panel='bosses';}if(c.act==='bbgo'){went=true;panel=null;}}});

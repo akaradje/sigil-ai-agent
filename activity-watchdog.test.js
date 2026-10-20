@@ -18,6 +18,15 @@ test('AUTO off and fresh stationary observations queue recovery after three minu
 test('actual damage or EXP growth prevents idle recovery even without level changes',()=>{
   for(const signal of ['damage','exp']){const r=rig();for(let t=0;t<=10*MIN;t+=10000){if(signal==='damage')r.mem.combatTelemetry={lastDamage:{zone:'Field',at:NOW+t}};else r.s.exp+=0.01;r.tick(t);}assert.equal(r.mem.activityWatchdog.pending,null);}
 });
+
+test('class watchdog measures the quest objective instead of unrelated EXP, loot or trash damage',()=>{
+ const r=rig();r.s.job='Starweaver';r.s.jobQuestProgress='Sage Quest Hunt Ignar the Flame Tyrant 0/1';r.s.target='Storm Narwhal';r.mem.classAdvancement={character:r.s.name,from:r.s.job,to:'sage'};
+ for(let t=0;t<=3*MIN;t+=5000){r.s.exp++;r.mem.combatTelemetry={lastDamage:{zone:r.s.zone,at:NOW+t}};r.tick(t);}
+ assert.equal(r.mem.activityWatchdog.status,'recovery-pending');assert.equal(r.mem.activityWatchdog.incident.reason,'CLASS_OBJECTIVE_STALLED');assert.equal(r.take(),null);
+ r.s.target='Lv 66 Ignar the Flame Tyrant';r.mem.combatTelemetry.lastDamage.at=NOW+190000;r.tick(190000);assert.equal(r.mem.activityWatchdog.status,'productive');assert.equal(r.mem.activityWatchdog.pending,null);
+ r.s.jobQuestProgress='Sage Quest Hunt Ignar the Flame Tyrant 1/1';r.tick(200000);assert.equal(r.mem.activityWatchdog.status,'productive');
+ r.s.job='Sage';r.tick(210000);assert.equal(r.mem.activityWatchdog.status,'productive');
+});
 test('mining EXP is progress; unrelated passive loot and input timestamps cannot hide a stalled mine',()=>{
   for(const productive of [false,true]){const r=rig('mine');for(let t=0;t<=5*MIN;t+=10000){const d=r.mem.development;d.excursion.inputAt=NOW+t;d.activityResource.materials.unrelated++;if(productive)d.activityResource.exp++;r.tick(t);}assert.equal(r.mem.activityWatchdog.pending?.action,productive?undefined:'resume');}
 });

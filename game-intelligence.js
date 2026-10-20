@@ -131,6 +131,29 @@ function classWorkflowOwned(s,m,now=Date.now()) {
   return !!(m.classTrip?.job===s.job||s.panel==='shrine'||/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||
     [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')||s.jobQuestProgress&&now>=(m.trainingUntil||0));
 }
+function classBossObjective(s){
+  const goal=s.jobQuestProgress||'';
+  return /Chrono Gear\s*0\s*\/\s*1/i.test(goal)?'Time Eater':goal.match(/Hunt\s+(.+?)\s+0\s*\/\s*1\b/i)?.[1]?.trim()||null;
+}
+function classObjectiveStalled(s,m,now=Date.now()){
+  const boss=classBossObjective(s),damage=m.combatTelemetry?.lastDamage;
+  const fighting=boss&&String(s.target||'').includes(boss)&&damage?.zone===s.zone&&now>=damage.at&&now-damage.at<=10000;
+  return !!s.jobQuestProgress&&!!CLASS_PATH[s.job]&&!s.dead&&s.hp?.[0]/s.hp?.[1]>=0.3&&Number.isFinite(m.jobQuestAt)&&now-m.jobQuestAt>=180000&&now>=(m.trainingUntil||0)&&!fighting;
+}
+function classReviewDue(s,m,now=Date.now()){
+  const r=m.classReview||{},history=(r.history||[]).filter(at=>now>=at&&now-at<3600000);
+  return classObjectiveStalled(s,m,now)&&!m.classBossTrip&&now-(r.at||0)>=300000&&history.length<3;
+}
+function classReviewTask(s,m,response,now=Date.now()){
+  let decision;try{if(typeof response!=='string'||response.length>2000)return null;decision=JSON.parse(response);}catch{return null;}
+  if(!decision||typeof decision!=='object'||Object.keys(decision).some(k=>!['action','reason'].includes(k)))return null;
+  const controls=[...(s.controls||[]),...(s.offscreen||[])];
+  if(decision.action==='navigate_boss'&&classObjectiveStalled(s,m,now)&&classBossObjective(s))return 'class_boss';
+  if(decision.action==='resume_quest'&&!s.autoQuestRunning&&controls.some(c=>c.aq==='jq'))return 'job_retry';
+  if(decision.action==='return_shrine'&&CLASS_PATH[s.job]&&controls.some(c=>c.go==='shrine'))return 'class';
+  if(decision.action==='wait'&&m.classBoss?.name===classBossObjective(s)&&m.classBoss.up===false&&now>=m.classBoss.at&&now-m.classBoss.at<300000)return 'observe';
+  return null;
+}
 function combatSnapshot(s,now=Date.now()) {
   if(!['bag','equip'].includes(s.panel)||!s.panelOpen||!s.name||!s.job||!s.lv)return null;
   const lines=String(s.panelText||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -158,7 +181,7 @@ function rememberCombat(mem,s,now=Date.now()) {
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
   const advancement=mem.classAdvancement;
-  if(advancement&&advancement.character===s.name&&s.job.toLowerCase()===advancement.to&&advancement.from!==s.job&&!advancement.completedAt){
+  if(advancement&&advancement.character===s.name&&String(s.job||'').toLowerCase()===advancement.to&&advancement.from!==s.job&&!advancement.completedAt){
     advancement.completedAt=now;advancement.phase='complete';mem.classTrip=null;mem.classBossTrip=null;mem.combatJob=null;mem.last.configure=0;
     if(mem.autonomy?.farm)mem.autonomy.farm.pendingProfile=true;
     const a=mem.autonomy;if(a){a.events ||= [];a.sequence ||=0;a.events.push({id:++a.sequence,type:'class_advanced',detail:{from:advancement.from,to:s.job},at:now});a.events=a.events.slice(-80);}
@@ -190,11 +213,13 @@ function chooseTask(s,m,now=Date.now()) {
   if(nextClass&&due('class',60000)&&(/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||s.panel==='shrine'||
     [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')))return 'class';
   const needsTimeEater=/Chrono Gear\s*0\s*\/\s*1/i.test(s.jobQuestProgress||'');
+  const objectiveBoss=classBossObjective(s);
   const rewind=/REWIND\s*(\d+)/i.exec(s.bossMechanic||'');
   if(needsTimeEater && /Time Eater/i.test(s.target||'') && rewind && +rewind[1]>=11 && due('boss_break',20000) && s.hp[0]/s.hp[1]>=0.4)return 'boss_break';
   if(m.classBossTrip) {
-    if(needsTimeEater && /Time Eater/i.test(s.target||'') && s.autoQuestMode==='jq')return 'observe';
-    if(!needsTimeEater) return 'boss_engage';
+    const wanted=m.classBossTrip.boss||'Time Eater';
+    if(objectiveBoss===wanted&&String(s.target||'').includes(wanted)&&s.autoQuestMode==='jq')return 'observe';
+    if(objectiveBoss!==wanted) return 'boss_engage';
     return now-m.classBossTrip.at<90000?'observe':'boss_engage';
   }
   if(needsTimeEater&&!s.autoQuestRunning&&due('job_retry',30000))return 'job_retry';
@@ -204,6 +229,7 @@ function chooseTask(s,m,now=Date.now()) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
+  if(objectiveBoss&&!needsTimeEater&&classObjectiveStalled(s,m,now)&&!String(s.target||'').includes(objectiveBoss)&&due('class_boss',120000))return 'class_boss';
   if(nextClass&&s.jobQuestProgress&&now>=(m.trainingUntil||0)){
     if(!s.autoQuestRunning&&s.controls.some(c=>c.aq==='jq')&&due('job_retry',30000))return 'job_retry';
     if(!needsTimeEater&&s.autoQuestRunning&&s.autoQuestMode==='jq'&&m.deaths.length<3)return 'observe';
@@ -396,18 +422,21 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           break;
         }
         case 'class_boss': {
-          await close();await pick(c=>c.aq==='stop',true);
-          await open('bosses');await sleep(1200);
-          const board=await observe(),boss=board.bossRows?.find(b=>b.name==='Time Eater');
-          if(!boss)throw Error('Time Eater missing from live boss board');
-          mem.classBoss={...boss,at:Date.now()};
-          if(boss.up) {
-            await pick(c=>c.act==='bbgo'&&c.boss==='Time Eater');
-            mem.classBossTrip={at:Date.now(),boss:'Time Eater',key:boss.key};
-            result='walking to live Time Eater coordinates from boss-board Go button';
-          } else {
-            await close();await pick(c=>c.aq==='jq');
-            result='Time Eater not alive; recorded respawn board and retained job quest';
+          const objective=classBossObjective(before);if(!objective)throw Error('No verified boss objective');
+          let routed=false;
+          try{
+            await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.id==='autoBtn'&&c.on,true);
+            await open('bosses');await sleep(1200);
+            const board=await observe(),matches=board.bossRows?.filter(b=>b.name===objective)||[],boss=matches.length===1?matches[0]:null;
+            if(!boss)throw Error('Quest boss missing or ambiguous on live boss board');
+            mem.classBoss={...boss,at:Date.now()};
+            if(boss.up){
+              await pick(c=>c.act==='bbgo'&&c.boss===objective&&c.key===boss.key);
+              mem.classBossTrip={at:Date.now(),boss:objective,key:boss.key};routed=true;
+              result='walking to live '+objective+' coordinates from boss-board Go button';
+            }else result=objective+' not alive; recorded respawn board and retained job quest';
+          }finally{
+            if(!routed){await close();if(!(await observe()).autoQuestRunning)await pick(c=>c.aq==='jq',true);}
           }
           break;
         }
@@ -466,4 +495,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

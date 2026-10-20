@@ -12,19 +12,22 @@ function snapshot(mem,s,catalog,now){
   if(!s.name||s.dead||s.disconnected||s.atCharSelect||mem.uiHealth?.safeIdle||!t?.validated||t.loading||t.positionFault||!recent(t.checkedAt,now,5000)||pendingReload(mem,now))return null;
   const map=catalog?.maps.find(m=>norm(m.name)===norm(s.zone));if(!map)return null;
   const destination=trip?.map||a.resume?.map||(!map.town&&a.farm?.map);
-  const mode=destination&&destination!==map.id?'travel':trip?.kind==='mine'?'mine':trip?.kind==='boss'?'combat':map.town?'town':'combat';
+  const classGoal=mem.classAdvancement?.character===s.name&&mem.classAdvancement?.from===s.job&&s.jobQuestProgress;
+  const mode=classGoal?'class':destination&&destination!==map.id?'travel':trip?.kind==='mine'?'mine':trip?.kind==='boss'?'combat':map.town?'town':'combat';
   const resource=d.activityResource;
   if(mode==='mine'&&(!resource||resource.map!==map.id||!recent(resource.at,now,30000)||!finite(resource.level)||!finite(resource.exp)))return null;
   const needed=new Set((a.goal?.missing||[]).map(m=>m.id));
   const receipts=(a.events||[]).filter(e=>['equipment_sold','capacity_bought','wing_completed','bank_equipment_sold'].includes(e.type)).map(e=>e.id);
-  return {character:s.name,zone:s.zone,map:map.id,mode,x:t.x,y:t.y,level:num(s.lv),exp:s.exp,job:num(s.jobLv),jobExp:s.jobExp,
+  const objectiveBoss=classGoal?.match?.(/Hunt\s+(.+?)\s+0\s*\/\s*1\b/i)?.[1]?.trim()||(/Chrono Gear\s*0\s*\/\s*1/i.test(classGoal||'')?'Time Eater':null);
+  return {character:s.name,className:s.job,zone:s.zone,map:map.id,mode,objective:classGoal||null,x:t.x,y:t.y,level:num(s.lv),exp:s.exp,job:num(s.jobLv),jobExp:s.jobExp,
     hpPotions:s.hpPotions,mpPotions:s.mpPotions,bag:a.bagUsage?.[0],sales:a.trip?.sales||0,deposits:a.trip?.deposits||0,
     forge:Math.max(a.refine?.at||0,a.advancedForge?.at||0),receipt:Math.max(0,...receipts),
     mineLevel:resource?.level,mineExp:resource?.exp,materials:Object.fromEntries(Object.entries(resource?.materials||{}).filter(([id])=>needed.has(id))),
-    fighting:mode==='combat'&&mem.combatTelemetry?.lastDamage?.zone===s.zone&&recent(mem.combatTelemetry.lastDamage.at,now,10000)};
+    fighting:(mode==='combat'||mode==='class'&&objectiveBoss&&String(s.target||'').includes(objectiveBoss))&&mem.combatTelemetry?.lastDamage?.zone===s.zone&&recent(mem.combatTelemetry.lastDamage.at,now,10000)};
 }
 function gained(before,after){
   if(!before)return false;
+  if(after.mode==='class')return after.objective!==before.objective||after.fighting;
   if(after.level>before.level||after.job>before.job||finite(after.exp)&&after.exp>before.exp||finite(after.jobExp)&&after.jobExp>before.jobExp)return true;
   if(after.mode==='combat')return after.fighting;
   if(after.mode==='mine')return after.mineLevel>before.mineLevel||after.mineExp>before.mineExp||Object.entries(after.materials).some(([id,n])=>finite(n)&&finite(before.materials?.[id])&&n>before.materials[id]);
@@ -37,7 +40,7 @@ function observe(mem,s,catalog,{paused=false,offline=false}={},now=Date.now()){
   if(!v){w.baseline=null;w.since=null;w.lastAt=now;w.samples=0;w.status='suspended';return w;}
   const continuous=recent(w.lastAt,now,15000)&&w.lastAt<now;
   const same=w.baseline?.character===v.character&&w.baseline?.zone===v.zone&&w.baseline?.mode===v.mode;
-  const productive=same&&gained(w.baseline,v);
+  const productive=same&&gained(w.baseline,v)||w.baseline?.mode==='class'&&w.baseline.character===v.character&&w.baseline.className!==v.className;
   const moved=same&&v.mode==='travel'&&[v.x,v.y,w.anchor?.x,w.anchor?.y].every(finite)&&Math.hypot(v.x-w.anchor.x,v.y-w.anchor.y)>=32;
   if(productive||moved){
     if(w.incident?.attemptedAt&&now>w.incident.attemptedAt){emit(mem,'activity_recovered',{mode:v.mode,reason:w.incident.reason,action:w.incident.lastAction},now);w.lastRecovery={at:now,mode:v.mode,action:w.incident.lastAction};}
@@ -47,7 +50,7 @@ function observe(mem,s,catalog,{paused=false,offline=false}={},now=Date.now()){
   w.baseline=v;w.lastAt=now;
   const limit=v.mode==='mine'||v.mode==='town'?5*MIN:3*MIN;
   if(now-w.since>=limit&&w.samples>=30&&(!w.incident?.attemptedAt||now-w.incident.attemptedAt>=2*MIN)){
-    w.incident ||= {id:++w.sequence,at:now,mode:v.mode,reason:v.mode==='mine'?'MINING_STALLED':v.mode==='town'?'TOWN_STALLED':v.mode==='travel'?'TRAVEL_STALLED':'COMBAT_IDLE'};
+    w.incident ||= {id:++w.sequence,at:now,mode:v.mode,reason:v.mode==='class'?'CLASS_OBJECTIVE_STALLED':v.mode==='mine'?'MINING_STALLED':v.mode==='town'?'TOWN_STALLED':v.mode==='travel'?'TRAVEL_STALLED':'COMBAT_IDLE'};
     const history=(w.history||[]).filter(h=>recent(h.at,now,60*MIN));
     if(history.length>=3||w.stage>=3){
       if(w.status!=='escalated')emit(mem,'activity_escalated',{reason:w.incident.reason},now);
@@ -61,7 +64,7 @@ function safeToRecover(mem,s,now=Date.now()){
   const a=mem.autonomy||{},t=mem.gameTelemetry;
   return !!s.name&&!s.dead&&!s.disconnected&&!s.atCharSelect&&!mem.uiHealth?.safeIdle&&t?.validated&&!t.loading&&!t.positionFault&&recent(t.checkedAt,now,5000)&&
     !s.modalText&&!['reserved','unknown'].includes(a.purchase?.status)&&!['confirming','uncertain'].includes(a.saleIntent?.status)&&!pendingReload(mem,now)&&
-    !(a.wingCraft&&a.wingCraft.status!=='equipped')&&!mem.classTrip&&!mem.classBossTrip;
+    !(a.wingCraft&&a.wingCraft.status!=='equipped')&&!mem.classTrip&&!mem.classBossTrip&&!(mem.classAdvancement&&!mem.classAdvancement.completedAt);
 }
 function take(mem,s,now=Date.now()){
   const w=init(mem);if(!w.pending||!safeToRecover(mem,s,now))return null;

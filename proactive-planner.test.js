@@ -7,6 +7,12 @@ test('verified activity escalation creates one repair opportunity; pending or st
  m.activityWatchdog.status='escalated';P.update(m,s,catalog,NOW);P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.filter(o=>o.reason==='VERIFIED_ACTIVITY_STALL').length,1);
  P.init(m).opportunities=[];m.activityWatchdog.evidence.at=NOW-61*MIN;P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.length,0);
 });
+
+test('an unresolved class objective enters repair only after repeated bounded reviews and fresh evidence',()=>{
+ const {s,m,catalog}=fixture();m.activityWatchdog={status:'recovery-pending',incident:{id:2},evidence:{at:NOW,mode:'class',map:'field',samples:300,durationSec:600}};
+ m.classReview={history:[NOW-300000]};P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.length,0);
+ m.classReview.history.push(NOW);P.update(m,s,catalog,NOW);P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.filter(o=>o.reason==='VERIFIED_ACTIVITY_STALL').length,1);
+});
 function fixture(){const catalog={fingerprint:'patch',levelCap:100,jobs:{mage:{line:['mage'],weapon:'staff'}},gear:[],maps:[],expByLevel:Object.fromEntries(Array.from({length:101},(_,i)=>[i,100]))};
  return {s:{name:'test',job:'Mage',lv:'Lv 76',zone:'Field',exp:20,gold:100000,hp:[100,100],hpPotions:50,mpPotions:50},m:{gameTelemetry:{validated:true,checkedAt:NOW},autonomy:{bagUsage:[0,100]},equipment:{power:100},cognitive:{workingMemory:{learningPhase:'waiting-for-combat'}}},catalog};}
 test('two minute cold-start probe respects fresh telemetry, work ownership, health, potions and cooldown',()=>{

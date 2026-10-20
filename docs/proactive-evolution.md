@@ -117,3 +117,15 @@ failure backoff. Refreshes, resource trips and ordinary farm resumption cannot c
 class travel. Completion and Telegram success require the same character's displayed
 job to actually change; acceptance alone is never reported as a completed promotion.
 After promotion the combat profile/configuration is refreshed for the new class.
+
+Class objectives have their own progress clock: unrelated EXP, loot and damage against
+other monsters cannot hide a stalled boss quest. After three minutes without objective
+progress, the controller can navigate to the exact objective through the unique live
+boss-board row, with ordinary hunting stopped during approach. Missing/ambiguous rows
+restore native quest ownership. Damage against the actual objective protects ongoing
+combat. A bounded model review (five-minute cooldown, three calls/hour persisted across
+restarts) may select only evidence-validated navigation, quest resumption, shrine return
+or a verified boss-respawn wait. Model failures retain deterministic recovery. Repeated
+unsuccessful reviews publish fresh objective evidence to the existing repair pipeline.
+`classReview` records attempted requests, validation and selected tasks separately from
+observed progress; enabling native AUTO alone never demonstrates model participation.
