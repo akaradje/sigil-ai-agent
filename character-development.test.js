@@ -2,6 +2,11 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('resource boss routing pins the requested live boss before enabling generic boss hunting',async()=>{
+  const m={autonomy:{wingPriority:true},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'boss',id:'time',boss:'Time Eater',map:'crystal',phase:'fight',started:now-60000,fightAt:now-30000}}},events=[];let auto=true;
+  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:auto?'on':'',target:'Lv 30 Other Boss',bossRows:[{name:'Time Eater',up:true,key:'crystal,500,600'}],controls:[{id:'autoBtn'},{act:'bbgo',key:'crystal,500,600'}]}),scan:async()=>null,scene:async()=>({available:true,map:'crystal',x:100,y:100}),sceneAction:async()=>{},travel:async()=>{},click:async c=>{events.push(c.id||c.key);if(c.id==='autoBtn')auto=false;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  await ctl.run('growth_materials');assert.deepEqual(events,['autoBtn','crystal,500,600']);assert.equal(auto,false);assert.equal(m.development.excursion.phase,'travel');assert.deepEqual(m.development.excursion.bossPoint,{x:500,y:600});
+});
 test('wing departure stops combat and uses an owned potion rather than waiting forever for a high health sample',async()=>{
   const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},farm:{map:'old'}}},events=[];let hp=700,auto=true,potions=25;
   const ctl=D.createController({mem:m,observe:async()=>state({hp:[hp,1000],hpPotions:potions,mpPotions:25,autoHunt:auto?'on':'',controls:[{id:'autoBtn'},{id:'potHp'}]}),scan:async()=>null,scene:async()=>({available:true,mineLv:1}),sceneAction:async()=>{},
@@ -12,7 +17,7 @@ test('wing departure stops combat and uses an owned potion rather than waiting f
 });
 test('wing gathering chains bounded stages without returning through the EXP map between them',async()=>{
   const m={autonomy:{wingPriority:true,inventory:{items:{}},farm:{map:'original'},goal:{slot:'wing',missing:[{id:'mithril'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',returnMap:'original',started:now-16*60000}}},travelled=[];
-  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:''}),scan:async()=>null,scene:async()=>({available:true,map:'south'}),sceneAction:async()=>{},travel:async id=>travelled.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  const ctl=D.createController({mem:m,observe:async()=>state({hp:[800,1000],hpPotions:25,mpPotions:25,autoHunt:''}),scan:async()=>null,scene:async()=>({available:true,map:'south'}),sceneAction:async()=>{},travel:async id=>travelled.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
   assert.equal((await ctl.run('growth_materials')).ok,true);assert.equal(m.development.excursion,null);assert.deepEqual(travelled,[]);assert.equal(m.autonomy.farm.map,'original');assert.equal(m.autonomy.resume,undefined);
 });
 test('travel recovery spends only an observed free warp and refuses paid wing confirmations',async()=>{

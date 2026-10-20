@@ -173,7 +173,8 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
     await open('prem');await pick('crtab','warp');await pick('crwarp',map);
     const modal=await observe();if(!/free.*warp|warp.*free|วาร์ปฟรี/i.test(modal.modalText)||/crystal|คริสตัล|ใช้ปีกวาร์ป|use.*warp wing/i.test(modal.modalText))throw Error('Only an existing free warp is authorized');
     const buttons=modal.controls.filter(c=>/^(Warp|วาร์ป)$/i.test(c.label));if(buttons.length!==1)throw Error('Free warp confirmation ambiguous');
-    await click(buttons[0]);await sleep(1500);const after=await observe(),live=await scene();
+    await click(buttons[0]);await sleep(1500);let after=await observe(),live=await scene();
+    for(let i=0;i<7&&(!live.available||live.map!==map||live.freeWarps!==raw.freeWarps-1);i++){await sleep(700);after=await observe();live=await scene();}
     if(after.crystals!==before.crystals||!live.available||live.map!==map||live.freeWarps!==raw.freeWarps-1)throw Error('Free warp outcome not acknowledged');
     record('growth_materials','Used an existing free warp to '+map);return true;
   }
@@ -294,7 +295,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
             if(trip.kind==='boss'&&guaranteed.some(id=>raw.materials[id]>(trip.initialAmounts?.[id]??Infinity))){trip.done=true;d.bossRetryAt=now()+5*MIN;}
           }
           if(now()-trip.started>(mem.autonomy?.wingPriority?15:5)*MIN||s.hp[0]/s.hp[1]<0.65||s.hpPotions<10||s.mpPotions<10||trip.done){
-            if(mem.autonomy?.wingPriority&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
+            if(mem.autonomy?.wingPriority&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20){
               await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
               const a=mem.autonomy;
               if(a.goal&&!a.goal.missing.length){
@@ -308,6 +309,13 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
             await travel(trip.returnMap);mem.autonomy.farm=null;mem.autonomy.resume={map:trip.returnMap,mode:'farm',at:now()};
             record(task,'Bounded '+trip.kind+' trip finished; restore leveling');d.excursion=null;
           }else if(raw.available&&raw.map===trip.map){
+            if(trip.kind==='boss'&&!trip.bossPoint){
+              await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+              await open('bosses');const board=await observe(),boss=board.bossRows.find(b=>b.name===trip.boss&&b.up);
+              if(!boss){trip.done=true;d.bossRetryAt=now()+5*MIN;return;}
+              const [map,x,y]=boss.key.split(',');if(map!==trip.map){trip.done=true;return;}
+              trip.bossPoint={x:Number(x),y:Number(y)};trip.approachAt=now();trip.phase='travel';await pick('bbgo',boss.key);return;
+            }
             if(trip.kind==='mine'){
               if(!raw.mining&&!raw.pending&&now()-(trip.inputAt||0)>5000){const node=raw.nodes.filter(n=>n.tier===trip.tier).sort((a,b)=>Math.hypot(a.wx-raw.x,a.wy-raw.y)-Math.hypot(b.wx-raw.x,b.wy-raw.y))[0];
                 if(node){await close();await sceneAction(node.id,node.tier);trip.inputAt=now();}else trip.done=true;}
@@ -319,8 +327,8 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
               await open('auto');await pick('atab','hunt');
               for(const [k,v] of [['target',trip.kind==='hunt'?trip.target:'boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
               await close();if(!/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');trip.phase='fight';trip.fightAt=now();
-            }else if(trip.kind==='boss'&&(now()-trip.fightAt>2*MIN||trip.seen&&s.target!==trip.boss)){trip.done=true;d.bossRetryAt=now()+5*MIN;}
-            else if(s.target===trip.boss)trip.seen=true;
+            }else if(trip.kind==='boss'&&(now()-trip.fightAt>2*MIN||trip.seen&&!norm(s.target).endsWith(norm(trip.boss)))){trip.done=true;d.bossRetryAt=now()+5*MIN;}
+            else if(norm(s.target).endsWith(norm(trip.boss)))trip.seen=true;
           }
         }
       }else if(task==='growth_rewards'){
