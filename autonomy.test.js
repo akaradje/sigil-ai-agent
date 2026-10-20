@@ -776,3 +776,13 @@ test('supplied boss preparation finishes optional town work without a farming de
  if(uncertain)assert.ok(a.trip);else{assert.equal(a.trip,null);assert.equal(a.resume,null);assert.equal(a.farm,null);assert.equal(a.townVisit.servicedAt,clock);}
  }
 });
+
+test('boss potion restocking precedes optional sales and hands a supplied shop visit back without a forge detour',async()=>{
+ const m={},a=A.init(m),c=catalog();m.bossLearning={pending:true,plan:{craftWing:false}};a.bagUsage=[90,100];a.trip={kind:'shop',phase:'town',at:clock,salesDone:false,salePolicyVersion:2};a.worn=[];
+ let hpPotions=7,gold=200000;const purchases=[];
+ const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000,sellSurplus:true},now:()=>clock,
+ observe:async()=>state({zone:'Town',panel:'shop',hp:[1000,1000],hpPotions,mpPotions:40,gold,controls:[{act:'buy',key:'mega_potion',amount:'10',label:'Buy 10 for 2000 G'}]}),
+ click:async c=>{purchases.push(c.key);hpPotions+=10;gold-=2000;},open:async p=>{if(p==='bag')assert.fail('optional inventory cannot delay low potions');},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+ await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(hpPotions,17);assert.ok(a.trip);
+ await ctl.run('town');assert.equal(hpPotions,27);assert.ok(a.trip);await ctl.run('town');assert.equal(a.trip,null);assert.deepEqual(purchases,['mega_potion','mega_potion']);assert.equal(gold,196000);
+});

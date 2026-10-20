@@ -537,7 +537,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     }
     // Hand a supplied, healthy town visit back to the boss preparation owner.
     // Optional surplus inspections and a return-to-farm trip are not prerequisites.
-    if(townMap&&mem.bossLearning?.pending&&mem.bossLearning.plan&&trip.forgeServiced&&
+    if(townMap&&mem.bossLearning?.pending&&mem.bossLearning.plan&&(trip.kind==='shop'||trip.forgeServiced)&&
       (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped')&&s.hp?.[0]/s.hp?.[1]>=0.9&&s.hpPotions>=20&&s.mpPotions>=20&&
       a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&!['uncertain','confirming'].includes(a.saleIntent?.status)&&!['reserved','unknown'].includes(a.purchase?.status)){
       a.trip=null;a.resume=null;a.farm=null;if(a.townVisit)a.townVisit.servicedAt=now();
@@ -680,7 +680,6 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(!trip.hygiene&&a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
-      if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       for(const [field,id] of [['hpPotions','mega_potion'],['mpPotions','mega_ether']]) {
         const current=await state();if(current[field]==null||current[field]>20)continue;
         const control=current.controls.find(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
@@ -701,6 +700,13 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
           a.restocked||={};a.restocked.return_scroll=(a.restocked.return_scroll||0)+10;
         }
       }
+      const supplied=await state();
+      if((supplied.hpPotions!=null&&supplied.hpPotions<20)||(supplied.mpPotions!=null&&supplied.mpPotions<20))return;
+      // Sustain owns the queue before optional inventory inspections. A pending
+      // boss plan can take the healthy supplied visit on the next slice.
+      if(mem.bossLearning?.pending&&mem.bossLearning.plan&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&
+        (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped'))return;
+      if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       if(policy.powerProgression){
         const pets=mem.development?.snapshots?.ranch?.pets||[];
         for(const [id,name,minimum] of [['pet_treat','Pet Treat',pets.length?3:0],['focus_tonic','Focus Tonic',['Mage','Starweaver','Sage'].includes(s.job)?2:0]]){
