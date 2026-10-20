@@ -138,6 +138,18 @@ function catalog(extra={}) {return {levelCap:99,capSource:'public-ui-definition'
   monsters:[{id:'mob',lv:58,hp:1000,exp:100,drops:[['shard',0.4]]}],expByLevel:{57:1000000,58:1200000},...extra};}
 function state(extra={}) {return {name:'Hero',job:'Starweaver',lv:'Lv 57',hp:[900,1000],exp:10,gold:120000,crystals:5000,zone:'Field',controls:[],offscreen:[],autoHunt:'on',autoQuestMode:'mq',...extra};}
 
+test('idle combat probe selects a normal level-band target and verifies AUTO without touching an active resource trip',async()=>{
+ const mem={},a=A.init(mem),c=catalog();c.maps[1].monsters[0].n=10;c.monsters[0].name='Test Mob';
+ mem.gameTelemetry={validated:true,checkedAt:clock};mem.proactive={idleSince:clock-120000,lastProbe:0,probeAttempts:0};
+ let hunting=false,panel=null;const clicks=[];
+ const controls=[{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true},{id:'autoBtn'}];
+ const controller=A.createController({mem,getCatalog:()=>c,now:()=>clock,policy:{proactive:true,goldReserve:100000},
+  observe:async()=>state({autoHunt:hunting?'on':'',hpPotions:50,mpPotions:50,panel,controls}),
+  click:async x=>{clicks.push(x);if(x.id==='autoBtn')hunting=true;},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
+ await controller.run('combat_probe');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(hunting,true);assert.equal(a.farm.target,'mob');assert.equal(a.farm.probe,true);
+ const n=clicks.length;mem.development={excursion:{kind:'mine'}};await controller.run('combat_probe');assert.equal(clicks.length,n);
+});
+
 test('cognitive risk-adjusted ranking influences measured farm choices without admitting excluded routes',async()=>{
   const m={},a=A.init(m),c=catalog();
   c.maps.push({id:'second',name:'Second Field',monsters:[{id:'mob'}]});

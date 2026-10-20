@@ -293,7 +293,8 @@ live deployment before new repair work is accepted.
 The configured `AGENT_MODEL` receives only enumerated public source files, missing HUD field
 names and redacted test feedback. It returns bounded JSON edits, without tools or shell access.
 Only `game-intelligence.js`, `game-telemetry.js`, `ui-resilience.js`, `cognitive-brain.js` and
-`cognitive-brain.test.js` can be proposed for change; all other existing tests, controllers,
+`cognitive-brain.test.js` can be proposed for repair. Opt-in capability jobs also allow
+`progression.js`, `character-development.js` and `strategy-dna.js`; all other existing tests, controllers,
 supervisor, credentials and this repair engine are protected. A new
 regression test is required. Both the unchanged baseline and each candidate run syntax checks
 and the complete fixed test suite. Failed attempts restart from the baseline, up to three times.
@@ -318,7 +319,9 @@ rechecks the complete source baseline, defers human pauses/maintenance/reloads, 
 backs up only the changed allowlisted modules, stops the agent/supervisor, replaces files with
 fsync plus atomic rename, then restarts both services. Existing tests other than the explicitly
 editable `cognitive-brain.test.js` are never deployed as model
-changes. Git is never committed/pushed/reset/cleaned by the worker. Without the flag, candidates
+changes. Git publication is disabled unless `SELF_HEAL_GIT_PUBLISH=1` and the separate
+root-owned publisher has been provisioned; it never resets, cleans or force-pushes live source.
+Without the deployment flag, candidates
 remain at **READY_REVIEW**. Enabling it later revalidates pending candidates before deployment.
 
 Success requires a ten-minute canary, checked every five seconds, with a new process boot ID,
@@ -495,3 +498,8 @@ trusted source snapshot together with these reviewed sources before deploying; t
 change does not update or restart a running service.
 
 Before a Linux deployment, follow [the Linux preflight](docs/linux-preflight.md).
+
+For opt-in world knowledge, idle combat probes, evidence-backed capability development,
+cap stockpiling and canary-gated automatic GitHub publication, see
+[proactive evolution](docs/proactive-evolution.md). Publication credentials belong only
+to the root-owned publisher; no runtime knowledge or private state is committed.

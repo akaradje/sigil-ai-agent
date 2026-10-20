@@ -12,6 +12,14 @@ function sample(change = {}, brain = {}) {
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
 
+test('publication alert requires a verified commit link and retains deduplication through restart',()=>{
+ const s=sample();s.publication={identity:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',events:[{id:1,jobId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'PUBLISHED',commit:'c'.repeat(40),purpose:'VERIFIED_GROWTH_PLATEAU',files:['strategy-dna.js']}]};
+ let engine=new AlertEngine({},start);engine.observe(s,start);const events=engine.db.pending.filter(e=>e.key.startsWith('publication:'));
+ assert.equal(events.length,1);assert.match(events[0].text,/strategy-dna.js/);assert.match(events[0].text,/github.com/);
+ engine.acknowledge(engine.db.pending);engine=new AlertEngine(JSON.parse(JSON.stringify(engine.db)),start+MIN);engine.observe(s,start+MIN);
+ assert.equal(engine.db.pending.filter(e=>e.key.startsWith('publication:')).length,0);
+});
+
 test('cognitive milestones require fresh observed evidence and survive restart without duplicate alerts',()=>{
   const s=sample();s.agent.strategy={cognitive:{enabled:true,identity:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     updatedAt:start,totalExperiences:6,masteryIndex:29}};

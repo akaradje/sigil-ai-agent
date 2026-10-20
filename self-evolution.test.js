@@ -123,6 +123,21 @@ test('pause, maintenance, reload, brief UI faults or stale health never open a r
     assert.equal((await r.engine.observe({...r.h,...change})).reason,'NO_SUSTAINED_INCIDENT');
   assert.equal(r.engine.load().jobs.length,0);
 });
+test('proactive jobs consume real fresh opportunities once, retain regression tests and defer during outages',async t=>{
+ const opportunity={key:'d'.repeat(64),reason:'UNSUPPORTED_PUBLIC_SYSTEM',at:NOW-1000,evidence:{panel:'ascension',observations:3}};
+ const r=fixture(t,{proactive:true});const h={...r.h,safeIdle:false};
+ for(const change of [{paused:true},{offline:true},{positionFault:true},{dead:true}])assert.equal((await r.engine.observe({...h,...change},[opportunity])).processed,false);
+ const result=await r.engine.observe(h,[opportunity]);assert.equal(result.status,'READY_REVIEW');
+ const d=r.engine.load();assert.equal(d.jobs[0].reason,opportunity.reason);assert.deepEqual(d.seenOpportunities,[opportunity.key]);
+ const candidate=JSON.parse(fs.readFileSync(path.join(r.engine.dir,result.jobId,'candidate.json'),'utf8'));
+ assert.match(candidate.files['cognitive-brain.test.js'],/candidate remains closed/);
+ const disabled=fixture(t);assert.equal((await disabled.engine.observe({...disabled.h,safeIdle:false},[opportunity])).processed,false);
+});
+test('insufficient public evidence is a durable no-change result rather than an invented repair',async t=>{
+ const r=fixture(t,{proactive:true,repair:async()=>({edits:[],test:''})});
+ const o={key:'e'.repeat(64),reason:'VERIFIED_CAP_STOCKPILE',at:NOW-1,evidence:{levelCap:100}};
+ assert.equal((await r.engine.observe({...r.h,safeIdle:false},[o])).status,'NO_CHANGE');assert.equal(r.engine.load().jobs[0].status,'NO_CHANGE');
+});
 test('concurrent worker instances cannot process the same job or steal a live lock',async t=>{
   let release;const pending=new Promise(resolve=>{release=resolve;});
   const r=fixture(t,{repair:async()=>{await pending;return proposal();}}),first=r.engine.observe(r.h);

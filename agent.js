@@ -25,6 +25,8 @@ const DNA = require('./strategy-dna');
 const Autonomy = require('./autonomy');
 const Development = require('./character-development');
 const Catalog = require('./game-catalog');
+const {WorldKnowledge}=require('./world-knowledge');
+const Proactive=require('./proactive-planner');
 const SelfHealing = require('./self-evolution');
 const {CognitiveBrain,learningFarmingOptions} = require('./cognitive-brain');
 const {createAvailability}=require('./server-availability');
@@ -68,6 +70,7 @@ const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_L
 autonomyPolicy.sellSurplus=ENV.SIGIL_SELL_SURPLUS==='1';
 autonomyPolicy.powerProgression=ENV.SIGIL_POWER_PROGRESSION==='1';
 autonomyPolicy.wingPriority=ENV.SIGIL_WING_PRIORITY==='1';
+autonomyPolicy.proactive=ENV.SIGIL_PROACTIVE==='1';
 autonomyPolicy.targetRank=Number(ENV.SIGIL_TARGET_RANK)===5?5:10;
 autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
 autonomyPolicy.levelingMaxGap=Math.min(5,Math.max(3,Math.floor(Number(ENV.SIGIL_LEVELING_MAX_GAP)||3)));
@@ -151,32 +154,15 @@ async function evalIn(expr) {
 const P = {state: 'JSON.stringify('+IQ.PERCEPTION+')'};
 
 function knowledge(state={}) {
-  const p = path.join(SOURCE_DIR, 'data', 'tables.json');
-  if (!fs.existsSync(p)) return '';
-  try {
-    const t = JSON.parse(fs.readFileSync(p, 'utf8'));
-    const mage = t.skills.filter((s) => ['mage', 'starweaver', 'sage'].includes(s.job));
-    const byJob = {};
-    for (const s of mage) (byJob[s.job] = byJob[s.job] || []).push(`${s.name}(jl${s.jl},${s.mult}x,${s.mp}mp,${s.elem || '-'})`);
-    const staffs = t.items.filter((i) => i.type === 'staff').map((i) => `T${i.tier} ${i.name} matk${i.stats.matk}`);
-    const level=IQ.n(state.lv)||44;
-    const mobs = t.monsters.filter((m) => m.lv >= level-10 && m.lv <= level+8).map((m) => `Lv${m.lv} ${m.name}(${m.elem || '?'})`);
-    return [
-      'PUBLIC GAME TABLES (cached; current UI requirements take precedence):',
-      'Element multipliers (attack->target): fire: wind1.5 plant1.5 undead1.25 water0.75 fire0.5 | water: fire1.5 earth0.75 water0.5 |',
-      'wind: earth1.5 fire0.75 wind0.5 | dark: holy1.5 | holy: dark1.75 undead1.75 ghost1.5 | same element 0.5 | else 1.0',
-      'Mage line skills: ' + Object.entries(byJob).map(([j, v]) => `${j}: ${v.join(' ')}`).join(' || '),
-      'Staves: ' + staffs.join(' · '),
-      'Gear tier level requirement: T1=1 T2=12 T3=25 T4=40 T5=55.',
-      'Refine consumes gold and ore; verify current UI costs/chances. Historical safe line: T1+7 T2+6 T3+5 T4+4; failures above it keep the step; cap +15.',
-      'Optimize actual progress/minute and survival; theoretical monster level or skill multiplier alone does not prove the fastest route.',
-      'Potions: Mega Potion 150G/1500HP, Mega Ether 180G/500MP; explicit HP/MP slot choices are persisted in AUTO Potions. Keep a supply for the current HP/MP pool.',
-      'Second/High class skill evolutions require an evolution trial at the Dharma Shrine. Read current kill/material requirements and verify the trial before choosing a branch.',
-      'Monsters near current level: ' + mobs.join(' '),
-    ].join('\n');
-  } catch {
-    return '';
-  }
+  if(!catalog)return 'Public catalog unavailable; requirements remain unknown.';
+  const lv=IQ.n(state.lv),job=catalog.jobs?.[String(state.job||'').toLowerCase()];
+  return 'VERIFIED PUBLIC DEFINITIONS (probabilities are published definitions, not measured drop rates): '+JSON.stringify({
+    fingerprint:catalog.fingerprint,at:catalog.at,levelCap:catalog.levelCap,refineMax:catalog.refineMax,
+    job,monsters:catalog.monsters.filter(m=>m.lv>=lv-5&&m.lv<=lv+5).slice(0,20),
+    recipes:catalog.gear.filter(g=>g.craft&&g.lv<=lv+5&&(!g.line||job?.line.includes(g.line))&&(!g.fam||g.fam===job?.weapon)).slice(-16).map(g=>({id:g.id,name:g.name,slot:g.slot,tier:g.tier,lv:g.lv,stats:g.stats,cost:g.craft})),
+    safeRoutes:learningFarmingOptions(catalog,state,memory,autonomyPolicy.levelingMaxGap).slice(0,6).map(m=>({id:m.id,name:m.name,monsterLevel:m.monsterLevel})),
+    goal:memory.autonomy?.goal,observedYields:memory.worldKnowledge?.observedYields||[],
+    opportunities:memory.evolutionOpportunities||[]});
 }
 
 async function perceive(withShot) {
@@ -203,6 +189,7 @@ let memory=IQ.freshMemory();
 try { memory={...memory,...JSON.parse(fs.readFileSync(MEMORY,'utf8'))}; } catch {}
 if(memory.bossBuildVersion!==2){memory.bossBuild={};memory.bossBuildVersion=2;}
 const cognitiveBrain=new CognitiveBrain({memoryFile:path.join(DIR,'.agi-brain-memory.json')});
+const worldKnowledge=new WorldKnowledge({file:path.join(DIR,'world-knowledge.json')});
 memory.cognitive=cognitiveBrain.view();
 function updateCognition(s,observe=false) {
   if(memory.cognitive?.issue)return;
@@ -212,6 +199,7 @@ function updateCognition(s,observe=false) {
     view.mapPredictions=learningFarmingOptions(catalog,s,memory,autonomyPolicy.levelingMaxGap).map(m=>cognitiveBrain.predictBestFarmingZone([m.name],{explore:false}))
       .filter(p=>p&&!p.isExploration&&Number.isFinite(p.predictedUtility)&&Date.now()-p.lastAt<30*60000);
     memory.cognitive=view;
+    memory.worldKnowledge=worldKnowledge.view();
   } catch {memory.cognitive={enabled:false,issue:'Cognitive memory unavailable; learning suspended'};}
 }
 function consolidateCognition(s) {
@@ -312,16 +300,18 @@ const executor=IQ.createExecutor({observe:async()=>(await perceive(false)).state
 let catalog=null,catalogRetry=0;
 const catalogFile=path.join(DIR,'game-catalog-cache.json');
 try {const cached=JSON.parse(fs.readFileSync(catalogFile,'utf8'));catalog=Catalog.validateCatalog(cached.data,cached.at);}catch{}
+if(catalog)try{worldKnowledge.ingestCatalog(catalog);}catch{log('public knowledge cache unavailable');}
 let catalogWasConnected=false;
 async function refreshCatalog(s) {
   const connected=Boolean(s.name),reconnected=connected&&!catalogWasConnected;catalogWasConnected=connected;
   const pending=memory.bracketPolicy?.recheck;
   if(pending&&!pending.started){pending.started=Date.now();catalogRetry=0;}
-  if(!autonomyPolicy.enabled||!connected||Date.now()<catalogRetry||(!pending&&!reconnected&&catalog&&Date.now()-catalog.at<6*3600000))return;
+  if(!autonomyPolicy.enabled||!connected||Date.now()<catalogRetry||(!pending&&!reconnected&&catalog&&Date.now()-catalog.at<(autonomyPolicy.proactive?15*60000:6*3600000)))return;
   catalogRetry=Date.now()+5*60000;
   try {
     const data=JSON.parse(await evalIn(Catalog.CATALOG_EXPRESSION));catalog=Catalog.validateCatalog(data);
     Autonomy.catalogChanged(memory,catalog);
+    worldKnowledge.ingestCatalog(catalog);memory.worldKnowledge=worldKnowledge.view();
     if(reconnected)Autonomy.init(memory).cbt=null;
     fs.writeFileSync(catalogFile+'.tmp',JSON.stringify({data,at:catalog.at}),{mode:0o600});fs.renameSync(catalogFile+'.tmp',catalogFile);
     log('public catalog refreshed; level cap '+(catalog.levelCap??'unknown')+', refine cap '+catalog.refineMax);
@@ -636,6 +626,12 @@ async function runCycle() {
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
     IQ.updateMetrics(memory,p.state);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
     updateDNA(p.state,true);
+    if(autonomyPolicy.proactive){
+      worldKnowledge.observe(p.state,memory);
+      Proactive.update(memory,p.state,catalog);
+      memory.worldKnowledge=worldKnowledge.view();
+      memory.evolutionOpportunities=Proactive.opportunities(memory,memory.worldKnowledge);
+    }
     if(Hygiene.eligible(memory,p.state,catalog,Date.now(),autonomyPolicy.sessionRefreshHours)){
       consolidateCognition(p.state);
       Hygiene.prepare(memory);Autonomy.event(Autonomy.init(memory),'session_refreshing',{});saveMemory();
@@ -644,6 +640,12 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(autonomyPolicy.proactive&&!automatic&&planned==='observe'&&worldKnowledge.nextPanelProbe()&&
+      Date.now()-(Proactive.init(memory).lastDiscovery||0)>10*60000&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      Proactive.init(memory).lastDiscovery=Date.now();actionInFlight=true;
+      try{await worldKnowledge.inspectNext({mem:memory,catalog,observe:async()=>(await perceive(false)).state,open:executor.open,close:executor.close});}
+      finally{actionInFlight=false;saveMemory();}return;
+    }
     if(autonomyPolicy.powerProgression&&memory.development?.excursion&&!critical.includes(planned)&&actionTimes.filter(t=>Date.now()-t<60000).length<=8){
       actionInFlight=true;try{await development.run('growth_materials');}finally{actionInFlight=false;}return;
     }
@@ -786,6 +788,7 @@ http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://x');
     if (u.pathname === '/health') return res.end(JSON.stringify({ok:true,version:4,busy,paused,availability:availability.state,autonomy:autonomyPolicy.enabled,
+      evolutionOpportunities:autonomyPolicy.proactive?memory.evolutionOpportunities||[]:[],
       selfHealing:SelfHealing.healthSnapshot({memory,bootId:selfHealingBootId,buildId:selfHealingBuildId,completedAt:cycleCompletedAt,paused,availability:availability.state,cycleErrorAt,completedCycles:cycle,state:healingState})}));
     if (u.pathname === '/state') {
       const p = await perceive(false);

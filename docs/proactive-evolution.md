@@ -1,0 +1,75 @@
+# Proactive learning and reviewed publication
+
+Enable `SIGIL_PROACTIVE=1` for the controller and `SELF_HEAL_PROACTIVE=1` in the
+separate root worker. Existing resource/quest trips, death recovery, sustain,
+capacity budgets and input rate limits keep ownership. No unknown control is
+automatically clicked just because it was discovered.
+
+`world-knowledge.json` lives in `SIGIL_STATE_DIR`, with an atomic previous snapshot.
+It stores the validated public catalog, monster combat stats, definitions of recipes,
+skills, class requirements, boss phases, sets and public premium offerings. Rendered
+buff status, fresh level rankings and observed combat summaries retain timestamps.
+The catalog refreshes every 15 minutes and on reconnect. A changed fingerprint
+invalidates prior cap/gear plans and learning contexts. Definitions obtained from
+ordinary public asset responses are the only network payloads collected: no socket
+interception, credentials, full player dump or unpublished server database.
+
+Published drop probabilities describe the public definitions. Repeated complete
+inventory scans can establish *net inventory yield* during a same-map combat window
+with at least five observed kills, no inventory losses, no intervening recorded
+transaction, no writer/reconnect gap, and at most 15 minutes between scans. This is
+not claimed to be the server's true drop probability. Unobservable dungeon conditions,
+server multipliers and missing fields remain unknown.
+
+After two continuous idle minutes, a supplied, healthy character with fresh validated
+telemetry may start a bounded native-AUTO probe in the normal eligible level band.
+An existing craft, class, mining, town, storage or recovery task defers it. Attempts
+are separated by ten minutes; hazards and inadequate potions veto input. AUTO target
+and activation must be verified in the rendered UI. Reward still requires 60 seconds
+of observed combat warm-up followed by a separate measurement window. Probe clicks
+and walking never count as successful experiments.
+
+Development opportunities are persisted and deduplicated: repeated enabled unknown
+navigation, new public maps/recipes/caps, thirty continuous minutes of flat comparable
+EXP and power, sustained fresh evidence of lagging Top 10, or verified level/gear caps.
+When safely idle in a verified town with no owned farm or resource task, one unknown
+navigation panel may be opened, its rendered requirements/control contract recorded,
+and closed without invoking any panel action. Inspections are spaced ten minutes apart.
+At verified caps, a compatible top-tier two-recipe material reserve replaces EXP-only
+goals. Cap expansion invalidates that plan. Existing DNA continues measured trials.
+
+The worker accepts at most three jobs per day and one per hour. It may edit the
+existing UI/cognition files and progression, character-development and DNA modules.
+Controller/input gates, publication/deployment code and regression suites remain
+protected. A missing UI contract results in `NO_CHANGE`, not a guessed handler.
+Generated regression tests are retained in `cognitive-brain.test.js`. Every baseline
+and candidate runs the Node suite, Python suite and both publication guards in the
+unprivileged, network-isolated OS sandbox. A ten-minute canary with fresh matching
+boot/build evidence precedes commitment; the independent guard retains rollback.
+
+## Automatic GitHub publication
+
+Set `SELF_HEAL_GIT_PUBLISH=1` only after provisioning these root-owned paths:
+
+- `/var/lib/sigil-publication/source`: clean checkout of the reviewed main commit,
+  remote `git@github.com:akaradje/sigil-ai-agent.git`.
+- `/etc/sigil-publication/deploy_key`: mode 0600, repository-specific write deploy key.
+- `/etc/sigil-publication/known_hosts`: verified GitHub host keys.
+
+The candidate sandbox and game user cannot read this credential. Git never uses the
+game checkout's hooks/configuration. Only enumerated edited source/test files are
+copied into the publisher checkout; protected source must match the trusted snapshot.
+The complete suites rerun in the sandbox and both guards inspect the publication
+checkout and index. A durable commit receipt precedes a normal fast-forward push to
+main. Remote divergence blocks publication; there is no automatic force push or merge.
+A lost network response is reconciled using the exact pending commit. Failures retry
+after 15 minutes and are visible in the publication projection and Telegram; successful
+publication includes its verified commit link. Publication failure does not erase a
+healthy live deployment. A later runtime rollback remains in deployment history and
+does not rewrite Git history.
+
+For an operator deployment, update both the trusted `source/` snapshot and publisher
+checkout to the same reviewed commit while the worker and guard are stopped. Preserve
+publication receipts, runtime memory, private config and rollback backups. Inspect the
+Dashboard knowledge/probe state and worker ledger after restarting. Tests prove the
+implemented contracts; they do not guarantee mastery of future unknown game systems.

@@ -13,7 +13,8 @@ const CATALOG_EXPRESSION = `(()=>Promise.all([import('/src/data.js'),import('/sr
       runeUpgrade:Object.fromEntries([1,2,3,4].map(n=>[n,r.upCost(n)])),cards:Object.fromEntries(Object.entries(d.ITEMS).filter(([,i])=>i.card&&i.mon).map(([,i])=>[i.mon,i.card])),
       mining:l.ORE_TIERS.map((t,i)=>({...t,tier:i+1,level:l.TIER_NEED[i],mapLevel:l.TIER_FROM_LV[i]})),
       mapDrops:Object.fromEntries(Object.entries(md.MAP_DROPS).map(([id,rows])=>[id,rows.filter(([k])=>k!=='s').map(([k,item])=>({id:item,chance:md.MD_RATE[k]}))]))},
-    monsters:Object.entries(d.MONSTERS).map(([id,m])=>({id,name:m.name,lv:m.lv,hp:m.hp,exp:m.exp,drops:m.drops||[],boss:!!m.boss})),
+    definitions:{recipes:d.RECIPES,skills:d.SKILLS,jobQuests:d.JOB_QUESTS,bossPhases:d.BOSS_PHASES,sets:d.SETS,premiumShop:p.SHOP,pass:p.PASS},
+    monsters:Object.entries(d.MONSTERS).map(([id,m])=>({id,name:m.name,lv:m.lv,hp:m.hp,atk:m.atk,def:m.def,flee:m.flee,exp:m.exp,jexp:m.jexp,gold:m.gold,speed:m.speed,aspd:m.aspd,range:m.range,elem:m.elem,race:m.race,size:m.size,skill:m.skill,drops:m.drops||[],boss:!!m.boss})),
     maps:Object.entries(w.MAPS).map(([id,m])=>({id,name:m.th,range:m.lv,town:!!m.town,monsters:(m.mons||[]).map(([id,n])=>({id,n}))})),
     items:Object.fromEntries(Object.entries(d.ITEMS).map(([id,i])=>[id,{name:i.name,price:i.price||null,food:!!i.food,lv:i.lv||0,use:i.use||null}])),shop:p.SHOP.filter(i=>['bag','store'].includes(i.id)),
     expByLevel:Object.fromEntries(Array.from({length:Math.min(1000,(levelCap||200)+1)},(_,i)=>[i+1,d.expToNext(i+1)]))});
@@ -21,6 +22,7 @@ const CATALOG_EXPRESSION = `(()=>Promise.all([import('/src/data.js'),import('/sr
 
 function validateCatalog(raw, now=Date.now()) {
   const c=typeof raw==='string'?JSON.parse(raw):raw;
+  if(Buffer.byteLength(JSON.stringify(c)||'')>6*1024*1024)throw Error('Public catalog too large');
   if(!c||!Array.isArray(c.gear)||!c.gear.length||!Array.isArray(c.maps)||!c.maps.length||!Array.isArray(c.monsters)||!c.jobs)throw Error('Incomplete public catalog');
   if(c.levelCap!=null&&(!Number.isSafeInteger(c.levelCap)||c.levelCap<1||c.levelCap>1000))throw Error('Invalid public level cap');
   if(!Number.isSafeInteger(c.refineMax)||c.refineMax<1||c.refineMax>100)throw Error('Invalid refine cap');

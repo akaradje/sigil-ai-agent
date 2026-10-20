@@ -244,5 +244,15 @@ class Engine {
       immunityCount:this.db.immunity.length,avoidMaps};
   }
 }
+function stockpilePlan(catalog,s,mem){
+  if(!catalog||!require('./game-catalog').resolveCap(s,catalog).atCap||!mem.autonomy?.gearCapped)return null;
+  const job=catalog.jobs[String(s.job||'').toLowerCase()];if(!job)return null;
+  const level=Number(String(s.lv||'').match(/\d+/)?.[0]),owned=mem.autonomy.inventory?.items||{};
+  const recipes=catalog.gear.filter(g=>g.craft&&g.lv<=level&&(!g.line||job.line.includes(g.line))&&(!g.fam||g.fam===job.weapon));
+  const tier=Math.max(0,...recipes.map(g=>g.tier)),top=recipes.filter(g=>g.tier===tier);
+  const mats={};for(const g of top)for(const [id,count]of Object.entries(g.craft.mats))mats[id]=Math.max(mats[id]||0,count*2);
+  const missing=Object.entries(mats).filter(([id,count])=>(owned[id]||0)<count).map(([id,need])=>({id,need,have:owned[id]||0,missing:need-(owned[id]||0)}));
+  return top.length?{kind:'stockpile',target:'verified-tier-'+tier,name:'Pre-patch material reserve',cost:{gold:0,mats},missing,catalogFingerprint:catalog.fingerprint,tier}:null;
+}
 function readSummary(file){try{const d=new FileStore(file).load(),a=d?.active,c=a&&d.contexts[a.key];return {generation:c?.generation||0,immunityCount:d?.immunity?.length||0,genomeId:c?.elite||null};}catch{return null;}}
-module.exports={DEFAULT,genes,profile,nativeControl,offspring,arm,record,select,fitness,context,FileStore,Engine,readSummary};
+module.exports={DEFAULT,genes,profile,nativeControl,offspring,arm,record,select,fitness,context,FileStore,Engine,readSummary,stockpilePlan};

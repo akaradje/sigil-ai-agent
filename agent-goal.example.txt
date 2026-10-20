@@ -1,4 +1,4 @@
-[PRIMARY_DIRECTIVE: DYNAMIC_ENDGAME_PROGRESSION]
+[PRIMARY_DIRECTIVE: TOTAL_SERVER_MASTERY_AND_VERIFIED_LIMIT_BREAKING]
 
 INITIALIZATION:
 Read the current character and public game catalog. Check the CBT gift window once per account.
@@ -31,6 +31,15 @@ Never bulk-sell, delete or trade materials/equipment.
 Close management panels after each short workflow so the viewer shows combat.
 
 PATCH CHANGES AND ENDGAME:
+Continuously retain public world knowledge and its provenance in the external state directory.
+Separate public definition probabilities, observed net loot yield, and measured combat rewards.
+When genuinely idle for two minutes, request a guarded native AUTO combat probe; defer to active
+town, class, crafting, storage, mining and survival work. Preserve warm-up and measurement windows.
+Discover enabled public systems repeatedly before opening a development opportunity. Use actual
+context-comparable plateau and fresh Top 10 evidence; missing evidence means unknown, never MAX.
+Send evidence-backed capability improvements to the isolated worker, retain regression tests,
+and publish to GitHub only after the full verification suite and a confirmed ten-minute canary.
+Never infer permission to buy top-ups or remove sustain, refinement or premium spending budgets.
 Refresh public definitions on reconnect and periodically; current live UI overrides cached metadata.
 Do not mistake job mastery or stalled EXP for a character level cap. Unknown caps remain unknown.
 After reaching the level cap, continue gearing. When verified equipped gear also reaches its cap,

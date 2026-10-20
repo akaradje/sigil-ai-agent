@@ -39,6 +39,8 @@ agent-memory.json*
 dna-memory.json*
 telegram-alerts-state.json*
 game-catalog-cache.json*
+world-knowledge.json*
+publication-state.json*
 growth-catalog-live.json*
 deployment-state.json*
 state.json

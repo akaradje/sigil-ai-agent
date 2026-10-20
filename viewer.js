@@ -20,7 +20,7 @@ if (require.main === module && (!TOKEN || TOKEN.length < (process.env.VIEWER_ALL
 
 const DEPLOY_PHASES = new Set(['PREPARED','INSTALLING','STARTING','CANARY','COMMITTED','ROLLING_BACK','ROLLED_BACK','ROLLBACK_FAILED','SUPERSEDED']);
 const REPAIR_PHASES = new Set(['REPAIRING','VERIFYING','READY_REVIEW','FAILED','INTERRUPTED','DEPLOYED','ROLLED_BACK']);
-const EDITABLE = new Set(['game-intelligence.js','game-telemetry.js','ui-resilience.js','cognitive-brain.js','cognitive-brain.test.js']);
+const EDITABLE = new Set(['game-intelligence.js','game-telemetry.js','ui-resilience.js','cognitive-brain.js','cognitive-brain.test.js','progression.js','character-development.js','strategy-dna.js']);
 const digest = x => typeof x === 'string' && /^[a-f0-9]{64}$/.test(x) ? x : null;
 const jobId = x => typeof x === 'string' && /^[a-f0-9-]{36}$/.test(x) ? x : null;
 const timestamp = x => Number.isSafeInteger(x) && x > 0 ? x : null;
@@ -261,6 +261,7 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">Browser session age</div><div class="v" id="sessionAge" style="font-size:14px">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Strategy DNA</div><div class="v" id="dna" style="font-size:14px">–</div><pre id="dnaGenes"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Cognitive memory · observed mastery</div><div class="v" id="mastery" style="font-size:14px">–</div><div class="detail" id="curriculum"></div><div class="detail" id="cognitiveSkill"></div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">World knowledge · proactive development</div><div class="v" id="worldKnowledge" style="font-size:14px">–</div><div class="detail" id="opportunities"></div></div>
         <div class="cell"><div class="k">Crystal budget used / reserved</div><div class="v" id="budget">–</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Craft materials</div><div class="v" id="craft" style="font-size:14px">–</div><div class="bar mp"><i id="craftbar" style="width:0%"></i></div><pre id="materials"></pre></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">Quest</div>
@@ -506,6 +507,9 @@ async function tickState() {
     $('sessionAge').textContent=Number.isFinite(session?.ageHours)?session.ageHours.toFixed(1)+' ชม. · '+(session.pending?'กำลังกู้เซสชัน':'รอจบธุระในเมืองเมื่อครบอายุ'):'รอข้อมูลอายุหน้าเกม';
     const dna=j.strategy?.dna;
     const cognitive=j.strategy?.cognitive;
+    const world=j.strategy?.worldKnowledge;
+    $('worldKnowledge').textContent=world?world.maps+' แมป · '+world.monsters+' มอนสเตอร์ · '+world.recipes+' สูตร · แหล่งข้อมูลสาธารณะ':'รอฐานความรู้';
+    $('opportunities').textContent=(j.strategy?.evolutionOpportunities||[]).map(o=>o.reason).join(' · ')||'ยังไม่มีโอกาสพัฒนาที่มีหลักฐานเพียงพอ';
     $('mastery').textContent=cognitive?.enabled?'Mastery '+cognitive.masteryIndex+' / 100 · '+cognitive.totalExperiences+' ประสบการณ์ · '+cognitive.knownMapsCount+' บริบทแมป':cognitive?.issue||'รอข้อมูลการเรียนรู้';
     const curriculum=cognitive?.activeCurriculum;
     $('curriculum').textContent=curriculum?curriculum.currentGoal+' · '+curriculum.targetMetric+' '+curriculum.baselineValue+' → '+curriculum.targetValue:'';

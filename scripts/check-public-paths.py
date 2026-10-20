@@ -21,6 +21,14 @@ ALLOWED = {
     'cloudflare-worker/wrangler.toml',
     'cognitive-brain.js',
     'cognitive-brain.test.js',
+    'world-knowledge.js',
+    'world-knowledge.test.js',
+    'proactive-planner.js',
+    'proactive-planner.test.js',
+    'self-publication.js',
+    'self-publication.test.js',
+    'self-evolution.candidate.test.js',
+    'docs/proactive-evolution.md',
     'docs/harness-api.md',
     'docs/linux-preflight.md',
     'docs/publication-policy.md',
@@ -76,8 +84,13 @@ ALLOWED = {
     'viewer.test.js',
 }
 
-result = subprocess.run(['git', 'ls-files', '-z'], cwd=ROOT, capture_output=True, check=True)
-files = [name for name in result.stdout.decode().split('\0') if name]
+if sys.argv[1:] == ['--export']:
+    files = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob('*') if '.git' not in p.relative_to(ROOT).parts and (p.is_file() or p.is_symlink())]
+elif sys.argv[1:]:
+    raise SystemExit('Unsupported public-paths arguments')
+else:
+    result = subprocess.run(['git', 'ls-files', '-z'], cwd=ROOT, capture_output=True, check=True)
+    files = [name for name in result.stdout.decode().split('\0') if name]
 bad = sorted(set(files) - ALLOWED)
 for name in bad:
     print(f'Unreviewed tracked path: {name}')

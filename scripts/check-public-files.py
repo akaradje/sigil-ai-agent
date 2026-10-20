@@ -29,6 +29,7 @@ PRIVATE_NAMES = {
     "storage-state.json", "storagestate.json", "auth.json", "viewer-token.txt",
     "agent-memory.json", "dna-memory.json", ".agi-brain-memory.json",
     "telegram-alerts-state.json", "game-catalog-cache.json", "growth-catalog-live.json",
+    "world-knowledge.json", "publication-state.json",
     "deployment-state.json", "agent-diary.md", "agent-lessons.md", "agent-goal.txt",
     "state.json", "daily.json", "events.json", "repair.json", "health.json", "metrics.json",
     "baseline.json", "candidate.json", "production-before.json", "endpoint.json", "guard-receipt.json",

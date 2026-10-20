@@ -6,7 +6,7 @@ const os=require('node:os');
 const STATE_FILES=Object.freeze(['agent-memory.json','dna-memory.json','dna-memory.json.previous',
   '.agi-brain-memory.json','.agi-brain-memory.json.previous','telegram-alerts-state.json',
   'game-catalog-cache.json','agent.log','supervisor.log','metrics.jsonl','agent-decisions.jsonl',
-  'agent-diary.md','agent-lessons.md','agent-goal.txt','agent-tactic.txt']);
+  'agent-diary.md','agent-lessons.md','agent-goal.txt','agent-tactic.txt','world-knowledge.json','world-knowledge.json.previous']);
 const CONFIG_FILES=Object.freeze(['.env','telegram.env','viewer-token.txt']);
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 function inside(root,target) {

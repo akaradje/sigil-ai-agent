@@ -132,7 +132,7 @@ class DeploymentBroker {
   async recover(){
     return this.locked(async()=>{const d=this.load();if(d.active&&transitional.has(d.active.phase))return this.restore(d,'WORKER_INTERRUPTED');this.save(d);return {status:d.active?.phase||'READY'};});
   }
-  async deploy({jobId,base,files}){
+  async deploy({jobId,base,files,purpose='UI_SCHEMA_CHANGED'}){
     if(!uuid(jobId))throw error('INVALID_JOB_ID');
     const current=await this.readHealth();
     if(!E.validHealth(current,this.now())||current.paused||current.offline||current.login||current.expectedReload||current.positionFault)
@@ -150,7 +150,7 @@ class DeploymentBroker {
         return {name:n,before:hash(base[n]),after:hash(files[n]),mode:stat.mode&0o777,uid:stat.uid,gid:stat.gid};
       });
       d.active={id:jobId,phase:'PREPARED',files:manifest,bootId:current.bootId,beforeBuild:buildId(base),candidateBuild:buildId(files),
-        patchHash,wasPaused:current.paused,createdAt:this.now(),leaseAt:this.now(),startedAt:null};
+        patchHash,purpose:E.OPPORTUNITY_REASONS.has(purpose)?purpose:'UI_SCHEMA_CHANGED',wasPaused:current.paused,createdAt:this.now(),leaseAt:this.now(),startedAt:null};
       if(d.active.beforeBuild!==current.buildId)throw error('SOURCE_CHANGED');
       this.emit(d,'PREPARED');
       try {
