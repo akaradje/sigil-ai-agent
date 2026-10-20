@@ -527,7 +527,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function town(s) {
     const trip=a.trip;
-    if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();return;}
+    if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();trip.forgeServiced=true;trip.phase='return';return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {

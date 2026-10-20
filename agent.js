@@ -631,7 +631,9 @@ async function prepareClassBoss(s){
   if(s.hp?.[0]/s.hp?.[1]<0.3){await run('survive');return true;}
   if(s.autoQuestRunning&&s.autoQuestMode==='jq'){await run('boss_rebuild');return true;}
   const a=Autonomy.init(memory),automatic=Autonomy.chooseTask(memory,s,catalog,now,autonomyPolicy);
-  if(autonomyPolicy.enabled&&(a.trip||a.resume||a.wingCraft&&a.wingCraft.status!=='equipped')){
+  // Review the defeat as soon as the wing is equipped. Remaining town chores
+  // still finish before applying a combat profile or beginning another trial.
+  if(autonomyPolicy.enabled&&(a.resume||a.trip&&(a.wingCraft?.status!=='equipped'||b.plan)||a.wingCraft&&a.wingCraft.status!=='equipped')){
     if(automatic){actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}return true;
   }
   if(b.growthUntil>now)return false;
