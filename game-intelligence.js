@@ -440,6 +440,8 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
       return mem.task;
     } finally { try {await close();} finally {save();} }
   }
-  return {run,open,close};
+  // External controllers own their own workflow budgets. Each exported open is
+  // a new short navigation transaction; run() keeps its shared internal limit.
+  return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
 module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

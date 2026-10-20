@@ -455,6 +455,18 @@ test('an input-budget pause after a verified hunt profile retains AUTO activatio
   await A.createController({...args,mem:restored}).run('autonomy_wait');assert.equal(restored.autonomy.lastResult.ok,true);assert.equal(hunting,true);assert.equal(restored.autonomy.farm.pendingActivation,false);assert.equal(opens,before);
 });
 
+test('a pending farm return preserves the verified profile when the final AUTO click must wait',async()=>{
+  const m={},a=A.init(m),c=catalog();a.resume={map:'field',mode:'farm',at:clock};let hunting=false,reject=true,opens=0;
+  const args={getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:hunting?'on':'',controls:[{id:'autoBtn'},{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true}]}),
+    click:async x=>{if(x.id==='autoBtn'){if(reject)throw Object.assign(Error('input budget'),{code:'ACTION_BUDGET'});hunting=true;}},
+    open:async()=>{opens++;},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}};
+  await A.createController({...args,mem:m}).run('autonomy_wait');assert.equal(a.lastResult.ok,false);assert.equal(a.farm.target,'mob');assert.equal(a.farm.pendingActivation,true);assert.ok(a.resume);
+  const restored=JSON.parse(JSON.stringify(m)),before=opens;reject=false;
+  await A.createController({...args,mem:restored}).run('autonomy_wait');
+  assert.equal(restored.autonomy.lastResult.ok,true,restored.autonomy.lastResult.error);assert.equal(hunting,true);assert.equal(restored.autonomy.resume,null);assert.equal(opens,before);
+});
+
 test('resource backoff leaves town for farming even while wing materials are still missing',async()=>{
   const m={development:{resourceBackoffUntil:clock+60000}},a=A.init(m),c=catalog();
   c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8}}});

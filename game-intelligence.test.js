@@ -2,6 +2,14 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const IQ=require('./game-intelligence');
+
+test('external panel transactions do not exhaust a counter retained from earlier workflows',async()=>{
+  const mem=IQ.freshMemory();let panel=null,menu=false,clicks=0;
+  const e=IQ.createExecutor({mem,observe:async()=>({...healthy(),panel,panelOpen:!!panel,menuOpen:menu,controls:menu?[{open:'bag'}]:[{id:'menuBtn'}]}),
+    click:async c=>{clicks++;if(c.id==='menuBtn')menu=true;else if(c.open){panel=c.open;menu=false;}},key:async()=>{panel=null;menu=false;},sleep:async()=>{},save:()=>{},log:()=>{}});
+  for(let i=0;i<20;i++){await e.open('bag');assert.equal(panel,'bag');await e.close();}
+  assert.equal(clicks,40);
+});
 test('supervisor does not steal the UI during agent startup or a short restart',()=>{
   const m={},t=1800000000000;
   assert.equal(IQ.controllerFallbackReady(m,false,t),false);
