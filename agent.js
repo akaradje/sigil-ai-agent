@@ -640,6 +640,17 @@ async function prepareClassBoss(s){
     if(recentInputs<=MAX_ACTIONS_PER_MIN-4&&now-(memory.last.boss_ward_burst||0)>15000)await run('boss_ward_burst');
     return true;
   }
+  // After a defeat the character farms before the next trial: real EXP and a
+  // measured kill time need an uninterrupted stretch of combat, and the gear
+  // only improves while the character plays.
+  if(b.defeatAt&&!b.farmedAfterDefeat&&now-b.defeatAt<600000){
+    if(!s.autoQuestRunning&&!/\bon\b/.test(s.autoHunt||'')&&now-(memory.last.boss_rebuild||0)>60000){
+      await run('boss_rebuild');b.farmedAfterDefeat=now;return true;
+    }
+    if(!s.autoQuestRunning&&!/\bon\b/.test(s.autoHunt||''))return false;
+    b.farmedAfterDefeat=now;
+    return false;
+  }
   if(recentInputs>3)return true;
   const failedMap=b.history.at(-1)?.map,position=memory.gameTelemetry;
   if(!b.active&&failedMap&&position?.validated&&!position.loading&&!position.positionFault&&now-position.checkedAt<=5000&&position.map===failedMap&&
