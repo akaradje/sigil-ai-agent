@@ -68,6 +68,8 @@ function healingView(deployment, repair, health, now = Date.now()) {
     {startedAt:a.startedAt, durationMs:a.canaryMs, elapsedMs:Math.max(0, now - a.startedAt)} : null;
   return {available:Boolean(d), fresh, checkedAt:timestamp(d?.checkedAt), mode:d ? 'automatic-deployment' : r?.mode === 'candidate-review' ? 'candidate-review' : null,
     phase, jobId:jobId(d?.jobId), latestRepair:latestRepair || null,
+    // How many verified self-upgrades the system has shipped, from the same journal.
+    shipped:events.filter(e => e.status === 'COMMITTED').length,
     current:{kind, buildId:running ? health.buildId : null, observedAt:running ? health.observedAt : null},
     candidateBuild:digest(a?.candidateBuild), files:patchFiles(a?.files), canary, events:events.slice(0, 30)};
 }
@@ -365,7 +367,8 @@ function renderHealing(j) {
   const deploymentBusy = ['PREPARED','INSTALLING','STARTING','CANARY','ROLLING_BACK','ROLLBACK_FAILED'].includes(j.phase);
   $('healingState').textContent = !j.available ? 'อ่านสถานะ Self-Healing ไม่ได้' : !j.fresh ? 'ข้อมูล Self-Healing เก่า' :
     deploymentBusy ? healingLabels[j.phase] : repairing ? healingLabels[latest.status] : healingLabels[j.phase] || 'เฝ้าระวัง · ยังไม่มีแพตช์ใหม่';
-  $('healingMode').textContent = j.mode === 'automatic-deployment' ? 'Auto deploy + rollback' : j.mode === 'candidate-review' ? 'รอตรวจแพตช์' : 'ยังไม่ทราบโหมด';
+  $('healingMode').textContent = (j.mode === 'automatic-deployment' ? 'Auto deploy + rollback' : j.mode === 'candidate-review' ? 'รอตรวจแพตช์' : 'ยังไม่ทราบโหมด') +
+    (Number.isSafeInteger(j.shipped) && j.shipped > 0 ? ' · อัปเกรดตัวเองสำเร็จ ' + j.shipped + ' ครั้ง' : '');
   $('healingMode').className = 'badge ' + (j.fresh && !['ROLLBACK_FAILED','ROLLING_BACK'].includes(j.phase) ? 'llm' : 'policy');
   $('healingFreshness').textContent = 'บันทึกตัวตรวจ: ' + healingTime(j.checkedAt) + (j.fresh ? ' · ข้อมูลล่าสุด' : ' · ยังยืนยันสถานะปัจจุบันไม่ได้');
   const current = j.current || {};
@@ -514,6 +517,10 @@ async function tickState() {
     const curriculum=cognitive?.activeCurriculum;
     $('curriculum').textContent=curriculum?curriculum.currentGoal+' · '+curriculum.targetMetric+' '+curriculum.baselineValue+' → '+curriculum.targetValue:'';
     $('cognitiveSkill').textContent=cognitive?.enabled?'โปรไฟล์ที่สังเกต: '+(cognitive.workingMemory?.activeSkillId||'รอช่วงฟาร์ม')+' · คำแนะนำ: '+(cognitive.workingMemory?.recommendedSkillId||'รอข้อมูล'):'';
+    const measured=cognitive?.measured||[];
+    if(measured.length){
+      $('curriculum').textContent='วัดจริง: '+measured.map(m=>m.map+' EXP '+m.expPerMin+'/น · TTK '+m.ttkSec+'s ('+m.visits+' ครั้ง)').join(' · ');
+    }
     if(cognitive?.enabled) {
       const phase=cognitive.workingMemory?.learningPhase;
       $('cognitiveSkill').textContent+=' · '+(phase==='warming'?'อุ่นเครื่องอีก '+cognitive.workingMemory.warmupRemainingSec+' วินาที':phase==='measuring'?'กำลังวัดผลหลังอุ่นเครื่อง':'รอหลักฐานการต่อสู้');

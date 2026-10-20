@@ -488,11 +488,66 @@ test('boss plan preserves observed Stardust Shield even when a model proposes di
  assert.deepEqual(IQ.bossPlan(s,JSON.parse(JSON.stringify(m)),JSON.stringify(fields)).enableSkills,plan.enableSkills);
 });
 
-test('unresolved WARD triggers evacuation before the deadline even at healthy HP and records a retreat',()=>{
+test('an unbroken WARD asks for a charged burst first and only evacuates when that burst did not break it',()=>{
  const m=IQ.freshMemory(),now=1800000000000,boss='Ignar',s={...healthy(),hp:[1500,1800],jobQuestProgress:'Hunt Ignar 0/1',target:boss,targetHpRatio:1,hpPotions:30};m.classBossTrip={boss,key:'boss-map,500,500',fighting:true};
  for(const [i,left,ratio] of [[0,13,1],[1,12,0.99],[5,8,0.9]]){m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+i*1000};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD '+left+' s',bossWardRatio:ratio},now+i*1000);}
- assert.equal(m.bossLearning.retreat,true);assert.equal(m.bossLearning.pending,true);assert.equal(m.bossLearning.active.abortReason,'ward-deadline');assert.equal(m.bossLearning.active.minHp,1500/1800);
+ assert.equal(m.bossLearning.wardRequest.left,8);assert.equal(m.bossLearning.wardRequest.boss,'Ignar');assert.ok(m.bossLearning.wardRequest.deadline>now);
+ assert.equal(m.bossLearning.retreat,undefined);assert.equal(m.bossLearning.pending,undefined);assert.equal(m.bossLearning.active.minHp,1500/1800);
+ // the charged burst was used and the shield is still standing
+ m.bossLearning.active.ward.bursts=1;
+ m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+6000};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD 7 s',bossWardRatio:0.9},now+6000);
+ assert.equal(m.bossLearning.retreat,true);assert.equal(m.bossLearning.pending,true);assert.equal(m.bossLearning.active.abortReason,'ward-deadline');
  m.gameTelemetry={validated:true,map:'town',checkedAt:now+9000};IQ.observeClassBoss(m,s,now+9000);assert.equal(m.bossLearning.history[0].outcome,'retreated');assert.equal(m.bossLearning.history[0].ward.ratio,0.9);assert.equal(m.bossLearning.retreat,false);assert.equal(m.classBossTrip,null);
+ assert.equal(m.bossLearning.wardAbort.reason,'ward-deadline');assert.equal(m.bossLearning.wardRequest,null);
+});
+
+test('a shield window that ends with the shield still up ends the trial instead of looping',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar',targetHpRatio:1};m.classBossTrip={boss:'Ignar',key:'boss-map,500,500',fighting:true};
+ m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD 13 s',bossWardRatio:0.9},now);
+ m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+20000};IQ.observeClassBoss(m,{...s,bossMechanic:'FLAME WALL'},now+20000);
+ assert.equal(m.bossLearning.retreat,true);assert.equal(m.bossLearning.active.abortReason,'ward-expired');
+});
+
+test('the charged WARD burst is used in the live fight and counted for the next measurement',async()=>{
+ const now=1800000000000,mem=IQ.freshMemory();const held=[];let auto=true;
+ const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar',targetHpRatio:1,autoHunt:auto?'on':'',controls:[{id:'autoBtn',on:auto}]};
+ mem.classBossTrip={boss:'Ignar',key:'boss-map,500,500',fighting:true};mem.bossLearning={character:'Hero',objective:s.jobQuestProgress,boss:'Ignar',history:[],audit:{},receipts:{},pending:false,
+   wardRequest:{at:now,boss:'Ignar',left:8,ratio:0.9,breakSeconds:14.5,deadline:now+8000}};
+ const e=IQ.createExecutor({mem,observe:async()=>({...s,autoHunt:auto?'on':''}),click:async()=>{},key:async()=>{},hold:async(k,ms,rel)=>{held.push([k,ms,rel]);return {tension:100,consumed:true};},sleep:async()=>{},log:()=>{},save:()=>{}});
+ assert.equal((await e.run('boss_ward_burst')).ok,true);
+ assert.deepEqual(held,[['t',5400,'3']]);
+ assert.equal(mem.bossLearning.wardRequest,null);assert.equal(mem.bossLearning.wardAttempts.length,1);assert.equal(mem.bossLearning.wardAttempts[0].left,8);
+});
+
+test('a live WARD request is answered with the burst before anything else',()=>{
+ const now=1800000000000,m=IQ.freshMemory();const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar',autoQuestRunning:true};
+ m.classBossTrip={boss:'Ignar',key:'boss-map,500,500',fighting:true};m.bossLearning={character:'Hero',objective:s.jobQuestProgress,boss:'Ignar',history:[],audit:{},receipts:{},pending:false,wardRequest:{at:now,boss:'Ignar',left:8,ratio:0.9,deadline:now+8000}};
+ assert.equal(IQ.chooseTask(s,m,now),'boss_ward_burst');
+ m.bossLearning.wardRequest=null;assert.notEqual(IQ.chooseTask(s,m,now),'boss_ward_burst');
+});
+
+test('a boss kill that could not break the shield may retry on any measured gear gain',()=>{
+ const now=1800000000000,m=IQ.freshMemory();const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar'};
+ const b=IQ.bossLearning(m,s);b.plan={enableSkills:['energy_coat'],disableSkills:[],craftWing:false,retreatHp:0.35};b.receipts={gear:1,skill:1,hunt:1,pot:1};b.applied={profile:{skill:['energy_coat']}};
+ b.audit={equip:{at:now,combat:{power:1060},worn:[]}};b.failedPower=1055;b.failedSignature='old';b.history=[{signature:'old',profile:{skill:['energy_coat']}}];
+ // the same build needs the 5% margin on its own
+ assert.equal(IQ.bossReady(s,m,now),false);
+ b.audit.equip.combat.power=1110;assert.equal(IQ.bossReady(s,m,now),true);
+ // a different profile qualifies on its own
+ b.audit.equip.combat.power=1060;b.applied={profile:{skill:['energy_coat','jupiter_thunder']}};assert.equal(IQ.bossReady(s,m,now),true);
+ // a shield that could not be broken needs only a measured gain
+ b.applied={profile:{skill:['energy_coat']}};b.audit.equip.combat.power=1056;assert.equal(IQ.bossReady(s,m,now),false);
+ b.wardAbort={at:now,reason:'ward-deadline'};assert.equal(IQ.bossReady(s,m,now),true);
+});
+
+test('the class quest step is read from the card wording the game actually shows',()=>{
+ const steps=IQ.classQuestSteps({jobQuestProgress:'Sage Quest Magma Heart 3/10 Ignar the Flame Tyrant 0/1'});
+ assert.deepEqual(steps.map(x=>[x.label,x.have,x.need,x.done]),[['Magma Heart',3,10,false],['Ignar the Flame Tyrant',0,1,false]]);
+ assert.equal(IQ.classBossObjective({jobQuestProgress:'Sage Quest Magma Heart 0/10 Ignar the Flame Tyrant 0/1'}),null);
+ const catalog={monsters:[{name:'Ignar the Flame Tyrant',boss:true},{name:'Time Eater',boss:true}]};
+ assert.equal(IQ.classBossObjective({jobQuestProgress:'Sage Quest Magma Heart 0/10 Ignar the Flame Tyrant 0/1'},catalog),'Ignar the Flame Tyrant');
+ assert.equal(IQ.classBossObjective({jobQuestProgress:'Sage Quest Magma Heart 0/10 Ignar the Flame Tyrant 1/1'},catalog),null);
+ assert.equal(IQ.classBossObjective({jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1'}),'Ignar the Flame Tyrant');
 });
 
 test('WARD break pace can justify continuing, while a stale ward HUD in town cannot arm retreat',()=>{

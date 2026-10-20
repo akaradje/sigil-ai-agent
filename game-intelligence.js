@@ -118,6 +118,7 @@ const {bracketHold}=require('./progression');
 const DNA=require('./strategy-dna');
 const {rankFarmingOptions}=require('./cognitive-brain');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
+const textKey=v=>String(v||'').replace(/\s+/g,' ').trim().toLowerCase();
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
 function controllerFallbackReady(mem,alive,now=Date.now()){
   if(alive){delete mem.agentMissingSince;return false;}
@@ -126,8 +127,8 @@ function controllerFallbackReady(mem,alive,now=Date.now()){
 }
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
 const CLASS_PATH=Object.freeze({Novice:'mage',Mage:'starweaver',Starweaver:'sage'});
-function bossLearning(m,s,now=Date.now()){
-  const boss=classBossObjective(s);if(!boss)return null;
+function bossLearning(m,s,now=Date.now(),catalog){
+  const boss=classBossObjective(s,catalog)||m.classObjective?.boss;if(!boss)return null;
   let b=m.bossLearning;
   if(!b||b.character!==s.name||b.objective!==s.jobQuestProgress)b=m.bossLearning={character:s.name,objective:s.jobQuestProgress,boss,history:[],audit:{},receipts:{}};
   const old=m.classBossRecovery;
@@ -137,12 +138,12 @@ function bossLearning(m,s,now=Date.now()){
   return b;
 }
 function bossBuildSignature(b){return JSON.stringify({equipment:b.audit?.equip?.worn,power:b.audit?.equip?.combat?.power,profile:b.applied?.profile});}
-function bossPreparationNeeded(s,m,now=Date.now()){
-  const b=bossLearning(m,s,now);return !!b?.pending;
+function bossPreparationNeeded(s,m,now=Date.now(),catalog){
+  const b=bossLearning(m,s,now,catalog);return !!b?.pending;
 }
-function observeClassBoss(m,s,now=Date.now()){
+function observeClassBoss(m,s,now=Date.now(),catalog){
   if(m.uiHealth?.safeIdle)return;
-  const b=bossLearning(m,s,now);if(!b)return;
+  const b=bossLearning(m,s,now,catalog);if(!b)return;
   const trip=m.classBossTrip,t=m.gameTelemetry;
   const valid=t?.validated&&!t.loading&&!t.positionFault&&now-t.checkedAt<=5000&&now>=t.checkedAt;
   const map=String(trip?.key||'').split(',')[0];
@@ -161,15 +162,22 @@ function observeClassBoss(m,s,now=Date.now()){
   const ward=/\bWARD\s*(\d+)\s*(?:s\b|วิ)/i.exec(s.bossMechanic||'');
   if(ward){
     const observed=s.bossWardRatio??t.bossWardRatio,left=Number(ward[1]),ratio=Number.isFinite(observed)&&observed>=0&&observed<=1?observed:null;
-    if(!f.ward||left>f.ward.left+1)f.ward={at:now,firstLeft:left,firstRatio:ratio,samples:0};
-    const w=f.ward;w.left=left;w.ratio=ratio;w.samples++;
+    if(!f.ward||left>f.ward.left+1)f.ward={at:now,firstLeft:left,firstRatio:ratio,samples:0,bursts:0};
+    const w=f.ward;w.left=left;w.ratio=ratio;w.samples++;w.lastSeenAt=now;
     const elapsed=w.firstLeft-left,rate=elapsed>0&&ratio!=null&&w.firstRatio!=null?(w.firstRatio-ratio)/elapsed:0;
     w.estimatedBreakSeconds=rate>0?ratio/rate:null;
     // A normal stop + Return Scroll needs several seconds. Potion thresholds
     // cannot protect against an unresolved WARD blast (public raid mechanic).
-    if(w.samples>=2&&left<=8&&(ratio==null||ratio>0.05)&&(!Number.isFinite(w.estimatedBreakSeconds)||w.estimatedBreakSeconds>left-5)){
-      b.retreat=true;b.pending=true;f.abortReason='ward-deadline';
+    const late=w.samples>=2&&left<=8&&(ratio==null||ratio>0.05)&&(!Number.isFinite(w.estimatedBreakSeconds)||w.estimatedBreakSeconds>left-5);
+    if(late){
+      // One charged burst is the only damage that can land inside the window.
+      // Ask for it first; an unsolved shield after that is a damage problem.
+      if(!w.bursts)b.wardRequest={at:now,boss:f.boss,left,ratio,breakSeconds:w.estimatedBreakSeconds??null,deadline:now+left*1000};
+      else {b.retreat=true;b.pending=true;f.abortReason='ward-deadline';}
     }
+  } else if(f.ward&&now-(f.ward.lastSeenAt||f.ward.at)>5000&&Number.isFinite(f.ward.ratio)&&f.ward.ratio>0.05){
+    // The shield window closed with the shield still up: the blast lands.
+    b.retreat=true;b.pending=true;f.abortReason='ward-expired';
   }
   // Retreat rather than repeating a lethal race. The controller performs normal UI input.
   if(f.samples>=3&&s.hp[0]/s.hp[1]<=(b.plan?.retreatHp||0.35)){b.retreat=true;b.pending=true;}
@@ -177,6 +185,11 @@ function observeClassBoss(m,s,now=Date.now()){
     if(outcome==='left-map-without-credit'&&b.retreat)outcome='retreated';
     const result={...f,at:now,startedAt:f.at,outcome,seconds:Math.round((now-f.at)/1000),bossDamageFraction:Math.max(0,(f.firstBossRatio||0)-(f.lastBossRatio||0))};
     b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;b.quieted=false;
+    // A shield that could not be broken is a damage problem: the next trial
+    // needs a stronger set, not another identical run.
+    b.wardAbort=String(f.abortReason||'').startsWith('ward')?{at:now,reason:f.abortReason,left:f.ward?.left??null,
+      ratio:f.ward?.ratio??null,breakSeconds:f.ward?.estimatedBreakSeconds??null,power:f.build?.power??null}:null;
+    b.wardRequest=null;
     m.classBossTrip=null;m.trainingUntil=0;if(m.classAdvancement)m.classAdvancement.phase='prepare';
   }
 }
@@ -209,6 +222,8 @@ function bossReviewEvidence(s,m,catalog){
       return {...Object.fromEntries(['outcome','seconds','samples','minHp','lastHp','targetHP','bossDamageFraction','potionsUsed','ward','abortReason'].map(k=>[k,h[k]])),mechanics};
     }),
     equipment:b.audit.equip?.combat,wing:a.wingCraft?.status,wingGoal:a.goal?.slot==='wing'?a.goal:undefined,
+    wardAbort:b.wardAbort||undefined,wardAttempts:(b.wardAttempts||[]).slice(-3),
+    previousProfile:b.history.filter(h=>h.signature).at(-1)?.profile||undefined,
     learnedSkills:Object.fromEntries(ids.map(id=>[id,Object.fromEntries(Object.entries(catalog?.definitions?.skills?.[id]||{}).filter(([k])=>['name','elem','kind','range','buff','cd','mult','hits'].includes(k)))])),
     enabledSkills:(b.audit.skill?.controls||[]).filter(c=>c.act==='askill'&&c.on).map(c=>c.key),
     selectedNative:Object.fromEntries(['hunt','pot'].map(part=>[part,(b.audit[part]?.controls||[]).filter(c=>c.on).map(c=>({key:c.k,value:['tension','stopNoPot'].includes(c.k)?true:c.v}))])),
@@ -216,11 +231,24 @@ function bossReviewEvidence(s,m,catalog){
 }
 function bossReviewDue(b,now=Date.now()){
   const recent=at=>Number.isFinite(at)&&now>=at&&now-at<3600000;
-  return (b.reviews||[]).filter(recent).length<6&&(b.reviewOutcomes||[]).filter(r=>r.status==='decision-verified'&&recent(r.at)).length<3&&
+  const verified=(b.reviewOutcomes||[]).filter(r=>r.status==='decision-verified'&&recent(r.at));
+  // An unbroken shield means the reviewed build was not enough: one further
+  // reviewed plan is allowed to answer it.
+  const shield=wardAbortOf(b);
+  return (b.reviews||[]).filter(recent).length<6&&!!(verified.length<3||(shield&&recent(shield.at)))&&
     (b.defeatAt>(b.reviewAt||0)||now-(b.reviewAt||0)>=(['model-unavailable','decision-rejected'].includes(b.reviewStatus)?60000:300000));
 }
-function bossReady(s,m,now=Date.now()){
-  const b=bossLearning(m,s,now),r=b?.receipts;
+// The last trial that ended on an unbroken shield. That is a damage problem,
+// not a survival problem, so it may be answered with any measured gain.
+function wardAbortOf(b){
+  if(b?.wardAbort)return b.wardAbort;
+  const last=b?.history?.filter(h=>h.signature).at(-1);
+  if(!last||!String(last.abortReason||'').startsWith('ward'))return null;
+  return {at:last.at,reason:last.abortReason,left:last.ward?.left??null,ratio:last.ward?.ratio??null,
+    breakSeconds:last.ward?.estimatedBreakSeconds??null,power:last.build?.power??null};
+}
+function bossReady(s,m,now=Date.now(),catalog){
+  const b=bossLearning(m,s,now,catalog),r=b?.receipts;
   if(!b?.plan||!r?.gear||!r.skill||!r.hunt||!r.pot||!b.applied||s.dead||s.hp?.[0]/s.hp?.[1]<0.9||s.hpPotions<20||s.mpPotions<20)return false;
   if(b.plan.craftWing&&m.autonomy?.wingCraft?.status!=='equipped')return false;
   if(now-(b.audit.equip?.at||0)>300000)return false;
@@ -228,7 +256,12 @@ function bossReady(s,m,now=Date.now()){
   if(b.failedSignature===sig)return false;
   // A profile change or a measured equipment gain qualifies; mere elapsed time does not.
   const previous=b.history.filter(h=>h.signature).at(-1);
-  return !previous||JSON.stringify(previous.profile)!==JSON.stringify(b.applied.profile)||Number.isFinite(power)&&power>=(b.failedPower||Infinity)*1.05;
+  if(!previous)return true;
+  if(JSON.stringify(previous.profile)!==JSON.stringify(b.applied.profile))return true;
+  if(!Number.isFinite(power)||!Number.isFinite(b.failedPower))return false;
+  // An unbroken shield is a damage problem: any measured gain in gear power
+  // counts there, while other defeats still need the 5% margin.
+  return wardAbortOf(b)?power>b.failedPower:power>=(b.failedPower||Infinity)*1.05;
 }
 function classWorkflowOwned(s,m,now=Date.now()) {
   if(bossPreparationNeeded(s,m,now))return false;
@@ -236,35 +269,62 @@ function classWorkflowOwned(s,m,now=Date.now()) {
   return !!(m.classTrip?.job===s.job||s.panel==='shrine'||/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||
     [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')||s.jobQuestProgress&&now>=(m.trainingUntil||0));
 }
-function classBossObjective(s){
-  const goal=s.jobQuestProgress||'';
-  return /Chrono Gear\s*0\s*\/\s*1/i.test(goal)?'Time Eater':goal.match(/Hunt\s+(.+?)\s+0\s*\/\s*1\b/i)?.[1]?.trim()||null;
+// The class quest card lists one counter per step ("Magma Heart 0/10",
+// "Hunt Ignar the Flame Tyrant 0/1"). Split the card into those steps so the
+// bot can read the open step whatever wording the client uses.
+function classQuestSteps(s){
+  const text=String(s.jobQuestProgress||'').trim();
+  if(!text)return [];
+  const parts=text.split(/\s*(\d+)\s*\/\s*(\d+)\s*/).filter(p=>p!=='');
+  const steps=[];
+  for(let i=0;i+2<parts.length;i+=3){
+    const have=Number(parts[i+1]),need=Number(parts[i+2]);
+    if(!Number.isFinite(have)||!Number.isFinite(need))continue;
+    const label=parts[i].replace(/^\s*\S+\s+Quest\s+/,'').replace(/^Hunt\s+/i,'').trim();
+    steps.push({label,have,need,done:have>=need});
+  }
+  return steps;
 }
-function classObjectiveStalled(s,m,now=Date.now()){
-  const boss=classBossObjective(s),damage=m.combatTelemetry?.lastDamage;
-  const fighting=boss&&String(s.target||'').includes(boss)&&damage?.zone===s.zone&&now>=damage.at&&now-damage.at<=10000;
+function classBossObjective(s,catalog){
+  const goal=s.jobQuestProgress||'';
+  if(/Chrono Gear\s*0\s*\/\s*1/i.test(goal))return 'Time Eater';
+  const hunted=goal.match(/Hunt\s+(.+?)\s+0\s*\/\s*1\b/i)?.[1]?.trim();
+  if(hunted)return hunted;
+  // The same open step without the "Hunt" wording: resolve its label against
+  // the boss names the public catalog knows.
+  const names=(catalog?.monsters||[]).filter(m=>m.boss).map(m=>m.name).filter(Boolean);
+  for(const step of classQuestSteps(s)){
+    if(step.done||step.need!==1||!step.label)continue;
+    const hit=names.find(n=>textKey(n)===textKey(step.label));
+    if(hit)return hit;
+  }
+  return null;
+}
+function classObjectiveStalled(s,m,now=Date.now(),catalog){
+  const boss=classBossObjective(s,catalog),damage=m.combatTelemetry?.lastDamage;
+  const fighting=!!(boss&&damage&&String(s.target||'').includes(boss)&&damage.zone===s.zone&&now>=damage.at&&now-damage.at<=10000);
   const objective=m.classObjective,matching=objective?.character===s.name&&objective.job===s.job&&objective.signature===String(s.jobQuestProgress||'').replace(/\s+/g,' ').trim();
   const at=matching?objective.at:m.jobQuestAt;
   return !!s.jobQuestProgress&&!!CLASS_PATH[s.job]&&!s.dead&&s.hp?.[0]/s.hp?.[1]>=0.3&&Number.isFinite(at)&&now-at>=180000&&now>=(m.trainingUntil||0)&&!fighting;
 }
-function classReviewDue(s,m,now=Date.now()){
+function classReviewDue(s,m,now=Date.now(),catalog){
   const r=m.classReview||{},history=(r.history||[]).filter(at=>now>=at&&now-at<3600000);
   const trip=m.classBossTrip,tripBusy=trip&&now-(trip.fightAt||trip.at)<300000;
-  return classObjectiveStalled(s,m,now)&&!tripBusy&&now-(r.at||0)>=(r.status==='model-unavailable'?60000:300000)&&history.length<3;
+  return classObjectiveStalled(s,m,now,catalog)&&!tripBusy&&now-(r.at||0)>=(r.status==='model-unavailable'?60000:300000)&&history.length<3;
 }
 function classBossAtDestination(m,now=Date.now()){
   const trip=m.classBossTrip,t=m.gameTelemetry,[map,x,y]=String(trip?.key||'').split(',');
   return !!trip&&t?.validated&&!t.loading&&!t.positionFault&&now>=t.checkedAt&&now-t.checkedAt<=5000&&t.map===map&&
     [t.x,t.y,Number(x),Number(y)].every(Number.isFinite)&&Number(x)>0&&Number(y)>0&&Math.hypot(t.x-Number(x),t.y-Number(y))<=192;
 }
-function classReviewTask(s,m,response,now=Date.now()){
+function classReviewTask(s,m,response,now=Date.now(),catalog){
   let decision;try{if(typeof response!=='string'||response.length>2000)return null;decision=JSON.parse(response);}catch{return null;}
   if(!decision||typeof decision!=='object'||Object.keys(decision).some(k=>!['action','reason'].includes(k)))return null;
   const controls=[...(s.controls||[]),...(s.offscreen||[])];
-  if(decision.action==='navigate_boss'&&classObjectiveStalled(s,m,now)&&classBossObjective(s))return 'class_boss';
+  if(decision.action==='navigate_boss'&&classObjectiveStalled(s,m,now,catalog)&&classBossObjective(s,catalog))return 'class_boss';
   if(decision.action==='resume_quest'&&!s.autoQuestRunning&&controls.some(c=>c.aq==='jq'))return 'job_retry';
   if(decision.action==='return_shrine'&&CLASS_PATH[s.job]&&controls.some(c=>c.go==='shrine'))return 'class';
-  if(decision.action==='wait'&&m.classBoss?.name===classBossObjective(s)&&m.classBoss.up===false&&now>=m.classBoss.at&&now-m.classBoss.at<300000)return 'observe';
+  if(decision.action==='wait'&&m.classBoss?.name===classBossObjective(s,catalog)&&m.classBoss.up===false&&now>=m.classBoss.at&&now-m.classBoss.at<300000)return 'observe';
   return null;
 }
 function combatSnapshot(s,now=Date.now()) {
@@ -291,15 +351,15 @@ function rememberCombat(mem,s,now=Date.now()) {
   if(old&&now-old.at<60000&&JSON.stringify({...old,at:0})===JSON.stringify({...value,at:0}))return false;
   mem.combatSummary=value;return true;
 }
-function updateMetrics(mem,s,now=Date.now()) {
+function updateMetrics(mem,s,now=Date.now(),catalog) {
   if(!s.name || !s.hp || !n(s.lv)) return;
-  observeClassBoss(mem,s,now);
+  observeClassBoss(mem,s,now,catalog);
   if(s.jobQuestProgress&&CLASS_PATH[s.job]){
     const signature=s.jobQuestProgress.replace(/\s+/g,' ').trim(),old=mem.classObjective;
     if(!old||old.character!==s.name||old.job!==s.job||old.signature!==signature){
       const review=mem.classReview,same=mem.classAdvancement?.character===s.name&&review?.objective?.replace(/\s+/g,' ').trim()===signature;
-      mem.classObjective={character:s.name,job:s.job,signature,at:!old&&same&&Number.isFinite(review.at)&&review.at<=now?review.at:now,lastAt:now,samples:1};
-    }else{old.lastAt=now;old.samples++;}
+      mem.classObjective={character:s.name,job:s.job,signature,boss:classBossObjective(s,catalog),at:!old&&same&&Number.isFinite(review.at)&&review.at<=now?review.at:now,lastAt:now,samples:1};
+    }else{old.lastAt=now;old.samples++;old.boss=classBossObjective(s,catalog);}
   }
   const advancement=mem.classAdvancement;
   if(advancement&&advancement.character===s.name&&String(s.job||'').toLowerCase()===advancement.to&&advancement.from!==s.job&&!advancement.completedAt){
@@ -323,29 +383,32 @@ function updateMetrics(mem,s,now=Date.now()) {
     goldPerMinute:mins>=1&&Number.isFinite(first.gold)&&Number.isFinite(s.gold)?Math.round((s.gold-first.gold)/mins):null,
     stalledMinutes:Math.floor((now-mem.lastProgress)/60000),deaths10m:mem.deaths.length};
 }
-function chooseTask(s,m,now=Date.now()) {
+function chooseTask(s,m,now=Date.now(),catalog) {
   const due=(key,ms)=>now-(m.last[key]||0)>ms && now-(m.failures[key]?.at||0)>(m.failures[key]?.count||0)*60000;
   if(s.atCharSelect||s.disconnected) return 'reconnect';
   if(s.dead) return 'revive';
   if(!s.name||!s.hp) return 'observe';
-  if(bossPreparationNeeded(s,m,now))return m.bossLearning.retreat?'boss_retreat':'observe';
+  if(bossPreparationNeeded(s,m,now,catalog))return m.bossLearning.retreat?'boss_retreat':'observe';
   if(s.hp[0]/s.hp[1]<0.3) return 'survive';
+  // A live shield that cannot be broken in time is answered with a charged
+  // burst first; only an unsolved shield ends the trial.
+  if(m.bossLearning?.wardRequest&&m.classBossTrip?.fighting&&!s.dead&&s.hp[0]/s.hp[1]>=0.55)return 'boss_ward_burst';
   const nextClass=CLASS_PATH[s.job];
   if(nextClass&&m.classTrip?.job===s.job&&now-m.classTrip.at<240000)return s.panel==='shrine'?'class':'observe';
   if(nextClass&&due('class',60000)&&(/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||s.panel==='shrine'||
     [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')))return 'class';
   const needsTimeEater=/Chrono Gear\s*0\s*\/\s*1/i.test(s.jobQuestProgress||'');
-  const objectiveBoss=classBossObjective(s);
+  const objectiveBoss=classBossObjective(s,catalog);
   const rewind=/REWIND\s*(\d+)/i.exec(s.bossMechanic||'');
   if(needsTimeEater && /Time Eater/i.test(s.target||'') && rewind && +rewind[1]>=11 && due('boss_break',20000) && s.hp[0]/s.hp[1]>=0.4)return 'boss_break';
-  if(s.jobQuestProgress&&m.deaths.length>=2&&!m.trainingUntil&&classObjectiveStalled(s,m,now)&&due('train',1200000))return 'train';
+  if(s.jobQuestProgress&&m.deaths.length>=2&&!m.trainingUntil&&classObjectiveStalled(s,m,now,catalog)&&due('train',1200000))return 'train';
   if(m.classBossTrip) {
     const wanted=m.classBossTrip.boss||'Time Eater';
     if(objectiveBoss!==wanted) return 'boss_engage';
     if(!needsTimeEater){
       if(m.classBossTrip.fighting){
         if(!/\bon\b/.test(s.autoHunt||'')&&classBossAtDestination(m,now))return 'boss_engage';
-        if(classObjectiveStalled(s,m,now)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
+        if(classObjectiveStalled(s,m,now,catalog)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
         return 'observe';
       }
       if(classBossAtDestination(m,now))return s.hp[0]/s.hp[1]<0.85?'survive':'boss_engage';
@@ -361,7 +424,7 @@ function chooseTask(s,m,now=Date.now()) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
-  if(objectiveBoss&&!needsTimeEater&&classObjectiveStalled(s,m,now)&&!String(s.target||'').includes(objectiveBoss)&&due('class_boss',120000))return 'class_boss';
+  if(objectiveBoss&&!needsTimeEater&&classObjectiveStalled(s,m,now,catalog)&&!String(s.target||'').includes(objectiveBoss)&&due('class_boss',120000))return 'class_boss';
   if(nextClass&&s.jobQuestProgress&&now>=(m.trainingUntil||0)){
     if(!s.autoQuestRunning&&s.controls.some(c=>c.aq==='jq')&&due('job_retry',30000))return 'job_retry';
     if(!needsTimeEater&&s.autoQuestRunning&&s.autoQuestMode==='jq'&&m.deaths.length<3)return 'observe';
@@ -549,13 +612,20 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           save();
           if(before.panel!=='shrine') {
             await close();
+            if(before.autoQuestRunning&&before.autoQuestMode==='jq'){
+              // The native class-quest runner walks home and hands the quest in
+              // by itself; only the class pick at the shrine needs the bot.
+              mem.classTrip={job:before.job,at:Date.now()};result='native class quest runner continues; the class pick follows at the shrine';break;
+            }
             await pick(c=>c.id==='autoBtn'&&c.on,true);
             // The game's CTA while AQ is on resets only the Novice job gate. Stop first for advanced jobs.
             await pick(c=>c.aq==='stop',true);
             await pick(c=>c.go==='shrine');
             mem.classTrip={job:before.job,at:Date.now()};result='walking to shrine for '+next;break;
           }
-          const changed=await act('jq',next,true)||await act('job',next,true)||await act('jqdone',null,true);
+          // A finished quest is handed in first; a new class is accepted after it.
+          const steps=classQuestSteps(before),complete=steps.length>0&&steps.every(x=>x.done);
+          const changed=(complete?await act('jqdone',null,true):false)||await act('jq',next,true)||await act('job',next,true)||await act('jqdone',null,true);
           if(!changed)throw Error('No verified class quest action at shrine');
           mem.classTrip=null;await close();
           await pick(c=>c.aq==='jq',true);
@@ -609,6 +679,23 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
             const current=await observe();
             if(!current.dead&&!current.autoQuestRunning)await pick(c=>c.aq==='jq');
           }
+          break;
+        }
+        case 'boss_ward_burst': {
+          if(!hold)throw Error('held-key input not available');
+          const b=bossLearning(mem,before),request=b?.wardRequest;
+          if(!request)throw Error('No WARD window to break');
+          if(before.dead||before.hp?.[0]/before.hp?.[1]<0.55)throw Error('too low HP to charge a burst');
+          if(request.boss&&!String(before.target||'').includes(request.boss))throw Error('boss is not the current target');
+          await close();
+          // The native auto-hunt keeps hitting the shield while T is charged.
+          const burst=await hold('t',5400,'3');
+          if(burst?.aborted){b.wardRequest=null;b.retreat=true;b.pending=true;result='WARD burst aborted: '+burst.aborted;break;}
+          const live=bossLearning(mem,before)?.active;
+          if(live?.ward){live.ward.bursts=(live.ward.bursts||0)+1;live.ward.lastBurstAt=Date.now();}
+          b.wardRequest=null;
+          b.wardAttempts=[...(b.wardAttempts||[]),{at:Date.now(),left:request.left,ratio:request.ratio??null,breakSeconds:request.breakSeconds??null}].slice(-6);
+          result='charged a burst into the WARD window ('+request.left+' s left)';
           break;
         }
         case 'class_boss': {
@@ -693,4 +780,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,wardAbortOf,classWorkflowOwned,classBossObjective,classQuestSteps,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

@@ -200,6 +200,8 @@ class AlertEngine {
       if(d.publication.identity!==publication.identity)d.publication={identity:publication.identity,cursor:0};
       for(const e of (publication.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>d.publication.cursor).sort((a,b)=>a.id-b.id)){
         if(/^[a-f0-9-]{36}$/.test(e.jobId||'')){
+          d.brainStats ||= {shipped:0,published:0,lastAt:0};
+          if(e.status==='PUBLISHED')d.brainStats.published++;
           if(e.status==='PUBLISHED'&&/^[a-f0-9]{40}$/.test(e.commit||''))this.enqueue('publication:'+publication.identity+':'+e.jobId,
             '🧬 พัฒนากลยุทธ์/ความสามารถผ่านเทสต์และ canary แล้ว · บันทึกขึ้น GitHub สำเร็จ\n'+
             (['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL','UI_SCHEMA_CHANGED'].includes(e.purpose)?e.purpose+'\n':'')+
@@ -218,6 +220,8 @@ class AlertEngine {
         const key=e.jobId+':'+e.status;
         if(messages[e.status]&&/^[a-f0-9-]{36}$/.test(e.jobId||'')&&!d.deployment.announced.includes(key)){
           this.enqueue(`deployment:${deployment.identity}:${key}`,messages[e.status],e.status!=='COMMITTED');
+          d.brainStats ||= {shipped:0,published:0,lastAt:0};
+          if(e.status==='COMMITTED')d.brainStats.shipped++;
           d.deployment.announced.push(key);d.deployment.announced=d.deployment.announced.slice(-80);
         }
         d.deployment.cursor=e.id;
@@ -239,6 +243,23 @@ class AlertEngine {
         }
         d.selfHealing.cursor=e.id;
       }
+    }
+    // One message for the whole closed loop: the mastery the brain reached, the
+    // gene set in use, what the world model found and how many verified
+    // self-upgrades the system has shipped.
+    const strategy=sample.agent?.strategy||{};
+    const brain=strategy.cognitive, dna=strategy.dna, world=strategy.worldKnowledge;
+    d.brainStats ||= {shipped:0,published:0,lastAt:0};
+    if(brain?.enabled&&Number.isFinite(brain.masteryIndex)&&brain.masteryIndex>=1&&brain.masteryIndex<=100&&
+       Number.isSafeInteger(brain.totalExperiences)&&now-(d.brainStats.lastAt||0)>=4*HOUR){
+      const measured=(brain.measured||[]).slice(0,3).map(m=>m.map+' EXP '+m.expPerMin+'/น TTK '+m.ttkSec+'s').join(' · ');
+      this.enqueue('brain-status:'+(brain.identity||'brain')+':'+Math.floor(now/(4*HOUR)),
+        '🧠 สมอง AI · ความชำนาญ '+brain.masteryIndex+'/100 · '+brain.totalExperiences+' ประสบการณ์\n'+
+        '🧬 DNA: '+(dna?.enabled?'รุ่น '+(dna.generation??'?')+' · '+JSON.stringify(dna.genes||{}):'ยังไม่มียีน')+'\n'+
+        '🗺 ความรู้เซิร์ฟเวอร์: '+(world?world.maps+' แมป · '+world.monsters+' มอนสเตอร์ · '+world.recipes+' สูตร':'รอข้อมูล')+'\n'+
+        (measured?'📈 วัดจริง: '+measured+'\n':'')+
+        '🔧 อัปเกรดตัวเองสำเร็จ '+d.brainStats.shipped+' ครั้ง · เผยแพร่ GitHub '+d.brainStats.published+' ครั้ง');
+      d.brainStats.lastAt=now;
     }
     // Schema incidents must still reach Telegram when the HUD name cannot be read.
     this.observeAutonomy(sample.agent);

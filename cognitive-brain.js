@@ -284,7 +284,8 @@ class CognitiveBrain {
         const potionsUsed=[['hpPotions'],['mpPotions']].reduce((n,[key])=>n+(Number.isFinite(w[key])&&Number.isFinite(sample[key])?Math.max(0,w[key]-sample[key]):0),0);
         this.recordExperience({mapName:w.mapName,contextKey:w.contextKey,skillId:w.skillId,
           expGained:exp-w.exp,goldGained:s.gold-w.gold,durationSec,potionsUsed,died:deathEdge,stuck:stuckEdge,
-          ttkSec:mem.combatTelemetry?.current?.zone===s.zone&&now-mem.combatTelemetry.current.at<10000?
+          // A measured kill time stays valid for the zone it was measured in.
+          ttkSec:mem.combatTelemetry?.current?.zone===s.zone&&now-mem.combatTelemetry.current.at<300000?
             mem.combatTelemetry.current.medianSeconds:undefined,position:{x:t.x,y:t.y},state:w.state,nextState:sample.state,
           action:{type:'native-auto',skillId:w.skillId,genes:w.genes}});
         recordedIncident=deathEdge||stuckEdge;
@@ -318,6 +319,9 @@ class CognitiveBrain {
     return {identity:this.state.identity,updatedAt:this.state.updatedAt,enabled:true,masteryIndex:this.state.masteryIndex,
       totalExperiences:this.state.totalTicksPlayed,knownMapsCount:Object.keys(this.state.semanticWorldModel.maps).length,
       activeCurriculum:{...this.state.activeCurriculum},workingMemory:{...this.workingMemory},
+      // The measured combat results the mastery index was built from.
+      measured:Object.values(this.state.semanticWorldModel.maps).filter(m=>m.visits>0).sort((a,b)=>b.durationSec-a.durationSec).slice(0,8)
+        .map(m=>({map:m.mapName,visits:m.visits,expPerMin:m.avgExpPerMin,ttkSec:m.avgTtkSec,deaths:m.deaths})),
       lessons:this.state.lessons.slice(-5),consolidatedThrough:this.state.consolidatedThrough};
   }
 }
