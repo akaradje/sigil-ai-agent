@@ -526,10 +526,24 @@ test('a live WARD request is answered with the burst before anything else',()=>{
  m.bossLearning.wardRequest=null;assert.notEqual(IQ.chooseTask(s,m,now),'boss_ward_burst');
 });
 
+test('a plan made after the last defeat, or a new capability, may try the shield again',()=>{
+ const now=1800000000000,m=IQ.freshMemory();const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar'};
+ const b=IQ.bossLearning(m,s);b.plan={enableSkills:['energy_coat'],disableSkills:[],craftWing:false,retreatHp:0.35,at:now-3000};
+ b.receipts={gear:1,skill:1,hunt:1,pot:1};b.applied={profile:{skill:['energy_coat']}};
+ b.audit={equip:{at:now,combat:{power:1055},worn:[]}};b.failedPower=1055;b.failedSignature='old';
+ b.history=[{signature:'old',profile:{skill:['energy_coat']},at:now-2000}];
+ // the same build with an already tried plan stays blocked
+ assert.equal(IQ.bossReady(s,m,now),false);
+ // a plan written after that defeat has never been tried
+ b.plan.at=now-1500;assert.equal(IQ.bossReady(s,m,now),true);
+ // a capability the failed trial did not have is a reason on its own
+ b.plan.at=now-3000;b.failedCapabilities=['none'];assert.equal(IQ.bossReady(s,m,now),true);
+});
+
 test('a boss kill that could not break the shield may retry on any measured gear gain',()=>{
  const now=1800000000000,m=IQ.freshMemory();const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar'};
  const b=IQ.bossLearning(m,s);b.plan={enableSkills:['energy_coat'],disableSkills:[],craftWing:false,retreatHp:0.35};b.receipts={gear:1,skill:1,hunt:1,pot:1};b.applied={profile:{skill:['energy_coat']}};
- b.audit={equip:{at:now,combat:{power:1060},worn:[]}};b.failedPower=1055;b.failedSignature='old';b.history=[{signature:'old',profile:{skill:['energy_coat']}}];
+ b.audit={equip:{at:now,combat:{power:1060},worn:[]}};b.failedPower=1055;b.failedSignature='old';b.failedCapabilities=['ward_burst'];b.history=[{signature:'old',profile:{skill:['energy_coat']},capabilities:['ward_burst']}];
  // the same build needs the 5% margin on its own
  assert.equal(IQ.bossReady(s,m,now),false);
  b.audit.equip.combat.power=1110;assert.equal(IQ.bossReady(s,m,now),true);

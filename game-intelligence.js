@@ -137,7 +137,11 @@ function bossLearning(m,s,now=Date.now(),catalog){
   }
   return b;
 }
-function bossBuildSignature(b){return JSON.stringify({equipment:b.audit?.equip?.worn,power:b.audit?.equip?.combat?.power,profile:b.applied?.profile});}
+// What the agent can actually do in a fight. A build that gained a
+// capability (a charged burst against an unbroken shield) may be tried again
+// even when the gear power did not move yet.
+function bossCapabilities(){return ['ward_burst'];}
+function bossBuildSignature(b){return JSON.stringify({equipment:b.audit?.equip?.worn,power:b.audit?.equip?.combat?.power,profile:b.applied?.profile,capabilities:bossCapabilities()});}
 function bossPreparationNeeded(s,m,now=Date.now(),catalog){
   const b=bossLearning(m,s,now,catalog);return !!b?.pending;
 }
@@ -148,7 +152,7 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
   const valid=t?.validated&&!t.loading&&!t.positionFault&&now-t.checkedAt<=5000&&now>=t.checkedAt;
   const map=String(trip?.key||'').split(',')[0];
   if(!b.active&&trip?.fighting&&trip.boss===b.boss&&valid&&t.map===map&&String(s.target||'').includes(b.boss)&&!s.dead){
-    b.active={at:now,boss:b.boss,map,signature:bossBuildSignature(b),build:m.combatSummary,profile:b.applied?.profile,samples:0,minHp:1,firstBossRatio:s.targetHpRatio,lastBossRatio:s.targetHpRatio,targetHP:s.targetHP,hpLost:0,potionsStart:s.hpPotions,mechanics:[]};
+    b.active={at:now,boss:b.boss,map,signature:bossBuildSignature(b),capabilities:bossCapabilities(),build:m.combatSummary,profile:b.applied?.profile,samples:0,minHp:1,firstBossRatio:s.targetHpRatio,lastBossRatio:s.targetHpRatio,targetHP:s.targetHP,hpLost:0,potionsStart:s.hpPotions,mechanics:[]};
   }
   const f=b.active;if(!f)return;
   if(s.dead){finish('defeat');return;}
@@ -184,7 +188,7 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
   function finish(outcome){
     if(outcome==='left-map-without-credit'&&b.retreat)outcome='retreated';
     const result={...f,at:now,startedAt:f.at,outcome,seconds:Math.round((now-f.at)/1000),bossDamageFraction:Math.max(0,(f.firstBossRatio||0)-(f.lastBossRatio||0))};
-    b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;b.quieted=false;
+    b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.failedCapabilities=f.capabilities||null;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;b.quieted=false;
     // A shield that could not be broken is a damage problem: the next trial
     // needs a stronger set, not another identical run.
     b.wardAbort=String(f.abortReason||'').startsWith('ward')?{at:now,reason:f.abortReason,left:f.ward?.left??null,
@@ -257,6 +261,12 @@ function bossReady(s,m,now=Date.now(),catalog){
   // A profile change or a measured equipment gain qualifies; mere elapsed time does not.
   const previous=b.history.filter(h=>h.signature).at(-1);
   if(!previous)return true;
+  // A capability the failed trial did not have (a charged burst against an
+  // unbroken shield) is itself a reason to try again.
+  const failedCaps=b.failedCapabilities??previous.capabilities??null;
+  if(failedCaps&&JSON.stringify(failedCaps)!==JSON.stringify(bossCapabilities()))return true;
+  // A plan made after the last defeat has never been tried.
+  if(Number(b.plan?.at||0)>Number(previous.at||0))return true;
   if(JSON.stringify(previous.profile)!==JSON.stringify(b.applied.profile))return true;
   if(!Number.isFinite(power)||!Number.isFinite(b.failedPower))return false;
   // An unbroken shield is a damage problem: any measured gain in gear power
