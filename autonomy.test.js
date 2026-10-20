@@ -467,6 +467,15 @@ test('a pending farm return preserves the verified profile when the final AUTO c
   assert.equal(restored.autonomy.lastResult.ok,true,restored.autonomy.lastResult.error);assert.equal(hunting,true);assert.equal(restored.autonomy.resume,null);assert.equal(opens,before);
 });
 
+test('a new return to the same map cannot inherit an expired earlier trial',async()=>{
+  const m={},a=A.init(m),c=catalog();a.resume={map:'field',mode:'farm',at:clock};
+  a.farm={map:'field',name:'Field',started:clock-3600000,trial:true,target:'mob',resumeAt:clock-600000};
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({controls:[{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true}]}),
+    click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('autonomy_wait');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(a.farm.trial,false);assert.equal(a.farm.started,clock);assert.equal(a.farm.resumeAt,clock);assert.equal(a.resume,null);
+});
+
 test('resource backoff leaves town for farming even while wing materials are still missing',async()=>{
   const m={development:{resourceBackoffUntil:clock+60000}},a=A.init(m),c=catalog();
   c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8}}});

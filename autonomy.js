@@ -778,7 +778,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
                 a.resume.at=now();save();await travel(destination.id);return;
               }
               await close();
-              if(a.farm?.map!==destination.id)a.farm={map:destination.id,name:destination.name,started:now(),returnMap:destination.id,returnMode:'mq',estimate:false,trial:false,pendingProfile:leveling()};
+              if(a.farm?.map!==destination.id||a.farm.resumeAt!==a.resume.at)a.farm={map:destination.id,name:destination.name,started:now(),returnMap:destination.id,returnMode:'mq',estimate:false,trial:false,pendingProfile:leveling(),resumeAt:a.resume.at};
               if(a.farm.pendingProfile||leveling()&&targetFor(a.farm.map,s)?.id!==a.farm.target)await farmProfile(s);
               if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
               if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Farm resume not confirmed');
