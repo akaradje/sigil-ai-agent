@@ -507,3 +507,17 @@ test('boss evacuation stops native combat before using the observed Return Scrol
  const ctl=IQ.createExecutor({mem:m,observe:async()=>({...s,autoHunt:auto?'on':'',controls:[{id:'autoBtn',on:auto},{id:'potTp'}]}),click:async c=>{calls.push(c.id);if(c.id==='autoBtn')auto=false;},key:async()=>{},sleep:async()=>{},log:()=>{},save:()=>{}});
  assert.equal((await ctl.run('boss_retreat')).ok,true);assert.deepEqual(calls,['autoBtn','potTp']);assert.equal(b.retreat,true);assert.equal(b.history.length,0);
 });
+
+test('boss review compacts countdown duplicates while preserving the actual terminal HP and deadline evidence',()=>{
+ const m=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(m,s);
+ b.history=[{outcome:'defeat',lastHp:2609,minHp:0.52,mechanics:['WARD 8 s Everyone hit the shield','WARD 7 s Everyone hit the shield','WARD 1 s Everyone hit the shield']}];
+ const e=IQ.bossReviewEvidence(s,m,{monsters:[],definitions:{}});assert.deepEqual(e.defeats[0].mechanics,[{name:'WARD',firstSeconds:8,lastSeconds:1}]);assert.equal(e.defeats[0].lastHp,2609);
+});
+
+test('failed boss requests get bounded retries without exhausting the verified-plan budget',()=>{
+ const now=1800000000000,b={reviewAt:now-60001,reviewStatus:'model-unavailable',reviews:[now-100000,now-90000,now-60001],reviewOutcomes:[{at:now-90000,status:'decision-verified'}]};
+ assert.equal(IQ.bossReviewDue(b,now),true);assert.equal(IQ.bossReviewDue({...b,reviewAt:now-59000},now),false);
+ assert.equal(IQ.bossReviewDue({...b,reviews:Array.from({length:6},(_,i)=>now-1000-i)},now),false);
+ assert.equal(IQ.bossReviewDue({...b,reviewOutcomes:[0,1,2].map(i=>({at:now-1000-i,status:'decision-verified'}))},now),false);
+ assert.equal(IQ.bossReviewDue({...b,reviewAt:now-1000,defeatAt:now-500},now),true);
+});

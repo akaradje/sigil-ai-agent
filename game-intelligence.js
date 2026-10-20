@@ -199,12 +199,25 @@ function bossReviewEvidence(s,m,catalog){
   const monster=catalog?.monsters?.find(x=>x.name===b.boss);
   return {boss:b.boss,objective:b.objective,bossElement:monster?.elem,baseHP:monster?.hp,
     warning:'Base HP is not live raid HP. Unknown damage causes remain uncertain; observed boss HP changes may include other players.',
-    defeats:b.history.slice(-3).map(h=>Object.fromEntries(['outcome','seconds','samples','minHp','targetHP','bossDamageFraction','hpLost','potionsUsed','mechanics','ward','abortReason'].map(k=>[k,h[k]]))),
+    defeats:b.history.slice(-3).map(h=>{
+      const mechanics=[];
+      for(const text of h.mechanics||[]){
+        const timer=/\b(WARD|REWIND)\s*(\d+)\s*(?:s\b|วิ)/i.exec(text);
+        if(timer){let row=mechanics.find(x=>x.name===timer[1].toUpperCase());if(!row){row={name:timer[1].toUpperCase(),firstSeconds:Number(timer[2])};mechanics.push(row);}row.lastSeconds=Number(timer[2]);}
+        else mechanics.push({hint:String(text).slice(0,180)});
+      }
+      return {...Object.fromEntries(['outcome','seconds','samples','minHp','lastHp','targetHP','bossDamageFraction','potionsUsed','ward','abortReason'].map(k=>[k,h[k]])),mechanics};
+    }),
     equipment:b.audit.equip?.combat,wing:a.wingCraft?.status,wingGoal:a.goal?.slot==='wing'?a.goal:undefined,
     learnedSkills:Object.fromEntries(ids.map(id=>[id,Object.fromEntries(Object.entries(catalog?.definitions?.skills?.[id]||{}).filter(([k])=>['name','elem','kind','range','buff','cd','mult','hits'].includes(k)))])),
     enabledSkills:(b.audit.skill?.controls||[]).filter(c=>c.act==='askill'&&c.on).map(c=>c.key),
     selectedNative:Object.fromEntries(['hunt','pot'].map(part=>[part,(b.audit[part]?.controls||[]).filter(c=>c.on).map(c=>({key:c.k,value:['tension','stopNoPot'].includes(c.k)?true:c.v}))])),
     supportedTactic:{target:'boss',priority:'elite',tension:true,hp:60,mp:30,stopNoPot:true,feather:0,skillScope:'ALL_LEARNED'}};
+}
+function bossReviewDue(b,now=Date.now()){
+  const recent=at=>Number.isFinite(at)&&now>=at&&now-at<3600000;
+  return (b.reviews||[]).filter(recent).length<6&&(b.reviewOutcomes||[]).filter(r=>r.status==='decision-verified'&&recent(r.at)).length<3&&
+    (b.defeatAt>(b.reviewAt||0)||now-(b.reviewAt||0)>=(['model-unavailable','decision-rejected'].includes(b.reviewStatus)?60000:300000));
 }
 function bossReady(s,m,now=Date.now()){
   const b=bossLearning(m,s,now),r=b?.receipts;
@@ -680,4 +693,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
