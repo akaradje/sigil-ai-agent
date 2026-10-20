@@ -177,6 +177,18 @@ function bossPlan(s,m,response,now=Date.now()){
   if(skills.some(c=>c.key==='energy_coat')&&!p.enableSkills.includes('energy_coat'))return null;
   return {...p,at:now};
 }
+function bossReviewEvidence(s,m,catalog){
+  const b=bossLearning(m,s),a=m.autonomy||{},ids=(b.audit.skill?.controls||[]).filter(c=>c.act==='askill').map(c=>c.key);
+  const monster=catalog?.monsters?.find(x=>x.name===b.boss);
+  return {boss:b.boss,objective:b.objective,bossElement:monster?.elem,baseHP:monster?.hp,
+    warning:'Base HP is not live raid HP. Unknown damage causes remain uncertain; observed boss HP changes may include other players.',
+    defeats:b.history.slice(-3).map(h=>Object.fromEntries(['outcome','seconds','samples','minHp','targetHP','bossDamageFraction','hpLost','potionsUsed','mechanics'].map(k=>[k,h[k]]))),
+    equipment:b.audit.equip?.combat,wing:a.wingCraft?.status,wingGoal:a.goal?.slot==='wing'?a.goal:undefined,
+    learnedSkills:Object.fromEntries(ids.map(id=>[id,Object.fromEntries(Object.entries(catalog?.definitions?.skills?.[id]||{}).filter(([k])=>['name','elem','kind','range','buff','cd','mult','hits'].includes(k)))])),
+    enabledSkills:(b.audit.skill?.controls||[]).filter(c=>c.act==='askill'&&c.on).map(c=>c.key),
+    selectedNative:Object.fromEntries(['hunt','pot'].map(part=>[part,(b.audit[part]?.controls||[]).filter(c=>c.on).map(c=>({key:c.k,value:['tension','stopNoPot'].includes(c.k)?true:c.v}))])),
+    supportedTactic:{target:'boss',priority:'elite',tension:true,hp:60,mp:30,stopNoPot:true,feather:0,skillScope:'ALL_LEARNED'}};
+}
 function bossReady(s,m,now=Date.now()){
   const b=bossLearning(m,s,now),r=b?.receipts;
   if(!b?.plan||!r?.gear||!r.skill||!r.hunt||!r.pot||!b.applied||s.dead||s.hp?.[0]/s.hp?.[1]<0.9||s.hpPotions<20||s.mpPotions<20)return false;
@@ -651,4 +663,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

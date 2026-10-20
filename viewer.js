@@ -541,6 +541,7 @@ async function tickState() {
     const el = $('brain');
     const review=j.strategy?.classReview;
     if(b.reviewingClass){el.textContent='AI กำลังทบทวน';el.className='badge llm';}
+    else if(j.strategy?.bossLearning?.pending&&j.strategy?.bossLearning?.reviewStatus==='model-unavailable'){el.textContent='AUTO · AI ตอบไม่สำเร็จ';el.className='badge policy';}
     else if(j.strategy?.bossLearning?.reviewStatus==='decision-verified'||review?.status==='decision-verified'){el.textContent='AUTO · แผน AI ล่าสุด';el.className='badge policy';}
     else if(b.llmFail>0||review?.status==='model-unavailable'){el.textContent='AUTO · AI ตอบไม่สำเร็จ';el.className='badge policy';}
     else if(b.llmOk>0){el.textContent='AUTO · AI เคยตอบ';el.className='badge policy';}

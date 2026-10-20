@@ -473,3 +473,9 @@ test('a missing native boss option cannot produce a preparation receipt',async()
  const ctl=IQ.createExecutor({mem,observe:async()=>({...s,panel:'auto',panelOpen:true,controls:[{act:'atab',key:'hunt'}]}),click:async()=>{},key:async()=>{},sleep:async()=>{},log:()=>{},save:()=>{}});
  assert.equal((await ctl.run('boss_profile_hunt')).ok,false);assert.equal(b.receipts.hunt,undefined);assert.equal(b.applied,undefined);
 });
+
+test('boss review includes observed enabled skills and compact definitions without copying arbitrary catalog text',()=>{
+ const m=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(m,s);b.audit.skill={controls:[{act:'askill',key:'energy_coat',on:true}]};b.audit.hunt={controls:[{k:'tension',v:'false',on:true,label:'irrelevant'}]};
+ const c={monsters:[{name:'Ignar',elem:'fire',hp:100}],definitions:{skills:{energy_coat:{name:'Energy Coat',kind:'buff',buff:{def:20},th:'untrusted long description'.repeat(1000)}}}};
+ const e=IQ.bossReviewEvidence(s,m,c);assert.equal(e.bossElement,'fire');assert.deepEqual(e.enabledSkills,['energy_coat']);assert.equal(e.selectedNative.hunt[0].value,true);assert.equal(e.learnedSkills.energy_coat.th,undefined);assert.ok(JSON.stringify(e).length<2000);
+});
