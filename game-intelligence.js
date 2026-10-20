@@ -182,7 +182,7 @@ function chooseTask(s,m,now=Date.now()) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
-  if((s.statPoints>=20||s.statBlocked)&&due('stats',120000)) return 'stats';
+  if((s.statPoints>=5||s.statBlocked)&&due('stats',120000)) return 'stats';
   if(s.skillPoints>0&&due('skills',180000)) return 'skills';
   if(due('configure',21600000)) return 'configure';
   if(m.classTrip && m.classTrip.job===s.job && now-m.classTrip.at<240000) return s.panel==='shrine'?'class':'observe';

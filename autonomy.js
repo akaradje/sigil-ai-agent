@@ -557,6 +557,19 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
           a.restocked||={};a.restocked.return_scroll=(a.restocked.return_scroll||0)+10;
         }
       }
+      if(policy.powerProgression){
+        const pets=mem.development?.snapshots?.ranch?.pets||[];
+        for(const [id,name,minimum] of [['pet_treat','Pet Treat',pets.length?3:0],['focus_tonic','Focus Tonic',['Mage','Starweaver','Sage'].includes(s.job)?2:0]]){
+          if(!minimum)continue;const live=await state(),owned=live.panelText.match(new RegExp(name+'\\s+(?:have|มี)\\s+(\\d+)','i'));
+          if(!owned||Number(owned[1])>=minimum)continue;
+          const control=[...live.controls,...(live.offscreen||[])].find(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
+          const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
+          if(!price||price>20000||live.gold-price<policy.goldReserve)continue;
+          await pick(c=>c.act==='buy'&&c.key===id&&c.amount==='10');const after=await state(),count=Number(after.panelText.match(new RegExp(name+'\\s+(?:have|มี)\\s+(\\d+)','i'))?.[1]);
+          if(count!==Number(owned[1])+10||after.gold!==live.gold-price)throw Error('Development supply purchase not acknowledged');
+          a.restocked||={};a.restocked[id]=(a.restocked[id]||0)+10;
+        }
+      }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';return;}
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';return;}

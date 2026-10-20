@@ -6,6 +6,9 @@ test('serialized perception fits the local GET adapter header budget',()=>{
   assert.ok(encodeURIComponent('JSON.stringify('+IQ.PERCEPTION+')').length<15000);
 });
 const healthy=()=>({name:'Hero',job:'Mage',lv:'Lv 44',jobLv:'Job 40 MAX',hp:[900,1800],gold:49000,exp:40,quest:'Train to Lv 47',autoQuestRunning:true,controls:[]});
+test('earned stat points can be used each level instead of waiting for a twenty-point backlog',()=>{
+  const m=IQ.freshMemory();assert.equal(IQ.chooseTask({...healthy(),statPoints:7},m,1800000000000),'stats');
+});
 test('ranking deadline stays due during town trips while respecting failure backoff',()=>{
   const now=1800000000000,m=IQ.freshMemory();m.last.rank=now-300001;m.autonomy={trip:{kind:'forge'}};
   assert.equal(IQ.rankDue(m,now),true);

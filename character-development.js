@@ -38,14 +38,14 @@ function remember(mem,view,now=Date.now()){
 function due(d,k,now,ms){return now-(d.last[k]||0)>=ms&&now-(d.failures[k]?.at||0)>=5*MIN;}
 function routineReady(mem,s){
   const a=mem.autonomy||{},bag=a.bagUsage;
-  return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&
+  return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.45&&
     s.hpPotions>10&&s.mpPotions>10&&!!bag&&bag[0]<Math.floor(bag[1]*0.95);
 }
 function chooseTask(mem,s,catalog,now=Date.now()){
   if(!s.name||s.dead||!s.hp||mem.uiHealth?.safeIdle)return null;
   const d=init(mem);
   if(d.excursion)return 'growth_materials';
-  if(s.hp[0]/s.hp[1]<0.65)return null;
+  if(s.hp[0]/s.hp[1]<0.45)return null;
   if(s.controls?.some(c=>c.id==='tameYes')&&due(d,'tame',now,5000))return 'tame';
   if(mem.autonomy?.resume||mem.autonomy?.farm?.pendingProfile||mem.autonomy?.trip||s.autoQuestMode==='jq')return null;
   if(due(d,'pets',now,10*MIN))return 'pets';
@@ -140,7 +140,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
     const before=await observe(),cost=plan.cost?.gold??plan.fee??0;
     if(!Number.isFinite(cost)||cost<0||before.gold-cost<reserve())throw Error('Development gold reserve');
     await fn();const after=await observe();
-    if(after.crystals!==before.crystals||after.gold!==before.gold-cost)throw Error('Development debit not acknowledged');
+    if(after.crystals!==before.crystals||cost>0&&after.gold!==before.gold-cost||cost===0&&after.gold<before.gold)throw Error('Development debit not acknowledged');
   }
   async function run(task){
     actions=0;const before=await observe();
@@ -175,7 +175,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
         if(gift){await pick('rngift');record(task,'Free skill rune dust gift');v=await view();}
         const plan=runeStep(v,getCatalog(),before);d.runesPending=!!plan;d.runeNext=plan?{act:plan.act,id:plan.id,needsSmith:!!plan.smith}:null;
         if(plan){
-          if(plan.smith&&!nearSmith){d.runeSmithNeeded=true;d.runesPending=false;}
+          if((plan.smith||plan.cost?.gold>0||plan.fee>0)&&!nearSmith){d.runeSmithNeeded=true;d.runesPending=false;}
           else{
             if(plan.cost?.gold){const card=v.runeCards.find(c=>c.id===plan.id),label=plan.act==='rnup'?card?.up?.text:card?.craft?.tip;
               const liveCost=Number(String(label||'').replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);if(liveCost!==plan.cost.gold)throw Error('Live rune price differs from catalog');}

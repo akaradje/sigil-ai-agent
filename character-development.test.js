@@ -20,6 +20,11 @@ test('safe development gets time between frequent bag checks, while urgent suppl
   m.autonomy.bagUsage=[95,100];assert.equal(D.routineReady(m,s),false);m.autonomy.bagUsage=[89,100];
   assert.equal(D.routineReady(m,{...s,hpPotions:10}),false);m.autonomy.trip={kind:'shop'};assert.equal(D.routineReady(m,s),false);
 });
+test('native 60-percent potion cycling does not starve nonintrusive development',()=>{
+  const m={autonomy:{bagUsage:[80,100]}},s=state({hp:[620,1000],hpPotions:22,mpPotions:42});
+  assert.equal(D.routineReady(m,s),true);assert.equal(D.chooseTask(m,s,{},now),'pets');
+  assert.equal(D.routineReady(m,{...s,hp:[400,1000]}),false);assert.equal(D.chooseTask(m,{...s,hp:[400,1000]},null,now),null);
+});
 test('runes use native recommendation, then collected copies before paid crafting',()=>{
   const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}],runeRows:[]};
   assert.deepEqual(D.runeStep(v,{},state()),{act:'rnlearn',id:'comet_rain'});
@@ -53,6 +58,11 @@ test('an unacknowledged rune click is not recorded as a successful development',
 test('owned rune learning verifies its codex transition without spending crystals',async()=>{
   const mem={};let learned=false;
   const ctl=D.createController({mem,observe:async()=>state({controls:[{act:'rnview'},{act:'rnlearn',key:'comet_rain'}]}),scan:async()=>({panel:'skills',runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:learned,have:learned?0:1,learn:{disabled:false}}]}),click:async()=>{learned=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  assert.equal((await ctl.run('runes')).ok,true);assert.equal(mem.development.steps,1);
+});
+test('free rune learning tolerates concurrent farming income while verifying the learned rune',async()=>{
+  const mem={};let learned=false,calls=0;
+  const ctl=D.createController({mem,observe:async()=>state({gold:2000000+100*calls++,controls:[{act:'rnview'},{act:'rnlearn',key:'comet_rain'}]}),scan:async()=>({panel:'skills',runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:learned,have:learned?0:1,learn:{disabled:false}}]}),click:async()=>{learned=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
   assert.equal((await ctl.run('runes')).ok,true);assert.equal(mem.development.steps,1);
 });
 test('development observation fits the existing GET header budget',()=>{assert.ok(encodeURIComponent(D.EXPRESSION).length<15000);});
