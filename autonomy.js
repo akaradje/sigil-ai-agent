@@ -3,6 +3,7 @@ const {resolveCap,bottlenecks,farmOptions}=require('./game-catalog');
 const Progression=require('./progression');
 const Hygiene=require('./session-hygiene');
 const DNA=require('./strategy-dna');
+const {combatSnapshot}=require('./game-intelligence');
 const MIN=60000;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
@@ -11,6 +12,17 @@ function init(mem) {
 }
 function event(a,type,detail,now=Date.now()) {
   a.events.push({id:++a.sequence,type,detail,at:now});a.events=a.events.slice(-80);
+}
+function wingReserve(a,reserve=100000){return a.wingPriority&&a.goal?.slot==='wing'?reserve+(a.goal.cost?.gold||0):reserve;}
+function refineCandidates(catalog,s,worn,rows){
+  const mage=['Mage','Starweaver','Sage','Priest','Lumen Oracle'].includes(s.job);
+  const score=b=>(b.matk||0)*(mage?3:0)+(b.atk||0)*(mage?0.3:3)+(b.def||0)+(b.mdef||0)*0.8;
+  return rows.map(row=>{const w=worn.find(w=>w.uid===row.key),g=gearForName(catalog,w?.text||row.name),r=g?.refinement?.[row.refine],next=g?.refinement?.[row.refine+1];
+    const fee=Number(String(row.costText||'').replace(/,/g,'').match(/\d+/)?.[0]),chance=row.chance/100;
+    const gain=r&&next?score(next.bonus)-score(r.bonus):null;
+    const expected=fee>0&&chance>0?(fee+(r?.ore||1)*40+(row.refine>=catalog.refineSafe?(1-chance)*6000*(g?.tier===5?3:g?.tier===4?2:1):0))/chance:null;
+    return {...row,efficiency:gain>0&&expected>0?gain/expected:null};
+  }).sort((x,y)=>x.efficiency!=null&&y.efficiency!=null?y.efficiency-x.efficiency:x.refine-y.refine);
 }
 function catalogChanged(mem,catalog,now=Date.now()) {
   const a=init(mem),previous=a.catalog;
@@ -27,7 +39,7 @@ function surplusGear(catalog,s,worn) {
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];
   if(!job||!s.inventoryComplete||!worn?.length)return [];
   return (s.inventoryGear||[]).filter(item=>{
-    if(item.protected!==false||item.equipped||worn.some(w=>w.uid===item.uid))return false;
+    if(item.protected!==false||item.equipped||worn.some(w=>w.uid===item.uid)||item.rarity>=3)return false;
     const gear=gearForName(catalog,item.art||item.text);if(!gear)return false;
     if(gear.slot==='weapon'&&gear.fam&&gear.fam!==job.weapon)return true;
     if(item.better||gear.lv>level(s)||gear.line&&!job.line.includes(gear.line))return false;
@@ -44,7 +56,16 @@ function surplusDetail(catalog,s,worn,item,selected) {
   const gear=gearForName(catalog,item.art||item.text),job=catalog.jobs[String(s.job).toLowerCase()];
   if(!selected.includes(gear.name)||!/(?:Refine|ตีบวก)\s*\+\d+\//i.test(selected))return 'unidentified detail';
   if(/🃏/u.test(selected))return 'installed card';
-  if(gear.slot!=='weapon')return /✦/u.test(selected)?'equipment with options':null;
+  if(gear.slot!=='weapon'){
+    if(!/✦/u.test(selected))return null;
+    const current=worn.find(w=>w.slot===gear.slot),own=gearForName(catalog,current?.text),heading=selected.split(/\r?\n/).find(l=>l.includes(gear.name))||'';
+    const comparison=selected.split(/Compared with worn:|เทียบกับที่สวม:/i);
+    if(!Number.isInteger(item.rarity)||item.rarity<0||item.rarity>=3||own?.id!==gear.id||
+      Number(heading.match(/\[(\d+)\]/)?.[1]||0)>Number(current.text.match(/\[(\d+)\]/)?.[1]||0)||
+      /Cooldown|Skill.*damage|vs[ .:]|damage taken|คูลดาวน์|เผ่า|ขนาด/i.test(selected)||comparison.length!==2||
+      !/▼\s*Worse than worn|แย่กว่าที่สวมอยู่/i.test(comparison[1])||/▲/.test(comparison[1])||!/▼\s*[1-9]/.test(comparison[1]))return 'equipment with options';
+    return null;
+  }
   if(gear.fam!==job.weapon)return null;
   const own=worn.find(w=>w.slot==='weapon')?.text||'';
   const heading=selected.split(/\r?\n/).find(l=>l.includes(gear.name))||'';
@@ -100,7 +121,7 @@ function progressionGoal(catalog,state,a,reserve) {
     if(target&&allowed(target))upgrades.push({kind:'upgrade',uid:w.uid,target:target.id,name:target.name,slot:w.slot,cost,
       missing:bottlenecks(cost,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
-  if(upgrades.some(g=>!g.missing.length))return upgrades.find(g=>!g.missing.length);
+  if(!a.wingPriority&&upgrades.some(g=>!g.missing.length))return upgrades.find(g=>!g.missing.length);
   // Craft a missing highest-tier slot once, rather than repeatedly rolling items already owned.
   const crafts=[];
   for(const slot of ['weapon','armor','head','shield','cape','boots','wing','ring','amulet']) {
@@ -114,6 +135,7 @@ function progressionGoal(catalog,state,a,reserve) {
       missing:bottlenecks(target.craft,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
   const ready=crafts.filter(g=>!g.missing.length);
+  if(a.wingPriority&&crafts.some(g=>g.slot==='wing'))return crafts.find(g=>g.slot==='wing');
   return (a.powerProgression&&ready.find(g=>g.slot==='wing'))||ready[0]||
     (a.powerProgression&&crafts.find(g=>g.slot==='wing'))||upgrades[0]||crafts[0]||null;
 }
@@ -160,6 +182,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   const a=init(mem),due=(k,ms)=>now-(a.last[k]||0)>ms&&now-(a.failures?.[k]||0)>120000;
   a.levelingFocus=!!policy.levelingFocus&&!a.cap?.atCap;
   a.powerProgression=!!policy.powerProgression;
+  a.wingPriority=!!policy.wingPriority;
   policy={...policy,levelingFocus:a.levelingFocus};
   if(s.hp[0]/s.hp[1]<0.3)return s.hpPotions===0?(a.trip?'town':'town_rest'):null;
   if(!catalog)return null; // Keep the existing UI policy running during catalog outages.
@@ -186,7 +209,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&a.bagUsage&&a.bagUsage[0]<=a.bagUsage[1]-14&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
   if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
-  if(a.goal&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
+  if(a.goal&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')&&due('forge',MIN))return 'town_forge';
   if((policy.powerProgression||!policy.levelingFocus)&&!a.resourceHold?.active&&due('forge',policy.powerProgression?30*MIN:15*MIN))return 'town_forge';
   if((policy.levelingFocus||a.goal?.missing?.length||a.cap?.atCap)&&(policy.levelingFocus||!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
   if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now,policy))return 'farm_trial';
@@ -307,7 +330,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       s=await state();
     }
-    if(goal&&!goal.missing.length&&(!a.resourceHold?.active||goal.slot==='weapon')) {
+    if(goal&&!goal.missing.length&&(!a.resourceHold?.active||goal.slot==='weapon'||goal.slot==='wing'&&a.wingPriority)) {
       await pick(c=>c.act==='smtab'&&c.key===(goal.kind==='upgrade'?'up':'craft'));
       if(goal.kind==='craft') {
         const g=catalog.gear.find(g=>g.id===goal.target);
@@ -322,19 +345,22 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await pick(c=>c.act===row.act&&c.key===row.key);await sleep(1300);live=await state();
       if(!norm(live.forgeResult).includes(norm(goal.name))||live.gold!==s.gold-row.gold)throw Error('craft/upgrade acknowledgement or gold debit not confirmed');
       a.crafted[goal.target]={at:now()};a.last.equipment=0;a.last.inventory=0;
-      if(policy.powerProgression)a.gearPending=true;
-      event(a,'gear_crafted',{name:goal.name,kind:goal.kind,topTier:catalog.gear.filter(g=>g.slot===goal.slot).every(g=>g.tier<=catalog.gear.find(x=>x.id===goal.target).tier)});
+      if(goal.slot==='wing'){a.wingCraft={target:goal.target,name:goal.name,at:now(),status:'crafted'};save();}
+      else{if(policy.powerProgression)a.gearPending=true;
+        event(a,'gear_crafted',{name:goal.name,kind:goal.kind,topTier:catalog.gear.filter(g=>g.slot===goal.slot).every(g=>g.tier<=catalog.gear.find(x=>x.id===goal.target).tier)});}
       return true;
     }
     await pick(c=>c.act==='smtab'&&c.key==='refine');s=await state();
     const rows=s.smithRows.filter(r=>r.act==='refine'&&(r.worn||a.worn.some(w=>w.uid===r.key)));
     a.gearCapped=rows.length>=a.worn.length&&a.worn.length>=8&&rows.every(r=>r.max);
-    const row=rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))).sort((x,y)=>x.refine-y.refine)[0];
+    const row=refineCandidates(catalog,s,a.worn,rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))))[0];
+    const reserve=wingReserve(a,policy.goldReserve),oreReserve=a.wingPriority&&goal?.slot==='wing'?(goal.cost?.mats?.sigil_ore||0):0;
+    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve+(row?.refine>=catalog.refineSafe?2:1))return false;
     if(!row){
-      if(policy.powerProgression&&rows.some(r=>!r.max)&&s.gold-policy.goldReserve>10000){
+      if(policy.powerProgression&&rows.some(r=>!r.max)&&s.gold-reserve>10000){
         await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state();
         const ore=shop.smithRows.find(r=>r.act==='buy'&&r.key==='sigil_ore'),unit=Number(ore?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
-        if(unit>0&&shop.gold-unit*10>=policy.goldReserve){
+        if(unit>0&&shop.gold-unit*10>=reserve){
           const before=shop.gold;await pick(c=>c.act==='buy'&&c.key==='sigil_ore'&&c.amount==='10');
           if((await state()).gold!==before-unit*10)throw Error('Forge ore purchase not acknowledged');return true;
         }
@@ -342,13 +368,14 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       return false;
     }
     const fee=Number(row.costText.replace(/,/g,'').match(/\d+/)?.[0]);
-    if(!fee||s.gold-fee<policy.goldReserve)throw Error('refine fee/reserve not confirmed');
+    if(!fee)throw Error('refine fee not confirmed');
+    if(s.gold-fee<reserve)return false;
     if(policy.powerProgression&&fee>150000-(a.trip?.powerSpent||0))return false;
     if(row.refine>=(catalog.refineSafe??0)&&row.chance!==100&&!/Guardian Stone.*(?:stay|เดิม)|(?:stay|เดิม).*Guardian Stone/i.test(row.risk)) {
       if(await pick(c=>c.act==='smguard'&&!c.on,true))return true;
       if(policy.powerProgression){
         await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state(),stone=shop.smithRows.find(r=>r.act==='buy'&&r.key==='guardian_stone'),unit=Number(stone?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
-        if(unit>0&&shop.gold-unit*10>=policy.goldReserve&&unit*10<=150000-(a.trip?.powerSpent||0)){
+        if(unit>0&&shop.gold-unit*10>=reserve&&unit*10<=150000-(a.trip?.powerSpent||0)){
           await pick(c=>c.act==='buy'&&c.key==='guardian_stone'&&c.amount==='10');if((await state()).gold!==shop.gold-unit*10)throw Error('Guardian purchase not acknowledged');return true;
         }
       }
@@ -414,8 +441,26 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(!await settleSale(a.saleIntent,trip))throw Error('Sale outcome uncertain');
     }
   }
+  async function finishWing(){
+    const w=a.wingCraft;if(!w||w.status==='equipped')return false;
+    await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);let s=await state();
+    const candidates=s.inventoryGear.filter(g=>gearForName(getCatalog(),g.art||g.text)?.id===w.target);
+    const worn=s.worn?.find(g=>g.slot==='wing');
+    if(!w.uid){if(candidates.length!==1)throw Error('Crafted wing is not uniquely identified');w.uid=candidates[0].uid;}
+    if(worn?.uid!==w.uid){
+      if(!w.before){const snap=combatSnapshot(s,now());if(!snap)throw Error('Wing power baseline unavailable');w.before=snap;w.otherWorn=s.worn.filter(g=>g.slot!=='wing').map(g=>g.uid).sort();save();}
+      await pick(c=>c.act==='isel'&&c.key==='g:'+w.uid);await pick(c=>c.act==='iequip'&&c.key===w.uid);
+    }
+    await open('equip');s=await state();
+    if(!s.worn?.some(g=>g.slot==='wing'&&g.uid===w.uid))throw Error('Wing equip not acknowledged');
+    const after=combatSnapshot(s,now());if(!after)throw Error('Wing final power unavailable');
+    const comparable=w.before?.character===after.character&&w.before.level===after.level&&JSON.stringify(w.otherWorn)===JSON.stringify(s.worn.filter(g=>g.slot!=='wing').map(g=>g.uid).sort());
+    w.after=after;w.delta=comparable?after.power-w.before.power:null;w.status='equipped';w.completedAt=now();
+    event(a,'wing_completed',{name:w.name,before:w.before?.power??null,after:after.power,delta:w.delta,uid:w.uid});save();return true;
+  }
   async function town(s) {
     const trip=a.trip;
+    if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {
@@ -461,7 +506,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await resume(trip);return;
     }
     if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
-    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())&&
+    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())&&
       (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
@@ -486,7 +531,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const live=await state(),before=live.gold,changed=await forge(live);
         if(policy.powerProgression&&changed){
           trip.powerActions=(trip.powerActions||0)+1;trip.powerSpent=(trip.powerSpent||0)+Math.max(0,before-(await state()).gold);trip.progressAt=now();
-          if(trip.powerActions<12&&trip.powerSpent<150000){
+          if(trip.powerActions<(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing.length?4:12)&&trip.powerSpent<150000){
             if(step===0&&actions<=5&&!a.gearPending)continue;
             return;
           }
@@ -592,7 +637,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       trip.kind='capacity';trip.progressAt=now();return;
     }
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';trip.progressAt=now();return;}
-    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
+    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
     if(trip.kind==='forge'||!policy.powerProgression)a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
@@ -675,4 +720,4 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   return {run,travel:async id=>{actions=0;await travel(id);}};
 }
-module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};
+module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController,refineCandidates,wingReserve};

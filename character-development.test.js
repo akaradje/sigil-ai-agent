@@ -2,6 +2,22 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('explicit wing focus gets material time even with a full gear bag, while active town work and health stay protected',()=>{
+  const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},bagUsage:[100,100]}};
+  const s=state({hpPotions:25,mpPotions:25});assert.equal(D.routineReady(m,s),false);assert.equal(D.materialReady(m,s),true);assert.equal(D.chooseTask(m,s,{},now),'growth_materials');
+  assert.equal(D.materialReady(m,{...s,hp:[700,1000]}),false);m.autonomy.trip={kind:'shop'};assert.equal(D.materialReady(m,s),false);assert.equal(D.chooseTask(m,s,{},now),null);
+});
+test('wing focus uses a guaranteed boss drop first and mines during the boss retry window',()=>{
+  const c={monsters:[{id:'time',name:'Time Eater',lv:34,boss:true,drops:[['gear',1]]}],development:{mining:[{tier:1,level:1,mapLevel:0,ore:'copper'},{tier:4,level:20,mapLevel:46,ore:'mithril'}]},maps:[{id:'south',range:'Lv 1-6'}]};
+  const missing=[{id:'gear'},{id:'mithril'}],scene={available:true,mineLv:1};
+  assert.equal(D.materialPlan(c,missing,scene,state(),{wingPriority:true}).kind,'boss');
+  assert.equal(D.materialPlan(c,missing,scene,state(),{wingPriority:true,skipBoss:true}).kind,'mine');
+});
+test('public map-wide material drops are a fallback when mining is unavailable',()=>{
+  const c={development:{mapDrops:{crystal:[{id:'sapphire',chance:0.0015}]}},maps:[{id:'crystal',range:'Lv 25-32',monsters:[{id:'golem',n:3}]}],monsters:[{id:'golem',lv:30,hp:1000}]};
+  assert.equal(D.materialPlan(c,[{id:'sapphire'}],{available:false},state()).map,'crystal');
+  assert.equal(D.materialPlan(c,[{id:'unknown'}],{available:false},state()),null);
+});
 test('expiring pet offers precede town work, but survival and changed UI still win',()=>{
   const m={autonomy:{trip:{kind:'forge'}}},s=state({controls:[{id:'tameYes'}]});
   assert.equal(D.chooseTask(m,s,null,now),'tame');

@@ -5,6 +5,44 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('refinement value uses live chance and class stats rather than the lowest plus alone',()=>{
+  const c=catalog();c.gear[1].refinement=Array.from({length:16},(_,r)=>({ore:1,bonus:{atk:r*6,matk:r*6}}));
+  c.gear.push({id:'ring',name:'Test Ring',slot:'ring',tier:5,lv:55,refinement:Array.from({length:16},(_,r)=>({ore:1,bonus:{mdef:r}}))});
+  const rows=[{key:'ring',name:'Test Ring',refine:0,chance:100,costText:'400 G'},{key:'staff',name:'Void Staff',refine:5,chance:50,costText:'5400 G'}];
+  const worn=[{uid:'ring',text:'Test Ring'},{uid:'staff',text:'Void Staff'}];
+  assert.equal(A.refineCandidates(c,state(),worn,rows)[0].key,'staff');
+  rows[1].chance=1;assert.equal(A.refineCandidates(c,state(),worn,rows)[0].key,'ring');
+  assert.equal(A.wingReserve({wingPriority:true,goal:{slot:'wing',cost:{gold:700000}}},100000),800000);
+});
+test('wing success is measured only after the exact crafted wing is equipped, once across restart',async()=>{
+  const m={},a=A.init(m),c=catalog();c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,stats:{matk:15}});
+  a.wingCraft={target:'wing',name:'Arcane Wing',status:'crafted'};a.trip={kind:'forge',phase:'town',at:clock,salesDone:true};
+  let panel=null,equipped=false;
+  const beforeWorn=[{slot:'weapon',uid:'w',text:'Void Staff'}];
+  const observe=async()=>state({panel,panelOpen:true,inventoryComplete:true,inventoryItems:{},inventoryGear:[{uid:'new',text:'Arcane Wing'}],
+    worn:equipped?[...beforeWorn,{slot:'wing',uid:'new',text:'Arcane Wing'}]:beforeWorn,
+    panelText:['Hero','Starweaver','Lv 57','Gear Power',equipped?'145':'100'].join('\n'),
+    controls:[{act:'isel',key:'g:new'},{act:'iequip',key:'new'}]});
+  const args={mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,observe,click:async x=>{if(x.act==='iequip')equipped=true;},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}};
+  await A.createController(args).run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  assert.equal(a.wingCraft.delta,45);assert.equal(a.wingCraft.status,'equipped');assert.equal(a.events.filter(e=>e.type==='wing_completed').length,1);
+  const restored=JSON.parse(JSON.stringify(m));await A.createController({...args,mem:restored}).run('town');
+  assert.equal(restored.autonomy.events.filter(e=>e.type==='wing_completed').length,1);
+});
+test('Epic and Legendary candidates stay out of automatic sales even with an inferior verdict',()=>{
+  const c=catalog(),worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];
+  const base={uid:'x',text:'Void Staff',protected:false,equipped:false,better:false};
+  for(const rarity of [3,4])assert.deepEqual(A.surplusGear(c,state({inventoryComplete:true,inventoryGear:[{...base,rarity}]}),worn),[]);
+});
+test('ordinary option armor is sold only with the same base, no stat gain and native inferior evidence',()=>{
+  const c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
+  const item={uid:'x',text:'Test Armor',protected:false,rarity:2},worn=[{uid:'w',slot:'armor',text:'+5 Test Armor [1]'}],s=state({inventoryComplete:true,inventoryGear:[item]});
+  const detail='Test Armor [1]\nRefine +0/15\n✦ DEF +5\nCompared with worn:\n▼ Worse than worn\nDEF ▼ 10';
+  assert.equal(A.surplusDetail(c,s,worn,item,detail),null);
+  assert.ok(A.surplusDetail(c,s,worn,item,detail+'\nMATK ▲ 1'));
+  assert.ok(A.surplusDetail(c,s,worn,item,detail.replace('✦ DEF','🃏 Card\n✦ DEF')));
+  assert.ok(A.surplusDetail(c,s,worn,{...item,rarity:3},detail));
+});
 test('DNA can service a bag earlier but cannot buy capacity below the existing spending boundary',()=>{
   const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;a.bagUsage=[90,100];
   m.dna={genes:{bagReturnThreshold:0.9}};

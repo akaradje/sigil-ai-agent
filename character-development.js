@@ -19,6 +19,7 @@ function readDevelopment(){
     runeSkills:all('.rn-sk').map(e=>({id:e.dataset.id,text:text(e),selected:e.classList.contains('on'),occupied:!!e.querySelector('i')})),
     runeFree:all('[data-act="rnclaim"]').map(e=>({id:e.dataset.id,text:text(e),recommended:e.classList.contains('rec')})),
     skills:all('.sk4-card[data-act="sksel"],.sk-card[data-act="sksel"],.sknode[data-act="sksel"],.sx-skc[data-act="sksel"]').map(e=>({id:e.dataset.id,text:text(e)})),
+    equipmentQuality:all('[data-act="dslot"]').map(e=>({slot:e.dataset.id,name:text(e.querySelector('b[class*="u-rn"]')),rarity:Number(e.querySelector('b[class*="u-rn"]')?.className?.match(/u-rn([0-4])/)?.[1]??-1)})).filter(e=>e.name),
     cards:all('.cd2[data-act="csel"]').map(e=>({id:e.dataset.id,text:text(e),known:e.classList.contains('has-ef'),copies:num(text(e.querySelector('u')))})),
     cardDetail:text(body.querySelector('.cd2-det')),life:all('.lifew .lsk').map(e=>({name:text(e.querySelector('b')),text:text(e)})),
     buffs:all('#buffs [data-buff]',document).map(e=>({id:e.dataset.buff,name:e.getAttribute('aria-label'),seconds:num(text(e.querySelector('i')))})).slice(0,30)};
@@ -27,7 +28,7 @@ const EXPRESSION='JSON.stringify(('+readDevelopment.toString()+')())';
 // Public scene coordinates identify resource nodes; input still goes through the mouse/keyboard.
 const SCENE_EXPRESSION=`import('/src/life-ui.js').then(({LIFE:l})=>{const g=window.SIGIL,p=g?.p,c=document.getElementById('game'),r=c?.getBoundingClientRect(),v=g?.view,cam=g?.camRender;
   if(!p||!g.ready||g.mapLoad||g.fade||!r||!v||!cam||l.map!==g.world?.id)return JSON.stringify({available:false});
-  return JSON.stringify({available:true,map:g.world.id,x:p.x,y:p.y,mineLv:p.life?.mine?.lv||1,mineExp:p.life?.mine?.exp||0,mining:l.acts.get(g.link?.id)?.kind==='mine',
+  return JSON.stringify({available:true,map:g.world.id,x:p.x,y:p.y,mineLv:p.life?.mine?.lv||1,mineExp:p.life?.mine?.exp||0,mining:l.acts.get(g.link?.id)?.kind==='mine',pending:!!l.pend,materials:Object.fromEntries(['mithril_ore','moon_sapphire','chrono_gear'].map(id=>[id,p.items?.[id]||0])),
     nodes:l.ore.filter(n=>n.up).map(n=>{const x=Math.round(r.left+(n.x-cam.x)*v.scale),y=Math.round(r.top+(n.y-14-cam.y)*v.scale),hit=x>0&&y>0&&x<innerWidth&&y<innerHeight?document.elementFromPoint(x,y):null;return {id:n.i,tier:n.tier,x,y,wx:n.x,wy:n.y,visible:hit===c};})});})`;
 function init(mem){return mem.development ||= {version:1,last:{},failures:{},snapshots:{},history:[],steps:0};}
 function remember(mem,view,now=Date.now()){
@@ -40,6 +41,11 @@ function routineReady(mem,s){
   const a=mem.autonomy||{},bag=a.bagUsage;
   return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.45&&
     s.hpPotions>10&&s.mpPotions>10&&!!bag&&bag[0]<Math.floor(bag[1]*0.95);
+}
+function materialReady(mem,s){
+  const a=mem.autonomy||{};
+  // The game's capacity is for gear; mining materials stack outside those slots.
+  return !!a.wingPriority&&a.goal?.slot==='wing'&&!!a.goal.missing?.length&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20;
 }
 function worthOffer(d,s){
   const pets=d.snapshots?.ranch?.pets||[],offer=norm(s.tameOffer);
@@ -61,6 +67,7 @@ function chooseTask(mem,s,catalog,now=Date.now()){
   const offered=s.controls?.some(c=>c.id==='tameYes');
   if(offered&&worthOffer(d,s)&&due(d,'tame',now,5000))return 'tame';
   if(mem.autonomy?.resume||mem.autonomy?.farm?.pendingProfile||mem.autonomy?.trip||s.autoQuestMode==='jq')return null;
+  if(materialReady(mem,s)&&due(d,'growth_materials',now,MIN))return 'growth_materials';
   if(due(d,'pets',now,10*MIN))return 'pets';
   if(due(d,'growth_buffs',now,5*MIN))return 'growth_buffs';
   if(['Mage','Starweaver','Sage'].includes(s.job)&&due(d,'runes',now,d.runesPending?MIN:10*MIN))return 'runes';
@@ -72,16 +79,23 @@ function chooseTask(mem,s,catalog,now=Date.now()){
   if(catalog?.development?.mining&&mem.autonomy?.powerProgression&&mem.autonomy?.goal?.missing?.length&&due(d,'growth_materials',now,30*MIN))return 'growth_materials';
   return null;
 }
-function materialPlan(catalog,missing,scene,s){
+function materialPlan(catalog,missing,scene,s,options={}){
   const lv=Number(String(s.lv||'').match(/\d+/)?.[0]),wanted=new Set((missing||[]).map(m=>m.id));
-  const boss=catalog?.monsters?.filter(m=>m.boss&&m.lv<=lv-15&&m.drops?.some(([id])=>wanted.has(id))).sort((a,b)=>a.lv-b.lv)[0];
+  const boss=catalog?.monsters?.filter(m=>m.boss&&m.lv<=lv-15&&!options.skipBoss&&m.drops?.some(([id,p])=>wanted.has(id)&&p>=1)).sort((a,b)=>a.lv-b.lv)[0];
+  if(boss&&options.wingPriority)return {kind:'boss',boss:boss.name,id:boss.id};
   const need=(catalog?.development?.mining||[]).filter(t=>wanted.has(t.ore)||wanted.has(t.gem));
   if(need.length&&scene?.available){
     const target=Math.max(...need.map(t=>t.tier)),tiers=catalog.development.mining.filter(t=>t.tier<=target&&t.level<=scene.mineLv),tier=tiers.at(-1);
     const map=tier&&catalog.maps.filter(m=>!m.town&&Number(m.range?.match(/\d+/)?.[0])>=tier.mapLevel&&Number(m.range?.match(/\d+/)?.[0])<=(catalog.development.mining.find(t=>t.tier===tier.tier+1)?.mapLevel??Infinity)-1&&Number(m.range?.match(/\d+/)?.[0])<=lv-15)[0];
     if(map)return {kind:'mine',map:map.id,tier:tier.tier,levelTarget:Math.max(...need.map(t=>t.level))};
   }
-  return boss?{kind:'boss',boss:boss.name,id:boss.id}:null;
+  if(boss)return {kind:'boss',boss:boss.name,id:boss.id};
+  const fields=(catalog?.maps||[]).filter(m=>!m.town&&Number(m.range?.match(/\d+/)?.[0])<=lv-15).map(m=>{
+    const drops=(catalog.development?.mapDrops?.[m.id]||[]).filter(d=>wanted.has(d.id)&&d.chance>0);
+    const target=(m.monsters||[]).map(x=>({...catalog.monsters?.find(n=>n.id===x.id),n:x.n})).filter(n=>n.id&&!n.boss&&n.lv<=lv-15).sort((x,y)=>y.n/y.hp-x.n/x.hp)[0];
+    return drops.length&&target?{kind:'hunt',map:m.id,target:target.id,chance:Math.max(...drops.map(d=>d.chance))}:null;
+  }).filter(Boolean).sort((x,y)=>y.chance-x.chance);
+  return fields[0]||null;
 }
 const LINE=['comet_rain','astral_lance','mana_veil'];
 const SKILL_PAIRS={S1:['leech','blaze'],S2:['keen','meteor_fall'],S3:['execute','fire_bolt'],S4:['haste','jupiter_thunder']};
@@ -141,7 +155,7 @@ function buffChoice(catalog,items,buffs=[]){
     .sort(([x],[y])=>{const score=id=>{const b=defs[id].use.buff;return (b.exp||0)*1000+(b.cd||0)*500+(b.hp||0)*100+(b.regen||0)*10+(b.mregen||0)*10;};return score(y)-score(x);})[0]?.[0]||null;
 }
 function createController({mem,observe,scan,scene,sceneAction,travel,click,scroll,key,open,close,sleep,save,getCatalog,policy={},now=()=>Date.now()}){
-  const d=init(mem),reserve=()=>Math.max(100000,policy.goldReserve||0);let actions=0;
+  const d=init(mem),reserve=()=>Math.max(100000,policy.goldReserve||0)+(mem.autonomy?.wingPriority&&mem.autonomy?.goal?.slot==='wing'?(mem.autonomy.goal.cost?.gold||0):0);let actions=0;
   async function view(){const v=await scan();remember(mem,v,now());return v;}
   async function pick(act,id=null,pred=()=>true){
     if(++actions>10)throw Error('Development input budget exhausted');
@@ -237,33 +251,41 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
         let trip=d.excursion;
         if(!trip){
           if(before.hp[0]/before.hp[1]<0.85||before.hpPotions<20||before.mpPotions<20)throw Error('Resource trial needs health and supplies');
-          const raw=await scene(),plan=materialPlan(getCatalog(),mem.autonomy?.goal?.missing,raw,before),returnMap=mem.autonomy?.farm?.map;
+          const raw=await scene(),a=mem.autonomy,plan=materialPlan(getCatalog(),a?.goal?.missing,raw,before,{wingPriority:a?.wingPriority,skipBoss:now()<(d.bossRetryAt||0)}),returnMap=a?.farm?.map||a?.returnMap||getCatalog().maps?.find(m=>!m.town&&m.name===before.zone)?.id;
           d.resourcePlan=plan;if(plan&&returnMap){
             await close();if(before.autoQuestRunning){const stop=(await observe()).controls.filter(c=>c.aq==='stop');if(stop.length!==1)throw Error('Quest stop not unique');await click(stop[0]);await sleep(800);}
             if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
             if(plan.kind==='boss'){
               await open('bosses');const s=await observe(),boss=s.bossRows.find(b=>b.name===plan.boss&&b.up);
-              if(!boss){record(task,'Required boss is not alive; keep leveling');}
-              else{d.excursion={...plan,returnMap,started:now(),phase:'travel',map:boss.key.split(',')[0]};save();await pick('bbgo',boss.key);}
+              if(!boss){d.bossRetryAt=now()+5*MIN;record(task,'Required boss is not alive; use another resource source');}
+              else{d.excursion={...plan,returnMap,started:now(),phase:'travel',initialAmounts:raw.materials,map:boss.key.split(',')[0]};save();await pick('bbgo',boss.key);}
             }else{d.excursion={...plan,returnMap,started:now(),phase:'travel'};save();await travel(plan.map);}
           }
         }else{
           const raw=await scene(),s=await observe();
-          if(now()-trip.started>5*MIN||s.hp[0]/s.hp[1]<0.65||s.hpPotions<10||s.mpPotions<10||trip.done){
+          if(raw.available&&raw.materials&&mem.autonomy?.inventory?.items){
+            for(const [id,n] of Object.entries(raw.materials))if(Number.isSafeInteger(n)&&n>=0)mem.autonomy.inventory.items[id]=n;
+            const goal=mem.autonomy.goal;if(goal?.slot==='wing')goal.missing=goal.missing.map(m=>raw.materials[m.id]!=null?{...m,have:raw.materials[m.id],missing:Math.max(0,m.need-raw.materials[m.id])}:m).filter(m=>m.missing>0);
+            if(goal&&!goal.missing.length)trip.done=true;
+            if(trip.kind==='boss'&&Object.entries(trip.initialAmounts||{}).some(([id,n])=>raw.materials[id]>n)){trip.done=true;d.bossRetryAt=now()+5*MIN;}
+          }
+          if(now()-trip.started>(mem.autonomy?.wingPriority?15:5)*MIN||s.hp[0]/s.hp[1]<0.65||s.hpPotions<10||s.mpPotions<10||trip.done){
             await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
             await open('bag');if(!(await observe()).inventoryComplete)await pick('ifilter','all');await observe();await close();
             await travel(trip.returnMap);mem.autonomy.farm=null;mem.autonomy.resume={map:trip.returnMap,mode:'farm',at:now()};
             record(task,'Bounded '+trip.kind+' trip finished; restore leveling');d.excursion=null;
           }else if(raw.available&&raw.map===trip.map){
             if(trip.kind==='mine'){
-              if(!raw.mining&&now()-(trip.inputAt||0)>10000){const node=raw.nodes.filter(n=>n.tier===trip.tier).sort((a,b)=>Math.hypot(a.wx-raw.x,a.wy-raw.y)-Math.hypot(b.wx-raw.x,b.wy-raw.y))[0];
+              if(!raw.mining&&!raw.pending&&now()-(trip.inputAt||0)>5000){const node=raw.nodes.filter(n=>n.tier===trip.tier).sort((a,b)=>Math.hypot(a.wx-raw.x,a.wy-raw.y)-Math.hypot(b.wx-raw.x,b.wy-raw.y))[0];
                 if(node){await close();await sceneAction(node.id,node.tier);trip.inputAt=now();}else trip.done=true;}
               if(raw.mineExp!==trip.mineExp||raw.mineLv!==trip.mineLv){trip.mineExp=raw.mineExp;trip.mineLv=raw.mineLv;d.mining={level:raw.mineLv,exp:raw.mineExp,at:now()};}
+              const planned=materialPlan(getCatalog(),mem.autonomy?.goal?.missing,raw,s,{skipBoss:true});
+              if(planned&&planned.tier!==trip.tier)trip.done=true;
             }else if(trip.phase==='travel'){
               await open('auto');await pick('atab','hunt');
-              for(const [k,v] of [['target','boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
+              for(const [k,v] of [['target',trip.kind==='hunt'?trip.target:'boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
               await close();if(!/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');trip.phase='fight';trip.fightAt=now();
-            }else if(now()-trip.fightAt>2*MIN||trip.seen&&s.target!==trip.boss){trip.done=true;}
+            }else if(trip.kind==='boss'&&(now()-trip.fightAt>2*MIN||trip.seen&&s.target!==trip.boss)){trip.done=true;d.bossRetryAt=now()+5*MIN;}
             else if(s.target===trip.boss)trip.seen=true;
           }
         }
@@ -280,4 +302,4 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
   }
   return {run};
 }
-module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,worthOffer,reviewDue,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
+module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,materialReady,worthOffer,reviewDue,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};

@@ -149,6 +149,7 @@ class AlertEngine {
       cap_expanded:e=>`🚀 ตรวจพบเพดานเลเวลใหม่ ${e.from} → ${e.to} กำลังกลับเข้าสู่ลูปพัฒนา`,
       catalog_changed:e=>`🔄 ข้อมูลเกมเปลี่ยน กำลังวิเคราะห์สูตรใหม่ · Lv cap ${e.levelCap??'?'} / refine +${e.refineMax}`,
       gear_crafted:e=>`⚒ ${e.kind==='upgrade'?'อัปขั้น':'คราฟต์'} ${e.name} สำเร็จ${e.topTier?' · เทียร์สูงสุดที่พบในข้อมูลแพตช์':''}`,
+      wing_completed:e=>`🪽 สร้างและสวม ${e.name} สำเร็จ!\nพลังอุปกรณ์ ${e.before??'?'} → ${e.after??'?'}${Number.isFinite(e.delta)?` (${e.delta>=0?'+':''}${e.delta})`:' · ยืนยันส่วนเพิ่มเฉพาะปีกไม่ได้'}\nวัดจากหน้าอุปกรณ์จริงก่อน–หลังสวมปีก`,
       refine_max:e=>`✨ ${e.name} ตีบวกถึง +${e.cap} ตามเพดานปัจจุบันแล้ว`,
       capacity_bought:e=>`🎒 เพิ่มช่อง ${e.id} สำเร็จ ใช้ ${e.cost} คริสตัล`,
     };

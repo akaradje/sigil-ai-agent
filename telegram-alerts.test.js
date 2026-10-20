@@ -11,6 +11,11 @@ function sample(change = {}, brain = {}) {
       autoQuestRunning: true, ...change } }, supervisorOk: true, viewerOk: true };
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
+test('verified wing completion includes its measured power delta and cannot resend after acknowledgement and restart',()=>{
+  let e=new AlertEngine({},start),s=sample();s.agent.strategy={autonomy:{events:[{id:1,type:'wing_completed',detail:{name:'Arcane Wing',before:900,after:975,delta:75}}]}};
+  e.observe(s,start);const alerts=e.db.pending.filter(p=>p.key.includes('autonomy:'));assert.equal(alerts.length,1);assert.match(alerts[0].text,/900 → 975 \(\+75\)/);
+  e.acknowledge([...e.db.pending]);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);e.observe(s,start+MIN);assert.equal(e.db.pending.filter(p=>p.key.includes('autonomy:')).length,0);
+});
 test('deployment success waits for COMMITTED and rollback notifications survive restart without the supervisor',()=>{
   const identity='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',jobId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
   let e=new AlertEngine({},start),s={agent:null,supervisorOk:false,deployment:{identity,events:[{id:1,jobId,status:'CANARY'}]}};

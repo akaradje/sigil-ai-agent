@@ -63,6 +63,7 @@ const ENV = { ...loadEnv(), ...process.env };
 const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_LEVELING_FOCUS==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
 autonomyPolicy.sellSurplus=ENV.SIGIL_SELL_SURPLUS==='1';
 autonomyPolicy.powerProgression=ENV.SIGIL_POWER_PROGRESSION==='1';
+autonomyPolicy.wingPriority=ENV.SIGIL_WING_PRIORITY==='1';
 autonomyPolicy.targetRank=Number(ENV.SIGIL_TARGET_RANK)===5?5:10;
 autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
 autonomyPolicy.levelingMaxGap=Math.min(5,Math.max(3,Math.floor(Number(ENV.SIGIL_LEVELING_MAX_GAP)||3)));
@@ -555,6 +556,7 @@ EFFICIENT CONTROL:
 - Gold is numeric. Maintain a ${autonomyPolicy.goldReserve} G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
 - Only routine gameplay for this character. No chat/messages, trading, premium purchases or account settings. Sales are permitted only through the opt-in deterministic surplus workflow; never sell, unlock, discard or withdraw gear through LLM tools.
 - With authorized surplus sales enabled, finish town shop inspection before returning to farm. Never deposit weapons or use bulk storage; retain protected, useful and ambiguous gear.
+- Gear Tier is not rarity or final strength. Seek Epic/Legendary upgrades through verified native sources and compare options, card slots, set bonuses and actual stats. Preserve Epic/Legendary candidates for review; consider developing a good unrefined Epic before spending heavily on an ordinary blue piece. Do not claim Legendary gear exists or is obtained without native evidence. Keep the wing recipe gold/materials reserved while wing focus is enabled.
 - Autonomous capacity purchases use a separate deterministic workflow and persistent budget; never attempt them through LLM tools. Public catalog definitions are advisory and current live UI must confirm every action.
 - AUTONOMY STATE: ${JSON.stringify(memory.autonomy?{mode:memory.autonomy.mode,cap:memory.autonomy.cap,goal:memory.autonomy.goal,blocked:memory.autonomy.blocked}:null)}
 - Never override an autonomous material farm, town trip or queued return. Do not infer a level cap from a leaderboard, job cap or stalled EXP.
@@ -617,7 +619,7 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
-    if(autonomyPolicy.powerProgression&&memory.development?.excursion&&!critical.includes(planned)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+    if(autonomyPolicy.powerProgression&&memory.development?.excursion&&!critical.includes(planned)&&actionTimes.filter(t=>Date.now()-t<60000).length<=8){
       actionInFlight=true;try{await development.run('growth_materials');}finally{actionInFlight=false;}return;
     }
     if(!critical.includes(planned)&&memory.autonomy?.gearPending&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
@@ -625,7 +627,7 @@ async function runCycle() {
     }
     const growth=autonomyPolicy.powerProgression?Development.chooseTask(memory,p.state,catalog):null;
     // Expiring tame offers and unspent points must not starve behind a farming/town loop.
-    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&Development.routineReady(memory,p.state))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&(Development.routineReady(memory,p.state)||growth==='growth_materials'&&Development.materialReady(memory,p.state)))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;try{if(growth==='tame'||!['stats','skills'].includes(planned))await development.run(growth);else await executor.run(planned);}finally{actionInFlight=false;}return;
     }
     if(dnaEnabled&&!critical.includes(planned)&&dnaEngine.canApply(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
@@ -815,6 +817,7 @@ setInterval(async()=>{
     const s=(await perceive(false)).state;
     if(s.dead)fastBossMode=true;
     if(!busy&&s.controls.some(c=>c.id==='tameYes'))setTimeout(()=>runCycle().catch(e=>log('pet offer: '+e.message)),0);
+    if(!busy&&memory.autonomy?.wingPriority&&memory.development?.excursion?.kind==='mine')setTimeout(()=>runCycle().catch(e=>log('wing mining: '+e.message)),0);
     if(s.panelOpen||s.menuOpen||s.mapOpen||s.modalText) {
       panelSince ||= Date.now();
       if(Date.now()-panelSince>25000 && !actionInFlight) {await executor.close();log('watchdog: cleared idle overlay');panelSince=0;}

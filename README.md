@@ -391,7 +391,11 @@ rendered result. Rune prices come from public definitions and must match the cur
 
 Wings are a separate class slot: the first Mage wing needs mined materials and boss trophies;
 its second stage has a High-class and level requirement. Missing mining materials queue bounded
-five-minute gathering trips starting at the character's **life-skill** tier. Node navigation reads
+five-minute gathering trips starting at the character's **life-skill** tier. Explicit
+`SIGIL_WING_PRIORITY=1` puts materials ahead of routine EXP, permits up to 15 minutes per safe
+trip, and checks guaranteed boss drops before mining during their respawn window. The gear bag
+capacity does not block stacked material gathering. Public map-wide drops provide a fallback
+when mining is unavailable. Node navigation reads
 only narrow public scene coordinates and uses normal pointer/keyboard input. Required bosses
 must be alive on the native board and at least 15 levels below the character before an automatic
 trial. Trips return to the saved leveling area on timeout, low health or low potion supplies.
@@ -399,9 +403,14 @@ trial. Trips return to the saved leveling area on timeout, low health or low pot
 Town forging can improve secondary gear while leveling. It keeps a gold reserve, caps a visit
 at 12 steps / 150,000 G of refinement spending, equips newly crafted pieces, and checks eligible
 enchant grades and Tier II wing stars. Refinements that can lose a level require the game's
-protection. Crafting a ready wing has priority over other ready secondary crafts. Gear rarity
-colour describes options/card slots, separately from equipment tier; a blue Tier 5 piece is not
-evidence that it is obsolete. The dashboard shows development history, companion/rune snapshots,
+protection. Refinement priority uses expected class-stat gain per gold/ore at the rendered success
+chance. Wing focus reserves the wing's gold and Sigil Ore before optional refinements. Its completion
+alert waits for the exact crafted wing to be equipped and includes the measured equipment-power
+change, with no repeat after restart. Crafting a ready wing has priority over other ready secondary
+crafts. Tier alone does not establish quality: compare rarity, options, sockets and actual stats.
+Epic/Legendary candidates are protected from automatic sales. Ordinary rolled armor is sold only
+when the same-base native comparison shows it is worse with no displayed stat gain or utility
+exception. The dashboard shows development history, companion/rune snapshots,
 life-skill observations and the remaining wing recipe. Locked systems are requirements to work
 toward, not successful upgrades. There is no real-money purchase or account-setting workflow.
 
