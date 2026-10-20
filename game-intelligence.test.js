@@ -9,6 +9,16 @@ const healthy=()=>({name:'Hero',job:'Mage',lv:'Lv 44',jobLv:'Job 40 MAX',hp:[900
 test('earned stat points can be used each level instead of waiting for a twenty-point backlog',()=>{
   const m=IQ.freshMemory();assert.equal(IQ.chooseTask({...healthy(),statPoints:7},m,1800000000000),'stats');
 });
+test('unaffordable native stat plans wait for changed points or a bounded cost recheck',()=>{
+  const now=1800000000000,m=IQ.freshMemory(),s={...healthy(),statPoints:8};m.statsDeferred={points:8,level:s.lv,job:s.job,at:now};
+  assert.notEqual(IQ.chooseTask(s,m,now),'stats');assert.equal(IQ.chooseTask({...s,statPoints:9},m,now),'stats');assert.equal(IQ.chooseTask(s,m,now+900001),'stats');
+});
+test('a zero-point native recommendation is deferred without a fake allocation or confirmation',async()=>{
+  const mem=IQ.freshMemory(),clicked=[];let panel=null;
+  const s=()=>({...healthy(),statPoints:8,panel,panelOpen:!!panel,controls:panel?[{act:'srec',label:'Suggested'}]:[{open:'stats'}]});
+  const e=IQ.createExecutor({mem,observe:async()=>s(),click:async c=>{clicked.push(c.act||c.open);if(c.open)panel=c.open;},key:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
+  const result=await e.run('stats');assert.equal(result.ok,true);assert.match(result.result,/wait for points/);assert.deepEqual(clicked,['stats','srec']);assert.equal(mem.statsDeferred.points,8);
+});
 test('ranking deadline stays due during town trips while respecting failure backoff',()=>{
   const now=1800000000000,m=IQ.freshMemory();m.last.rank=now-300001;m.autonomy={trip:{kind:'forge'}};
   assert.equal(IQ.rankDue(m,now),true);

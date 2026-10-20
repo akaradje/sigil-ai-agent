@@ -86,6 +86,14 @@ test('wing plans respect high-class requirements and prioritize a missing usable
   assert.equal(A.progressionGoal(c,state({gold:900000}),a,100000).target,'wing');
   a.inventory.items.ore=8;assert.equal(A.progressionGoal(c,state({gold:900000}),a,100000).target,'wing');
 });
+test('equipped refinement batches two bounded steps without re-equipping after each step',async()=>{
+  const m={},a=A.init(m);a.worn=[{slot:'weapon',uid:'w',text:'Void Staff'}];a.trip={kind:'forge',phase:'town',at:clock,advancedChecked:true,salesDone:true};
+  let r=0,gold=200000;
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{powerProgression:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'smith',gold,controls:[{act:'smtab',key:'refine'},{act:'refine',key:'w'}],smithRows:[{act:'refine',key:'w',worn:true,refine:r,chance:100,disabled:false,max:false,costText:'400 G',name:'Void Staff'}],forgeResult:r?'Refined':''}),
+    click:async c=>{if(c.act==='refine'){r++;gold-=400;}},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(r,2);assert.equal(a.trip.powerActions,2);assert.equal(a.trip.powerSpent,800);assert.notEqual(a.gearPending,true);
+});
 
 test('character cap is dynamic; job mastery and zero progress do not imply character cap',()=>{
   assert.equal(C.resolveCap(state({jobExpText:'JOB MASTER',expText:'EXP 0%'}),null).atCap,false);

@@ -302,7 +302,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
           if(after.gold!==live.gold-row.gold)throw Error('Advanced forge debit not acknowledged');
           const next=after.smithRows.find(r=>r.act===act&&r.key===row.key);
           if(!next||act==='wstar'&&next.text===row.text)throw Error('Advanced forge outcome not observed');
-          a.advancedForge={at:now(),kind:tab,name:row.name,changed:next.text!==row.text};a.gearPending=true;return true;
+          a.advancedForge={at:now(),kind:tab,name:row.name,changed:next.text!==row.text};a.last.equipment=0;return true;
         }
       }
       s=await state();
@@ -363,7 +363,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const next=after.smithRows.find(r=>r.key===row.key&&r.act==='refine');
     if(!next||after.gold!==s.gold-fee||!next.max&&![row.refine,row.refine+1].includes(next.refine)||!after.forgeResult&&!/failed|ล้มเหลว/i.test(after.panelText))throw Error('refine outcome not observed');
     a.refine={at:now(),name:row.name,from:row.refine,to:next.max?catalog.refineMax:next.refine,cap:catalog.refineMax};
-    if(policy.powerProgression){a.last.equipment=0;a.gearPending=true;}
+    if(policy.powerProgression)a.last.equipment=0;
     if(next.max)event(a,'refine_max',{name:row.name,cap:catalog.refineMax});
     return true;
   }
@@ -473,12 +473,19 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(policy.powerProgression&&!trip.runesServiced&&developAtSmith&&mem.development?.runeSmithNeeded){
         trip.runesServiced=true;await developAtSmith();trip.progressAt=now();return;
       }
-      const before=s.gold,changed=await forge(s);
-      if(policy.powerProgression&&changed){
-        trip.powerActions=(trip.powerActions||0)+1;trip.powerSpent=(trip.powerSpent||0)+Math.max(0,before-(await state()).gold);trip.progressAt=now();
-        if(trip.powerActions<12&&trip.powerSpent<150000)return;
+      for(let step=0;step<(policy.powerProgression?2:1);step++){
+        const live=await state(),before=live.gold,changed=await forge(live);
+        if(policy.powerProgression&&changed){
+          trip.powerActions=(trip.powerActions||0)+1;trip.powerSpent=(trip.powerSpent||0)+Math.max(0,before-(await state()).gold);trip.progressAt=now();
+          if(trip.powerActions<12&&trip.powerSpent<150000){
+            if(step===0&&actions<=5&&!a.gearPending)continue;
+            return;
+          }
+        }
+        break;
       }
       trip.forgeServiced=true;
+      if(policy.powerProgression){await open('equip');await state();a.last.equipment=now();}
     }
     if(trip.kind==='rest') {
       await pick(c=>c.act==='rest');const rested=await state();

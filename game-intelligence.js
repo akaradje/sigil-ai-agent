@@ -182,7 +182,8 @@ function chooseTask(s,m,now=Date.now()) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
-  if((s.statPoints>=5||s.statBlocked)&&due('stats',120000)) return 'stats';
+  const statWait=m.statsDeferred&&m.statsDeferred.points===s.statPoints&&m.statsDeferred.level===s.lv&&m.statsDeferred.job===s.job&&now-m.statsDeferred.at<900000;
+  if(!statWait&&(s.statPoints>=5||s.statBlocked)&&due('stats',120000)) return 'stats';
   if(s.skillPoints>0&&due('skills',180000)) return 'skills';
   if(due('configure',21600000)) return 'configure';
   if(m.classTrip && m.classTrip.job===s.job && now-m.classTrip.at<240000) return s.panel==='shrine'?'class':'observe';
@@ -258,8 +259,14 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           if(before.hpPotions>0) await pick(c=>c.id==='potHp');
           result='low HP: defer chores, let native recovery work';break;
         case 'stats':
-          await open('stats');await act('srec');await act('sapply');await confirm('stat|สเตตัส');
+          await open('stats');await act('srec');
+          {const staged=await observe();if(![...staged.controls,...(staged.offscreen||[])].some(c=>c.act==='sapply')){
+            mem.statsDeferred={points:before.statPoints,level:before.lv,job:before.job,at:Date.now()};
+            result='native recommended stats have no affordable increase; wait for points or cost recheck';break;
+          }}
+          await act('sapply');await confirm('stat|สเตตัส');
           await sleep(1000);if((await observe()).statPoints>=before.statPoints&&before.statPoints>0)throw Error('stat points did not decrease');
+          delete mem.statsDeferred;
           result='recommended stats committed and verified';break;
         case 'skills': {
           await open('skills');await act('sktab',before.job.toLowerCase(),true);
