@@ -751,3 +751,19 @@ test('a Return Scroll saved to a field continues to the verified town once, reta
   assert.equal(a.trip.returnMap,'field');assert.equal(a.trip.townTravelAt,clock);
   await c.run('town');assert.equal(clicked.length,3);assert.equal(a.trip.phase,'town');assert.equal(a.trip.salesDone,false);
 });
+
+test('a supplied wing claims the workflow before a farm resume or periodic inventory scan',()=>{
+ const m={},a=A.init(m);a.cbt={claimed:true};a.wingPriority=true;a.goal={slot:'wing',missing:[]};a.resume={map:'field'};
+ const task=A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true,wingPriority:true,powerProgression:true});
+ assert.equal(task,'town_forge');assert.equal(A.ownsWorkflow(m,state(),catalog(),task),true);
+});
+
+test('a ready wing reaches its live recipe before grade, runes and capacity on a fresh town service',async()=>{
+ const m={},a=A.init(m),c=catalog();c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8}}});
+ a.wingPriority=true;a.inventory={items:{mithril:8},gear:[]};a.worn=[{slot:'weapon',uid:'w',text:'Void Staff'}];a.bagUsage=[98,100];a.last.forge=clock;
+ a.trip={kind:'shop',phase:'town',at:clock,salesDone:true,salePolicyVersion:2};m.development={runeSmithNeeded:true};let tab='grade',gold=900000,crafted=false;const calls=[];
+ const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{powerProgression:true,wingPriority:true,sellSurplus:true,goldReserve:100000},now:()=>clock,
+ observe:async()=>state({zone:'Town',panel:'smith',gold,hpPotions:30,mpPotions:30,smithRows:[{act:'craft',key:'wing',gold:700000,mats:[{have:8,need:8}],disabled:false}],forgeResult:crafted?'Arcane Wing':'',controls:[{act:'smtab',key:'craft'},{act:'smwing',on:false},{act:'craft',key:'wing'}]}),
+ click:async c=>{calls.push(c.act+':'+c.key);if(c.act==='craft'){gold-=700000;crafted=true;}},developAtSmith:async()=>assert.fail('runes cannot preempt a ready wing'),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+ await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(crafted,true);assert.equal(a.wingCraft.status,'crafted');assert.equal(gold,200000);assert.equal(a.trip.phase,'town');assert.ok(!calls.some(c=>/grade|star/.test(c)));
+});

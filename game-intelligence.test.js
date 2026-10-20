@@ -222,13 +222,13 @@ test('verified generic boss engagement enables local native combat without resta
  assert.equal((await e.run('boss_engage')).ok,true);assert.deepEqual(clicks,['autoBtn']);assert.equal(mem.classBossTrip.fighting,true);assert.ok(mem.classBossTrip.fightAt>=now);
 });
 
-test('observed repeated class defeats stop boss approaches and restore bounded training before a later retry',async()=>{
+test('observed repeated class defeats stop approaches and cannot retry merely because training expired',async()=>{
  const now=Date.now(),mem=IQ.freshMemory();let mode='jq';const s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1'};
  mem.jobQuestAt=now-400000;mem.deaths=[now-60000,now-30000];mem.classAdvancement={character:s.name,from:s.job,to:'sage',phase:'quest'};mem.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};
  assert.equal(IQ.chooseTask(s,mem,now),'train');
  const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...s,autoQuestRunning:!!mode,autoQuestMode:mode,controls:[...(mode?[{aq:'stop'}]:[]),{aq:'mq'},{aq:'jq'}]}),click:async c=>{mode=c.aq==='stop'?null:c.aq;}});
  assert.equal((await e.run('train')).ok,true);assert.equal(mem.classBossTrip,null);assert.equal(mem.classBossRecovery.deaths,2);assert.equal(mem.classAdvancement.phase,'rebuild');assert.equal(mode,'mq');assert.ok(mem.trainingUntil>now);assert.equal(mem.jobQuestAt,now-400000);assert.equal(IQ.classWorkflowOwned(s,mem,now),false);
- mem.trainingUntil=now-1;assert.equal((await e.run('job_retry')).ok,true);assert.equal(mem.classAdvancement.phase,'quest');assert.equal(mode,'jq');assert.equal(mem.jobQuestAt,now-400000);
+ mem.trainingUntil=now-1;assert.equal((await e.run('job_retry')).ok,false);assert.equal(mem.classAdvancement.phase,'rebuild');assert.equal(mode,'mq');assert.equal(mem.jobQuestAt,now-400000);assert.equal(mem.bossLearning.pending,true);
 });
 
 test('boss arrival first restores low HP before activating combat',()=>{
@@ -427,4 +427,49 @@ test('an already enabled safety option below the scroll fold is verified without
 });
 test('an unsafe hotbar subset restores all learned scope and is never marked applied',async()=>{
   const r=dnaProfileRig(true);assert.equal((await r.executor.run('dna_profile')).ok,false);assert.equal(r.get().scope,'ALL_LEARNED');assert.equal(r.get().panel,null);
+});
+
+test('legacy boss defeats require preparation even after the old training timer expires',()=>{
+ const m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1'},now=1800000000000;
+ m.classBossRecovery={boss:'Ignar the Flame Tyrant',reason:'observed-defeats',at:now-1000,deaths:2};m.trainingUntil=now-1;
+ assert.equal(IQ.bossPreparationNeeded(s,m,now),true);assert.equal(IQ.classWorkflowOwned(s,m,now),false);assert.equal(IQ.chooseTask(s,m,now),'observe');
+ const restored=JSON.parse(JSON.stringify(m));IQ.bossLearning(restored,s,now+1000);assert.equal(restored.bossLearning.history.length,1);
+});
+
+test('boss fight evidence rejects stale or wrong-map HUD and persists a defeat with measured progress',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,boss='Ignar the Flame Tyrant',s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt '+boss+' 0/1',target:boss,targetHP:'1.9M / 1.9M',targetHpRatio:1,hpPotions:30};
+ m.classBossTrip={boss,key:'leviathan,5456,368',fighting:true};m.gameTelemetry={validated:true,map:'town',checkedAt:now};
+ IQ.observeClassBoss(m,s,now);assert.equal(m.bossLearning.active,undefined);
+ m.gameTelemetry.map='leviathan';IQ.observeClassBoss(m,s,now);assert.equal(m.bossLearning.active.samples,1);
+ m.gameTelemetry.checkedAt=now+1000;IQ.observeClassBoss(m,{...s,targetHpRatio:0.98,hp:[700,1800],bossMechanic:'Inferno Breath'},now+1000);
+ m.gameTelemetry.checkedAt=now+2000;IQ.observeClassBoss(m,{...s,dead:true,hp:[0,1800]},now+2000);
+ const b=m.bossLearning;assert.equal(b.pending,true);assert.equal(b.history[0].outcome,'defeat');assert.equal(b.history[0].seconds,2);assert.ok(Math.abs(b.history[0].bossDamageFraction-0.02)<1e-9);assert.deepEqual(b.history[0].mechanics,['Inferno Breath']);assert.equal(m.classBossTrip,null);
+});
+
+test('boss analysis accepts only observed skills, preserves defense and rejects invented actions',()=>{
+ const m=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'};const b=IQ.bossLearning(m,s);
+ b.audit.skill={controls:[{act:'askill',key:'energy_coat'},{act:'askill',key:'fire_bolt'},{act:'askill',key:'frost_nova'}]};
+ const plan={diagnosis:'Fire boss; previous damage unknown. Enable defense and try observed frost skill.',enableSkills:['energy_coat','frost_nova'],disableSkills:['fire_bolt'],craftWing:true,retreatHp:0.4};
+ assert.ok(IQ.bossPlan(s,m,JSON.stringify(plan)));assert.equal(IQ.bossPlan(s,m,JSON.stringify({...plan,enableSkills:['invented']})),null);assert.equal(IQ.bossPlan(s,m,JSON.stringify({...plan,disableSkills:['energy_coat']})),null);assert.equal(IQ.bossPlan(s,m,JSON.stringify({...plan,action:'eval'})),null);
+});
+
+test('elapsed training time and successful commands cannot unlock an unchanged failed boss build',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,s={...healthy(),hp:[1800,1800],hpPotions:30,mpPotions:30,jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(m,s);
+ b.pending=true;b.plan={craftWing:true};b.receipts={gear:now,skill:now,hunt:now,pot:now};b.applied={profile:{hunt:{target:'boss'}}};b.audit.equip={at:now,combat:{power:100},worn:[{uid:'x',text:'+1 Staff'}]};b.failedPower=100;b.failedSignature=IQ.bossBuildSignature(b);b.history=[{signature:b.failedSignature,profile:b.applied.profile}];m.autonomy={wingCraft:{status:'equipped'}};
+ assert.equal(IQ.bossReady(s,m,now),false);m.trainingUntil=now-999999;assert.equal(IQ.bossReady(s,m,now),false);
+ b.audit.equip.combat.power=103;assert.equal(IQ.bossReady(s,m,now),false);b.audit.equip.combat.power=105;assert.equal(IQ.bossReady(s,m,now),true);
+ m.autonomy.wingCraft.status='crafted';assert.equal(IQ.bossReady(s,m,now),false);m.autonomy.wingCraft.status='equipped';b.audit.equip.at=now-300001;assert.equal(IQ.bossReady(s,m,now),false);
+});
+
+test('boss hunt profile changes the observed farm target to boss and verifies native tension',async()=>{
+ const mem=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(mem,s);b.pending=true;b.plan={};let panel=null,menu=false,tab='skill';const opts={target:'mob',prio:'near',tension:false};
+ const observe=async()=>({...s,panel,panelOpen:!!panel,menuOpen:menu,controls:panel==='auto'?[{act:'atab',key:'hunt'},...['target','prio'].flatMap(k=>[opts[k],k==='target'?'boss':'elite'].map(v=>({act:'aopt',k,v,on:opts[k]===v}))),{act:'aopt',k:'tension',v:String(!opts.tension),on:opts.tension}]:menu?[{open:'auto'}]:[{id:'menuBtn'}]});
+ const ctl=IQ.createExecutor({mem,observe,click:async c=>{if(c.id)menu=true;if(c.open){panel='auto';menu=false;}if(c.act==='aopt')opts[c.k]=c.k==='tension'?c.v==='true':c.v;},key:async()=>{panel=null;menu=false;},sleep:async()=>{},log:()=>{},save:()=>{}});
+ assert.equal((await ctl.run('boss_profile_hunt')).ok,true);assert.equal(opts.target,'boss');assert.equal(opts.prio,'elite');assert.equal(opts.tension,true);assert.ok(b.receipts.hunt);assert.deepEqual(b.applied.profile.hunt,{target:'boss',prio:'elite',tension:true});
+});
+
+test('a missing native boss option cannot produce a preparation receipt',async()=>{
+ const mem=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(mem,s);b.pending=true;b.plan={};
+ const ctl=IQ.createExecutor({mem,observe:async()=>({...s,panel:'auto',panelOpen:true,controls:[{act:'atab',key:'hunt'}]}),click:async()=>{},key:async()=>{},sleep:async()=>{},log:()=>{},save:()=>{}});
+ assert.equal((await ctl.run('boss_profile_hunt')).ok,false);assert.equal(b.receipts.hunt,undefined);assert.equal(b.applied,undefined);
 });

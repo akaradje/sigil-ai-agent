@@ -126,7 +126,70 @@ function controllerFallbackReady(mem,alive,now=Date.now()){
 }
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
 const CLASS_PATH=Object.freeze({Novice:'mage',Mage:'starweaver',Starweaver:'sage'});
+function bossLearning(m,s,now=Date.now()){
+  const boss=classBossObjective(s);if(!boss)return null;
+  let b=m.bossLearning;
+  if(!b||b.character!==s.name||b.objective!==s.jobQuestProgress)b=m.bossLearning={character:s.name,objective:s.jobQuestProgress,boss,history:[],audit:{},receipts:{}};
+  const old=m.classBossRecovery;
+  if(old?.boss===boss&&old.reason==='observed-defeats'&&!b.importedAt){
+    b.importedAt=old.at;b.pending=true;b.defeatAt=old.at;b.history.push({at:old.at,outcome:'legacy-defeats',deaths:old.deaths,detail:'No per-fight samples were recorded; damage cause unknown'});
+  }
+  return b;
+}
+function bossBuildSignature(b){return JSON.stringify({equipment:b.audit?.equip?.worn,power:b.audit?.equip?.combat?.power,profile:b.applied?.profile});}
+function bossPreparationNeeded(s,m,now=Date.now()){
+  const b=bossLearning(m,s,now);return !!b?.pending;
+}
+function observeClassBoss(m,s,now=Date.now()){
+  if(m.uiHealth?.safeIdle)return;
+  const b=bossLearning(m,s,now);if(!b)return;
+  const trip=m.classBossTrip,t=m.gameTelemetry;
+  const valid=t?.validated&&!t.loading&&!t.positionFault&&now-t.checkedAt<=5000&&now>=t.checkedAt;
+  const map=String(trip?.key||'').split(',')[0];
+  if(!b.active&&trip?.fighting&&trip.boss===b.boss&&valid&&t.map===map&&String(s.target||'').includes(b.boss)&&!s.dead){
+    b.active={at:now,boss:b.boss,map,signature:bossBuildSignature(b),build:m.combatSummary,profile:b.applied?.profile,samples:0,minHp:1,firstBossRatio:s.targetHpRatio,lastBossRatio:s.targetHpRatio,targetHP:s.targetHP,hpLost:0,potionsStart:s.hpPotions,mechanics:[]};
+  }
+  const f=b.active;if(!f)return;
+  if(s.dead){finish('defeat');return;}
+  if(valid&&t.map!==f.map){finish('left-map-without-credit');return;}
+  if(!valid||t.map!==f.map||!String(s.target||'').includes(f.boss))return;
+  if(!Number.isFinite(s.targetHpRatio)||s.targetHpRatio<0||s.targetHpRatio>1)return;
+  f.samples++;f.lastAt=now;f.lastBossRatio=s.targetHpRatio;f.minHp=Math.min(f.minHp,s.hp[0]/s.hp[1]);
+  if(f.lastHp!=null)f.hpLost+=Math.max(0,f.lastHp-s.hp[0]);f.lastHp=s.hp[0];f.targetHP=s.targetHP;
+  if(s.bossMechanic&&!f.mechanics.includes(s.bossMechanic))f.mechanics=[...f.mechanics,s.bossMechanic].slice(-8);
+  f.potionsUsed=Number.isFinite(f.potionsStart)&&Number.isFinite(s.hpPotions)?Math.max(0,f.potionsStart-s.hpPotions):null;
+  // Retreat rather than repeating a lethal race. The controller performs normal UI input.
+  if(f.samples>=3&&s.hp[0]/s.hp[1]<=(b.plan?.retreatHp||0.35)){b.retreat=true;b.pending=true;}
+  function finish(outcome){
+    const result={...f,at:now,startedAt:f.at,outcome,seconds:Math.round((now-f.at)/1000),bossDamageFraction:Math.max(0,(f.firstBossRatio||0)-(f.lastBossRatio||0))};
+    b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;
+    m.classBossTrip=null;m.trainingUntil=0;if(m.classAdvancement)m.classAdvancement.phase='prepare';
+  }
+}
+function bossPlan(s,m,response,now=Date.now()){
+  const b=bossLearning(m,s,now);let p;
+  try{if(typeof response!=='string'||response.length>3500)return null;p=JSON.parse(response);}catch{return null;}
+  const keys=['diagnosis','enableSkills','disableSkills','craftWing','retreatHp'];
+  if(!p||Object.keys(p).some(k=>!keys.includes(k))||typeof p.diagnosis!=='string'||!p.diagnosis.trim()||p.diagnosis.length>900||typeof p.craftWing!=='boolean'||![0.35,0.4,0.5].includes(p.retreatHp))return null;
+  const skills=b?.audit?.skill?.controls?.filter(c=>c.act==='askill')||[];
+  for(const k of ['enableSkills','disableSkills'])if(!Array.isArray(p[k])||p[k].length>8||new Set(p[k]).size!==p[k].length||p[k].some(id=>!skills.some(c=>c.key===id)))return null;
+  if(p.enableSkills.some(id=>p.disableSkills.includes(id))||p.disableSkills.includes('energy_coat'))return null;
+  if(skills.some(c=>c.key==='energy_coat')&&!p.enableSkills.includes('energy_coat'))return null;
+  return {...p,at:now};
+}
+function bossReady(s,m,now=Date.now()){
+  const b=bossLearning(m,s,now),r=b?.receipts;
+  if(!b?.plan||!r?.gear||!r.skill||!r.hunt||!r.pot||!b.applied||s.dead||s.hp?.[0]/s.hp?.[1]<0.9||s.hpPotions<20||s.mpPotions<20)return false;
+  if(b.plan.craftWing&&m.autonomy?.wingCraft?.status!=='equipped')return false;
+  if(now-(b.audit.equip?.at||0)>300000)return false;
+  const sig=bossBuildSignature(b),power=b.audit.equip?.combat?.power;
+  if(b.failedSignature===sig)return false;
+  // A profile change or a measured equipment gain qualifies; mere elapsed time does not.
+  const previous=b.history.filter(h=>h.signature).at(-1);
+  return !previous||JSON.stringify(previous.profile)!==JSON.stringify(b.applied.profile)||Number.isFinite(power)&&power>=(b.failedPower||Infinity)*1.05;
+}
 function classWorkflowOwned(s,m,now=Date.now()) {
+  if(bossPreparationNeeded(s,m,now))return false;
   if(!CLASS_PATH[s.job])return false;
   return !!(m.classTrip?.job===s.job||s.panel==='shrine'||/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||
     [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')||s.jobQuestProgress&&now>=(m.trainingUntil||0));
@@ -188,6 +251,7 @@ function rememberCombat(mem,s,now=Date.now()) {
 }
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
+  observeClassBoss(mem,s,now);
   if(s.jobQuestProgress&&CLASS_PATH[s.job]){
     const signature=s.jobQuestProgress.replace(/\s+/g,' ').trim(),old=mem.classObjective;
     if(!old||old.character!==s.name||old.job!==s.job||old.signature!==signature){
@@ -222,6 +286,7 @@ function chooseTask(s,m,now=Date.now()) {
   if(s.atCharSelect||s.disconnected) return 'reconnect';
   if(s.dead) return 'revive';
   if(!s.name||!s.hp) return 'observe';
+  if(bossPreparationNeeded(s,m,now))return m.bossLearning.retreat?'boss_retreat':'observe';
   if(s.hp[0]/s.hp[1]<0.3) return 'survive';
   const nextClass=CLASS_PATH[s.job];
   if(nextClass&&m.classTrip?.job===s.job&&now-m.classTrip.at<240000)return s.panel==='shrine'?'class':'observe';
@@ -328,7 +393,59 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   async function run(task) {
     actions=0;const before=await observe();let result='';
     try {
+      if(['class_boss','boss_engage','job_retry'].includes(task)&&bossPreparationNeeded(before,mem))throw Error('Boss retry locked until preparation is verified');
       switch(task) {
+        case 'boss_retreat':
+          await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.id==='autoBtn'&&c.on,true);
+          await pick(c=>c.id==='potTp');result='boss trial aborted with normal Return Scroll; awaiting observed destination';break;
+        case 'boss_rebuild':
+          await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.aq==='mq');
+          if(!(await observe()).autoQuestRunning)throw Error('Preparation farming not acknowledged');
+          result='preparation farming continues; retry requires verified build changes';break;
+        case 'boss_stage':
+          await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.id==='autoBtn'&&c.on,true);
+          {const s=await observe();if(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))throw Error('Preparation stop not acknowledged');}
+          result='native combat paused while applying the boss build';break;
+        case 'boss_audit_equip':
+        case 'boss_audit_skill':
+        case 'boss_audit_hunt':
+        case 'boss_audit_pot': {
+          const b=bossLearning(mem,before),part=task.slice(11);if(!b?.pending)throw Error('No boss preparation pending');
+          await open(part==='equip'?'equip':'auto');
+          if(part!=='equip')await act('atab',part);
+          if(part==='skill')await pick(c=>c.act==='ahot'&&/All learned|ทุกสกิลที่เรียน/i.test(c.label)&&!c.on,true);
+          const s=await observe(),controls=[...s.controls,...(s.offscreen||[])].filter(c=>['aopt','askill','ahot'].includes(c.act)).map(({act,key,k,v,on,label})=>({act,key,k,v,on,label}));
+          if(part==='equip'&&!combatSnapshot(s))throw Error('Fresh equipment baseline unavailable');
+          if(part!=='equip'&&!controls.length)throw Error('Native AUTO options unavailable');
+          b.audit[part]={at:Date.now(),combat:part==='equip'?combatSnapshot(s):undefined,worn:part==='equip'?s.worn:undefined,controls};
+          result='observed boss preparation '+part;break;
+        }
+        case 'boss_profile_hunt':
+        case 'boss_profile_skill':
+        case 'boss_profile_pot': {
+          const b=bossLearning(mem,before),part=task.slice(13);if(!b?.pending||!b.plan)throw Error('No validated boss preparation plan');
+          await open('auto');await act('atab',part);
+          if(part==='skill'){
+            await pick(c=>c.act==='ahot'&&/All learned|ทุกสกิลที่เรียน/i.test(c.label)&&!c.on,true);
+            for(const [ids,on] of [[b.plan.enableSkills,true],[b.plan.disableSkills,false]])for(const id of ids){
+              const s=await observe(),row=[...s.controls,...(s.offscreen||[])].find(c=>c.act==='askill'&&c.key===id);
+              if(!row)throw Error('Planned learned skill no longer observed');
+              if(row.on!==on){if(actions>=8){result='boss skills partially applied; verification pending';return {ok:true,pending:true};}await pick(c=>c.act==='askill'&&c.key===id);}
+            }
+          }else{
+            const wanted=part==='hunt'?[['target','boss'],['prio','elite'],['tension','true']]:[['hp','60'],['mp','30'],['stopNoPot','true'],['feather','0']];
+            for(const [k,v] of wanted){
+              const s=await observe(),rows=[...s.controls,...(s.offscreen||[])];
+              if(['tension','stopNoPot'].includes(k)){if(!rows.some(c=>c.act==='aopt'&&c.k===k&&c.on))await pick(c=>c.act==='aopt'&&c.k===k&&c.v===v);}
+              else if(!rows.some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick(c=>c.act==='aopt'&&c.k===k&&c.v===v);
+            }
+          }
+          const s=await observe(),rows=[...s.controls,...(s.offscreen||[])];
+          const values=part==='skill'?rows.filter(c=>c.act==='askill'&&c.on).map(c=>c.key).sort():Object.fromEntries(rows.filter(c=>c.act==='aopt'&&c.on).map(c=>[c.k,['tension','stopNoPot'].includes(c.k)?true:c.v]));
+          if(part==='skill'&&(!rows.some(c=>c.act==='ahot'&&/All learned|ทุกสกิลที่เรียน/i.test(c.label)&&c.on)||b.plan.enableSkills.some(id=>!values.includes(id))||b.plan.disableSkills.some(id=>values.includes(id))))throw Error('Boss skill profile not acknowledged');
+          if(part!=='skill')for(const [k,v] of part==='hunt'?[['target','boss'],['prio','elite'],['tension',true]]:[['hp','60'],['mp','30'],['stopNoPot',true],['feather','0']])if(values[k]!==v)throw Error('Boss native option not acknowledged');
+          b.applied ||= {profile:{}};b.applied.profile[part]=values;b.receipts[part]=Date.now();result='verified boss native '+part+' profile';break;
+        }
         case 'reconnect': await pick(c=>/^(▶\s*)?Play$/.test(c.label)); result='reconnect requested'; break;
         case 'revive': await pick(c=>c.id==='riseBtn'||/Revive Here/i.test(c.label)); result='feather revive requested'; break;
         case 'survive':
@@ -490,7 +607,7 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           mem.trainingUntil=0;if(mem.classAdvancement)mem.classAdvancement.phase='quest';result='retry class quest after training';break;
         case 'quest':
           await close();
-          if(mem.trainingUntil>Date.now())await pick(c=>c.aq==='mq');
+          if(mem.trainingUntil>Date.now()||bossPreparationNeeded(before,mem))await pick(c=>c.aq==='mq');
           else if(!await pick(c=>c.aq==='jq',true))await pick(c=>c.aq==='mq');
           if(!(await observe()).autoQuestRunning)throw Error('auto quest did not start');
           result='quest runner started';break;
@@ -534,4 +651,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReady,bossBuildSignature,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

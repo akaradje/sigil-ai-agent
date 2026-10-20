@@ -503,3 +503,14 @@ For opt-in world knowledge, idle combat probes, evidence-backed capability devel
 cap stockpiling and canary-gated automatic GitHub publication, see
 [proactive evolution](docs/proactive-evolution.md). Publication credentials belong only
 to the root-owned publisher; no runtime knowledge or private state is committed.
+
+Boss defeat preparation persists observed attempts (live target HP ratio, player HP loss,
+potions, mechanics and outcome). Only fresh telemetry in the verified boss map starts an
+attempt; a stale target bar in town is ignored. A defeat triggers a bounded AI review of
+live equipment and learned skills. Its validated plan uses observed native AUTO controls:
+boss priority, tension, potion protection and individual learned skills. The controller
+verifies each change, equips a supplied priority wing, and requires a changed profile or
+a measured equipment gain before a new trial. Time passing alone cannot unlock a retry.
+Low HP aborts the trial through a normal Return Scroll; quest credit and job changes must
+still be observed. Missing evidence and model failures remain visible rather than being
+reported as a successful build or boss kill.

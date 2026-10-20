@@ -536,11 +536,12 @@ async function tickState() {
     $('gold').textContent = s.gold ? '◆ ' + s.gold : '–';
     $('zone').textContent = s.zone || '–';
     const recovery=j.strategy?.classBossRecovery;
-    $('quest').textContent = (s.quest || '–')+(recovery?.until>Date.now()?'\\n\\nเอเจนต์พักลองบอสหลังแพ้ต่อเนื่อง ฟาร์มฟื้นกำลังถึง '+new Date(recovery.until).toLocaleTimeString('th-TH')+' แล้วกลับมาเควสต์เดิม':'');
+    const learning=j.strategy?.bossLearning;
+    $('quest').textContent = (s.quest || '–')+(learning?.pending?'\\n\\nเตรียมสู้ '+learning.boss+' · ต้องยืนยันอุปกรณ์/โปรไฟล์ที่เปลี่ยนก่อนลองใหม่'+(learning.plan?.diagnosis?'\\n'+learning.plan.diagnosis:'\\nกำลังรวบรวมข้อมูลและรอ AI วิเคราะห์'):!learning&&recovery?.until>Date.now()?'\\n\\nฟาร์มฟื้นกำลัง':'' );
     const el = $('brain');
     const review=j.strategy?.classReview;
     if(b.reviewingClass){el.textContent='AI กำลังทบทวน';el.className='badge llm';}
-    else if(review?.status==='decision-verified'){el.textContent='AUTO · แผน AI ล่าสุด';el.className='badge policy';}
+    else if(j.strategy?.bossLearning?.reviewStatus==='decision-verified'||review?.status==='decision-verified'){el.textContent='AUTO · แผน AI ล่าสุด';el.className='badge policy';}
     else if(b.llmFail>0||review?.status==='model-unavailable'){el.textContent='AUTO · AI ตอบไม่สำเร็จ';el.className='badge policy';}
     else if(b.llmOk>0){el.textContent='AUTO · AI เคยตอบ';el.className='badge policy';}
     else{el.textContent='AUTO · ยังไม่เรียก AI';el.className='badge policy';}
