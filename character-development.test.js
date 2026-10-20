@@ -2,6 +2,12 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('temporary ore depletion waits for respawn and a ready boss deadline ends the mining stage',async()=>{
+  const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'gear'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',tier:1,returnMap:'old',started:now-10000}}};let inputs=0;
+  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25}),scan:async()=>null,scene:async()=>({available:true,map:'south',mineLv:1,mineExp:0,nodes:[]}),sceneAction:async()=>inputs++,travel:async()=>inputs++,click:async()=>inputs++,open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({monsters:[{id:'time',boss:true,drops:[['gear',1]]}]}),now:()=>now});
+  assert.equal((await ctl.run('growth_materials')).ok,true);assert.equal(inputs,0);assert.equal(m.development.excursion.done,undefined);assert.equal(m.development.excursion.waitingForNodes,now);
+  m.development.bossRetryAt=now;await ctl.run('growth_materials');assert.equal(m.development.excursion.done,true);
+});
 test('boss combat selects the rendered requested entity before enabling AUTO',async()=>{
   const m={autonomy:{wingPriority:true},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'boss',id:'time',boss:'Time Eater',map:'crystal',phase:'travel',profileReady:true,bossPoint:{x:500,y:600},started:now-60000}}},events=[];let target='',auto=false;
   const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:auto?'on':'',target,controls:[{id:'autoBtn'}]}),scan:async()=>null,scene:async()=>({available:true,map:'crystal',x:500,y:600,bosses:[{id:'entity-time',kind:'time',visible:true}]}),sceneAction:async(id,kind)=>{events.push([id,kind]);target='Lv 34 Time Eater';},travel:async()=>{},click:async c=>{events.push(c.id);auto=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});

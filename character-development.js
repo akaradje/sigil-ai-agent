@@ -281,7 +281,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
               if(!boss){const timer=entry?.text?.match(/Back in\s+(\d+):(\d+)/i),wait=timer?(Number(timer[1])*60+Number(timer[2]))*1000+5000:5*MIN;d.bossRetryAt=now()+Math.max(MIN,Math.min(35*MIN,wait));record(task,'Required boss is not alive; use another resource source');
                 if(a.wingPriority){d.last[task]=now()-MIN;d.result={task,ok:true,at:now()};return d.result;}}
               else{d.excursion={...plan,returnMap,started:now(),phase:'travel',initialAmounts:raw.materials,map:boss.key.split(',')[0]};save();await pick('bbgo',boss.key);}
-            }else{d.excursion={...plan,returnMap,started:now(),phase:'travel'};save();await travel(plan.map);}
+            }else{d.excursion={...plan,returnMap,started:now(),phase:'travel'};save();if(plan.map!==raw.map)await travel(plan.map);}
           }
         }else{
           const raw=await scene(),s=await observe();
@@ -324,10 +324,11 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
             }
             if(trip.kind==='mine'){
               if(!raw.mining&&!raw.pending&&now()-(trip.inputAt||0)>5000){const node=raw.nodes.filter(n=>n.tier===trip.tier).sort((a,b)=>Math.hypot(a.wx-raw.x,a.wy-raw.y)-Math.hypot(b.wx-raw.x,b.wy-raw.y))[0];
-                if(node){await close();await sceneAction(node.id,node.tier);trip.inputAt=now();}else trip.done=true;}
+                if(node){await close();await sceneAction(node.id,node.tier);trip.inputAt=now();delete trip.waitingForNodes;}else trip.waitingForNodes=now();}
               if(raw.mineExp!==trip.mineExp||raw.mineLv!==trip.mineLv){trip.mineExp=raw.mineExp;trip.mineLv=raw.mineLv;d.mining={level:raw.mineLv,exp:raw.mineExp,at:now()};}
               const planned=materialPlan(getCatalog(),mem.autonomy?.goal?.missing,raw,s,{skipBoss:true});
               if(planned&&planned.tier!==trip.tier)trip.done=true;
+              if(mem.autonomy?.wingPriority&&d.bossRetryAt&&now()>=d.bossRetryAt&&mem.autonomy.goal?.missing?.some(n=>getCatalog().monsters?.some(m=>m.boss&&m.drops?.some(([id,p])=>id===n.id&&p>=1))))trip.done=true;
             }else if(trip.phase==='travel'){
               if(!trip.profileReady){
                 await open('auto');await pick('atab','hunt');
