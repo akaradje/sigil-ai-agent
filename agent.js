@@ -625,7 +625,7 @@ async function runCycle() {
     }
     const growth=autonomyPolicy.powerProgression?Development.chooseTask(memory,p.state,catalog):null;
     // Expiring tame offers and unspent points must not starve behind a farming/town loop.
-    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&!automatic?.startsWith('town')&&!['inventory','capacity'].includes(automatic))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&Development.routineReady(memory,p.state))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;try{if(growth==='tame'||!['stats','skills'].includes(planned))await development.run(growth);else await executor.run(planned);}finally{actionInFlight=false;}return;
     }
     if(dnaEnabled&&!critical.includes(planned)&&dnaEngine.canApply(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){

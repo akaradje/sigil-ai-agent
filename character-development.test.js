@@ -15,6 +15,11 @@ test('growth retries have backoff and farming resumes between work slices',()=>{
   d.failures.runes={at:now};assert.equal(D.chooseTask(m,state(),null,now),'cards');
   m.autonomy={resume:{map:'field'}};assert.equal(D.chooseTask(m,state(),null,now),null);
 });
+test('safe development gets time between frequent bag checks, while urgent supplies and active trips keep priority',()=>{
+  const m={autonomy:{bagUsage:[89,100]}},s=state({hpPotions:22,mpPotions:42});assert.equal(D.routineReady(m,s),true);
+  m.autonomy.bagUsage=[95,100];assert.equal(D.routineReady(m,s),false);m.autonomy.bagUsage=[89,100];
+  assert.equal(D.routineReady(m,{...s,hpPotions:10}),false);m.autonomy.trip={kind:'shop'};assert.equal(D.routineReady(m,s),false);
+});
 test('runes use native recommendation, then collected copies before paid crafting',()=>{
   const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}],runeRows:[]};
   assert.deepEqual(D.runeStep(v,{},state()),{act:'rnlearn',id:'comet_rain'});

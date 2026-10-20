@@ -36,6 +36,11 @@ function remember(mem,view,now=Date.now()){
   d.snapshots[section]={...view,at:now};
 }
 function due(d,k,now,ms){return now-(d.last[k]||0)>=ms&&now-(d.failures[k]?.at||0)>=5*MIN;}
+function routineReady(mem,s){
+  const a=mem.autonomy||{},bag=a.bagUsage;
+  return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&
+    s.hpPotions>10&&s.mpPotions>10&&!!bag&&bag[0]<Math.floor(bag[1]*0.95);
+}
 function chooseTask(mem,s,catalog,now=Date.now()){
   if(!s.name||s.dead||!s.hp||mem.uiHealth?.safeIdle)return null;
   const d=init(mem);
@@ -259,4 +264,4 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
   }
   return {run};
 }
-module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
+module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
