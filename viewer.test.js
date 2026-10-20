@@ -2,6 +2,17 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
+test('brain badge distinguishes readiness from actual AI replies, stored plans and live review activity',()=>{
+ const {PAGE}=require('./viewer'),vm=require('node:vm'),start=PAGE.indexOf("const el = $('brain');"),end=PAGE.indexOf('} catch (e)',start);assert.ok(start>0&&end>start);
+ const render=(b,review)=>{const node={};vm.runInNewContext(PAGE.slice(start,end),{b,j:{strategy:{classReview:review}},$:()=>node});return node;};
+ assert.match(render({ready:true,llmOk:0,llmFail:0}).textContent,/ยังไม่เรียก AI/);
+ assert.match(render({ready:true,llmFail:1}).textContent,/ตอบไม่สำเร็จ/);
+ assert.match(render({ready:true,llmOk:1}).textContent,/เคยตอบ/);
+ assert.match(render({llmOk:0},{status:'decision-verified'}).textContent,/แผน AI ล่าสุด/);
+ assert.match(render({reviewingClass:true},{status:'requesting'}).textContent,/กำลังทบทวน/);
+ assert.doesNotMatch(render({reviewingClass:false},{status:'requesting'}).textContent,/กำลังทบทวน/);
+});
+
 test('cognitive card shows observed mastery, curriculum and storage failures as text',()=>{
   const {PAGE}=require('./viewer'),vm=require('node:vm'),nodes=new Map();
   const start=PAGE.indexOf('const cognitive=j.strategy?.cognitive;'),end=PAGE.indexOf('const dnaMode=',start);

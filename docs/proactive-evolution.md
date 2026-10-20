@@ -142,3 +142,9 @@ timestamp without treating a retry request as successful progress.
 An HTTP success or token-limited empty completion does not count as a usable model
 reply. The transport requires nonempty answer text or a tool call before recording
 model availability; class recommendations still require independent evidence validation.
+Two observed recent defeats while the class objective remains stalled preempt another
+boss approach. The controller records the failure, clears the obsolete boss trip and
+uses the existing 20-minute growth/training window before resuming the same quest.
+Intentional training is measured as ordinary combat rather than class-objective idle
+time. Boss arrivals restore HP before native combat activation; neither a route command
+nor a defeat is reported as successful class advancement.

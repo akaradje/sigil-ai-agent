@@ -12,7 +12,7 @@ function snapshot(mem,s,catalog,now){
   if(!s.name||s.dead||s.disconnected||s.atCharSelect||mem.uiHealth?.safeIdle||!t?.validated||t.loading||t.positionFault||!recent(t.checkedAt,now,5000)||pendingReload(mem,now))return null;
   const map=catalog?.maps.find(m=>norm(m.name)===norm(s.zone));if(!map)return null;
   const destination=trip?.map||a.resume?.map||(!map.town&&a.farm?.map);
-  const classGoal=mem.classAdvancement?.character===s.name&&mem.classAdvancement?.from===s.job&&s.jobQuestProgress;
+  const classGoal=now>=(mem.trainingUntil||0)&&mem.classAdvancement?.character===s.name&&mem.classAdvancement?.from===s.job&&s.jobQuestProgress;
   const mode=classGoal?'class':destination&&destination!==map.id?'travel':trip?.kind==='mine'?'mine':trip?.kind==='boss'?'combat':map.town?'town':'combat';
   const resource=d.activityResource;
   if(mode==='mine'&&(!resource||resource.map!==map.id||!recent(resource.at,now,30000)||!finite(resource.level)||!finite(resource.exp)))return null;
@@ -64,7 +64,7 @@ function safeToRecover(mem,s,now=Date.now()){
   const a=mem.autonomy||{},t=mem.gameTelemetry;
   return !!s.name&&!s.dead&&!s.disconnected&&!s.atCharSelect&&!mem.uiHealth?.safeIdle&&t?.validated&&!t.loading&&!t.positionFault&&recent(t.checkedAt,now,5000)&&
     !s.modalText&&!['reserved','unknown'].includes(a.purchase?.status)&&!['confirming','uncertain'].includes(a.saleIntent?.status)&&!pendingReload(mem,now)&&
-    !(a.wingCraft&&a.wingCraft.status!=='equipped')&&!mem.classTrip&&!mem.classBossTrip&&!(mem.classAdvancement&&!mem.classAdvancement.completedAt);
+    !(a.wingCraft&&a.wingCraft.status!=='equipped')&&!mem.classTrip&&!mem.classBossTrip&&!(mem.classAdvancement&&!mem.classAdvancement.completedAt&&now>=(mem.trainingUntil||0));
 }
 function take(mem,s,now=Date.now()){
   const w=init(mem);if(!w.pending||!safeToRecover(mem,s,now))return null;

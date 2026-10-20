@@ -231,6 +231,7 @@ function chooseTask(s,m,now=Date.now()) {
   const objectiveBoss=classBossObjective(s);
   const rewind=/REWIND\s*(\d+)/i.exec(s.bossMechanic||'');
   if(needsTimeEater && /Time Eater/i.test(s.target||'') && rewind && +rewind[1]>=11 && due('boss_break',20000) && s.hp[0]/s.hp[1]>=0.4)return 'boss_break';
+  if(s.jobQuestProgress&&m.deaths.length>=2&&!m.trainingUntil&&classObjectiveStalled(s,m,now)&&due('train',1200000))return 'train';
   if(m.classBossTrip) {
     const wanted=m.classBossTrip.boss||'Time Eater';
     if(objectiveBoss!==wanted) return 'boss_engage';
@@ -240,7 +241,7 @@ function chooseTask(s,m,now=Date.now()) {
         if(classObjectiveStalled(s,m,now)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
         return 'observe';
       }
-      if(classBossAtDestination(m,now))return 'boss_engage';
+      if(classBossAtDestination(m,now))return s.hp[0]/s.hp[1]<0.85?'survive':'boss_engage';
       return now-m.classBossTrip.at<300000||!due('class_boss',120000)?'observe':'class_boss';
     }
     if(String(s.target||'').includes(wanted)&&s.autoQuestMode==='jq')return 'observe';
@@ -405,9 +406,15 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           result='class quest accepted/turned in; native quest runner continues';break;
         }
         case 'train':
+          if(mem.classBossTrip||mem.classBoss){
+            mem.classBossRecovery={at:Date.now(),boss:classBossObjective(before)||mem.classBossTrip?.boss||mem.classBoss.name,objective:before.jobQuestProgress,deaths:mem.deaths.length,reason:'observed-defeats'};
+            mem.classBossTrip=null;if(mem.classAdvancement)mem.classAdvancement.phase='rebuild';save();
+          }
           await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.aq==='mq');
           if(!(await observe()).autoQuestRunning)throw Error('training route not started');
-          mem.trainingUntil=Date.now()+1200000;result='class quest stalled: train story route for 20 min, preserving class progress';break;
+          mem.trainingUntil=Date.now()+1200000;
+          if(mem.classBossRecovery){mem.classBossRecovery.until=mem.trainingUntil;const a=mem.autonomy;if(a){a.events ||= [];a.sequence ||=0;a.events.push({id:++a.sequence,type:'class_rebuild',detail:{boss:mem.classBossRecovery.boss,deaths:mem.deaths.length,minutes:20},at:Date.now()});a.events=a.events.slice(-80);}}
+          result='class quest stalled: train story route for 20 min, preserving class progress';break;
         case 'boss_build': {
           mem.bossBuild ||= {};
           const skill=['fire_bolt','lightning_bolt','blaze','jupiter_thunder','meteor_fall'].find(k=>!mem.bossBuild[k]);
@@ -480,7 +487,7 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
         case 'job_retry':
           await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.aq==='jq');
           if(!(await observe()).autoQuestRunning)throw Error('class quest retry not started');
-          mem.trainingUntil=0;result='retry class quest after training';break;
+          mem.trainingUntil=0;if(mem.classAdvancement)mem.classAdvancement.phase='quest';result='retry class quest after training';break;
         case 'quest':
           await close();
           if(mem.trainingUntil>Date.now())await pick(c=>c.aq==='mq');

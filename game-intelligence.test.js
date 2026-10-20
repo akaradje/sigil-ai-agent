@@ -208,7 +208,7 @@ test('class progress clock survives retry commands, transient missing trackers a
 });
 
 test('generic boss handoff requires fresh validated map and position, not a travel timer or stale target HUD',()=>{
- const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',target:'Ignar the Flame Tyrant'};
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),hp:[1800,1800],job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',target:'Ignar the Flame Tyrant'};
  m.jobQuestAt=now-400000;m.classBossTrip={at:now-100000,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};
  m.gameTelemetry={validated:true,checkedAt:now,map:'other-map',x:500,y:500};assert.equal(IQ.classBossAtDestination(m,now),false);assert.equal(IQ.chooseTask(s,m,now),'observe');
  m.gameTelemetry.map='boss-map';m.gameTelemetry.x=1000;assert.equal(IQ.classBossAtDestination(m,now),false);
@@ -220,6 +220,20 @@ test('verified generic boss engagement enables local native combat without resta
  const now=Date.now(),mem=IQ.freshMemory();let hunt=false;const clicks=[];mem.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};mem.gameTelemetry={validated:true,checkedAt:now,map:'boss-map',x:500,y:500};
  const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...healthy(),job:'Starweaver',autoQuestRunning:false,autoHunt:hunt?'on':'',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',controls:[{id:'autoBtn',on:hunt},{aq:'jq'}]}),click:async c=>{clicks.push(c.id||c.aq);if(c.id==='autoBtn')hunt=true;}});
  assert.equal((await e.run('boss_engage')).ok,true);assert.deepEqual(clicks,['autoBtn']);assert.equal(mem.classBossTrip.fighting,true);assert.ok(mem.classBossTrip.fightAt>=now);
+});
+
+test('observed repeated class defeats stop boss approaches and restore bounded training before a later retry',async()=>{
+ const now=Date.now(),mem=IQ.freshMemory();let mode='jq';const s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1'};
+ mem.jobQuestAt=now-400000;mem.deaths=[now-60000,now-30000];mem.classAdvancement={character:s.name,from:s.job,to:'sage',phase:'quest'};mem.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};
+ assert.equal(IQ.chooseTask(s,mem,now),'train');
+ const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...s,autoQuestRunning:!!mode,autoQuestMode:mode,controls:[...(mode?[{aq:'stop'}]:[]),{aq:'mq'},{aq:'jq'}]}),click:async c=>{mode=c.aq==='stop'?null:c.aq;}});
+ assert.equal((await e.run('train')).ok,true);assert.equal(mem.classBossTrip,null);assert.equal(mem.classBossRecovery.deaths,2);assert.equal(mem.classAdvancement.phase,'rebuild');assert.equal(mode,'mq');assert.ok(mem.trainingUntil>now);assert.equal(mem.jobQuestAt,now-400000);assert.equal(IQ.classWorkflowOwned(s,mem,now),false);
+ mem.trainingUntil=now-1;assert.equal((await e.run('job_retry')).ok,true);assert.equal(mem.classAdvancement.phase,'quest');assert.equal(mode,'jq');assert.equal(mem.jobQuestAt,now-400000);
+});
+
+test('boss arrival first restores low HP before activating combat',()=>{
+ const now=Date.now(),mem=IQ.freshMemory(),s={...healthy(),job:'Starweaver',hp:[900,1800],jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1'};
+ mem.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};mem.gameTelemetry={validated:true,checkedAt:now,map:'boss-map',x:500,y:500};assert.equal(IQ.chooseTask(s,mem,now),'survive');assert.equal(IQ.chooseTask({...s,hp:[1800,1800]},mem,now),'boss_engage');
 });
 
 test('a class boss route selects the actual objective, disables trash hunting, and persists its destination',async()=>{

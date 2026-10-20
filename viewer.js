@@ -535,10 +535,16 @@ async function tickState() {
     if (s.mp && s.mp[1]) $('mpb').style.width = Math.max(0, Math.min(100, s.mp[0] / s.mp[1] * 100)) + '%';
     $('gold').textContent = s.gold ? '◆ ' + s.gold : '–';
     $('zone').textContent = s.zone || '–';
-    $('quest').textContent = s.quest || '–';
+    const recovery=j.strategy?.classBossRecovery;
+    $('quest').textContent = (s.quest || '–')+(recovery?.until>Date.now()?'\\n\\nเอเจนต์พักลองบอสหลังแพ้ต่อเนื่อง ฟาร์มฟื้นกำลังถึง '+new Date(recovery.until).toLocaleTimeString('th-TH')+' แล้วกลับมาเควสต์เดิม':'');
     const el = $('brain');
-    if (b.ready) { el.textContent = 'LLM'; el.className = 'badge llm'; }
-    else { el.textContent = 'policy (LLM รอ)'; el.className = 'badge policy'; }
+    const review=j.strategy?.classReview;
+    if(b.reviewingClass){el.textContent='AI กำลังทบทวน';el.className='badge llm';}
+    else if(review?.status==='decision-verified'){el.textContent='AUTO · แผน AI ล่าสุด';el.className='badge policy';}
+    else if(b.llmFail>0||review?.status==='model-unavailable'){el.textContent='AUTO · AI ตอบไม่สำเร็จ';el.className='badge policy';}
+    else if(b.llmOk>0){el.textContent='AUTO · AI เคยตอบ';el.className='badge policy';}
+    else{el.textContent='AUTO · ยังไม่เรียก AI';el.className='badge policy';}
+    el.title='AI ตอบสำเร็จในโปรเซสนี้ '+(b.llmOk||0)+' ครั้ง / ล้มเหลว '+(b.llmFail||0)+' ครั้ง';
   } catch (e) { /* keep last */ }
 }
 
