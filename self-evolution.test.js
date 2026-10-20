@@ -224,3 +224,13 @@ test('sandbox snapshot stays readable by its unprivileged user with service umas
     await verify({'uptime-worker/monitor.mjs':'// synthetic'},r.engine.dir,'probe');
   }finally{process.umask(previous);}
 });
+
+test('a runtime error opens a repair job even while the HUD still reads',async t=>{
+ const r=fixture(t);
+ const h={...r.h,safeIdle:false,badSince:null,cycleErrorAt:NOW-1000};
+ const res=await r.engine.observe(h,[]);
+ assert.equal(res.processed,true);
+ assert.equal(r.engine.load().jobs[0].reason,'RUNTIME_ERROR');
+ const quiet={...r.h,safeIdle:false,badSince:null,cycleErrorAt:0};
+ assert.equal((await r.engine.observe(quiet,[])).reason,'NO_SUSTAINED_INCIDENT');
+});

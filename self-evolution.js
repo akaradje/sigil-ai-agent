@@ -207,13 +207,17 @@ class SelfEvolutionEngine {
         OPPORTUNITY_REASONS.has(o?.reason)&&/^[a-f0-9]{64}$/.test(o.key||'')&&Number.isFinite(o.at)&&now-o.at>=0&&now-o.at<24*60*MIN&&
         !d.jobs.some(j=>j.opportunityKey===o.key)&&!(d.seenOpportunities||[]).includes(o.key)&&o.evidence&&JSON.stringify(o.evidence).length<6000):null;
       const incident=validHealth(h,now)&&!h.paused&&!h.offline&&!h.login&&!h.expectedReload&&h.safeIdle&&Number.isFinite(h.badSince)&&now-h.badSince>=3*MIN&&h.badSince<=now;
-      if(!incident&&!opportunity)return {processed:false,reason:'NO_SUSTAINED_INCIDENT'};
+      // A runtime error is an incident in its own right: the repair loop must
+      // see it even while the HUD still reads.
+      const errorIncident=validHealth(h,now)&&!h.paused&&!h.offline&&!h.login&&!h.expectedReload&&
+        Number.isFinite(h.cycleErrorAt)&&now-h.cycleErrorAt>=0&&now-h.cycleErrorAt<3*MIN;
+      if(!incident&&!errorIncident&&!opportunity)return {processed:false,reason:'NO_SUSTAINED_INCIDENT'};
       if (d.jobs.some(j => j.status==='READY_REVIEW' || ACTIVE.has(j.status))) return {processed:false,reason:'PATCH_PENDING'};
       if (now-d.lastQueued < 60*MIN || d.jobs.filter(j => now-j.createdAt < 24*60*MIN).length >= 3) return {processed:false,reason:'COOLDOWN'};
       if (typeof this.repair !== 'function' || typeof this.verify !== 'function') fail('SANDBOX_NOT_CONFIGURED');
       const base = this.sources(), fingerprint = sourceFingerprint(this.repoDir);
       if (fingerprint !== h.buildId) fail('SOURCE_CHANGED');
-      const job = {id:crypto.randomUUID(),createdAt:now,reason:incident?'UI_SCHEMA_CHANGED':opportunity.reason,
+      const job = {id:crypto.randomUUID(),createdAt:now,reason:incident?'UI_SCHEMA_CHANGED':errorIncident?'RUNTIME_ERROR':opportunity.reason,
         missing:(h.missing || []).filter(x=>/^[A-Za-z]{1,16}$/.test(x)).slice(0,10),baseHash:hash(JSON.stringify(base))};
       if(!incident&&opportunity){job.opportunityKey=opportunity.key;job.opportunity=JSON.parse(this.redact(JSON.stringify(opportunity.evidence),6000));d.seenOpportunities=[...(d.seenOpportunities||[]),opportunity.key].slice(-128);}
       d.jobs.push(job); d.jobs=d.jobs.slice(-12);d.lastQueued=now;this.event(d,job,'REPAIRING');

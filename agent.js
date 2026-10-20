@@ -709,9 +709,10 @@ async function prepareClassBoss(s){
     await run('class_boss');return true;
   }
   b.blocked='Awaiting a measured equipment gain or a different verified profile; elapsed time cannot unlock retry';
-  // A normal growth profile can change during farming. Reapply and verify before
-  // another trial, and re-audit after material equipment changes.
-  b.growthUntil=now+300000;b.receipts.hunt=null;b.receipts.pot=null;b.receipts.skill=null;b.applied=null;b.staged=false;delete b.audit.equip;
+  // A blocked trial must not keep re-staging the same build: the verified
+  // profile stays applied and the character keeps farming between checks, so
+  // one continuous fight can be measured by the brain.
+  b.growthUntil=now+300000;
   if(a.farm)a.farm.pendingProfile=true;
   if(!s.autoQuestRunning&&!/\bon\b/.test(s.autoHunt||'')&&now-(memory.last.boss_rebuild||0)>60000){await run('boss_rebuild');return true;}
   return false;
