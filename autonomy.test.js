@@ -5,6 +5,17 @@ const A=require('./autonomy');
 const C=require('./game-catalog');
 const {createAvailability}=require('./server-availability');
 const clock=1800000000000;
+test('bounded town inspections reach ordinary surplus before retained option pieces can monopolize the quota',async()=>{
+  const m={},a=A.init(m),c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
+  a.worn=[{uid:'w',slot:'armor',text:'+5 Test Armor'}];a.trip={kind:'shop',phase:'town',at:clock,salesDone:false,salePolicyVersion:2,storageScanned:true};
+  let panel='shop',selected=null,modal=false,gold=200000,sold=[],seen=[],items=[{uid:'rolled',text:'Test Armor',protected:false,rarity:2},{uid:'plain',text:'Test Armor',protected:false,rarity:1}];
+  const observe=async()=>state({zone:'Town',panel,gold,inventoryComplete:true,inventoryItems:{},inventoryGear:items,
+    panelText:'In Bag\nTest Armor\nRefine +0/15'+(selected==='rolled'?'\n✦ DEF +1':''),modalText:modal?'Sell equipment Test Armor for 500 G?':'',
+    controls:[...items.map(g=>({act:'isel',key:'g:'+g.uid})),...(selected?[{act:'isellg',key:selected,label:'Sell 500 G'}]:[]),...(modal?[{label:'Sell'}]:[])]});
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,observe,
+    click:async x=>{if(x.act==='isel'){selected=x.key.slice(2);seen.push(selected);}if(x.act==='isellg')modal=true;if(x.label==='Sell'){sold.push(selected);items=items.filter(g=>g.uid!==selected);gold+=500;modal=false;selected=null;}},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(seen[0],'plain');assert.deepEqual(sold,['plain']);assert.equal(items[0].uid,'rolled');
+});
 test('refinement value uses live chance and class stats rather than the lowest plus alone',()=>{
   const c=catalog();c.gear[1].refinement=Array.from({length:16},(_,r)=>({ore:1,bonus:{atk:r*6,matk:r*6}}));
   c.gear.push({id:'ring',name:'Test Ring',slot:'ring',tier:5,lv:55,refinement:Array.from({length:16},(_,r)=>({ore:1,bonus:{mdef:r}}))});

@@ -418,7 +418,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
       const isWeapon=g=>gearForName(getCatalog(),g.art||g.text)?.slot==='weapon';
       const item=surplusGear(getCatalog(),before,a.worn)
-        .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid]))
+        .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])||(x.rarity??99)-(y.rarity??99))
         .find(g=>!trip.keepUIDs?.includes(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<8));
       if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
