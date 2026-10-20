@@ -164,6 +164,7 @@ class SelfEvolutionEngine {
       fs.unlinkSync(path.join(this.lock,'owner.json'));fs.rmdirSync(this.lock);
     }
     const d = this.load();
+    for(const job of d.jobs)if(job.status==='NO_CHANGE')delete job.failure;
     for (const job of d.jobs) if (ACTIVE.has(job.status)) {job.failure='WORKER_INTERRUPTED';this.event(d,job,'INTERRUPTED');}
     this.save(d);
   }
@@ -225,7 +226,7 @@ class SelfEvolutionEngine {
           job.attempt=attempt;this.event(d,job,'REPAIRING');
           try {
             const p = await this.repair(buildEvolutionPrompt(job,base,d.jobs,feedback,this.redact));
-            if(p&&Array.isArray(p.edits)&&p.edits.length===0&&!p.test){this.event(d,job,'NO_CHANGE');return {processed:true,status:'NO_CHANGE',jobId:job.id};}
+            if(p&&Array.isArray(p.edits)&&p.edits.length===0&&!p.test){delete job.failure;this.event(d,job,'NO_CHANGE');return {processed:true,status:'NO_CHANGE',jobId:job.id};}
             const candidate = validateProposal(p,base,this.redact,OPPORTUNITY_REASONS.has(job.reason)?EDITABLE:REPAIR_EDITABLE);
             // Retain the generated regression in a reviewed test path across deploys/publication.
             candidate.files['cognitive-brain.test.js']+='\n;(()=>{\n'+p.test+'\n})();\n';

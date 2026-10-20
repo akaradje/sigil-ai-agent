@@ -24,7 +24,12 @@ server multipliers and missing fields remain unknown.
 After two continuous idle minutes, a supplied, healthy character with fresh validated
 telemetry may start a bounded native-AUTO probe in the normal eligible level band.
 An existing craft, class, mining, town, storage or recovery task defers it. Attempts
-are separated by ten minutes; hazards and inadequate potions veto input. AUTO target
+are separated by ten minutes; hazards and inadequate potions veto input. A known
+bag with space is required. A due probe precedes ordinary pet/rank
+maintenance; urgent survival, earned point allocation and tame offers retain priority.
+If the current eligible map is unproductive and another eligible route exists, a
+bounded probe tries the next safe route instead of repeatedly selecting the idle map.
+AUTO target
 and activation must be verified in the rendered UI. Reward still requires 60 seconds
 of observed combat warm-up followed by a separate measurement window. Probe clicks
 and walking never count as successful experiments.

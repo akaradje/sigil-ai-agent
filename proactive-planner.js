@@ -37,10 +37,14 @@ function update(mem,s,catalog,now=Date.now()){
 }
 function probeDue(mem,s,catalog,now=Date.now()){
   const p=init(mem);return available(mem,s,catalog,now)&&!managed(mem,s)&&!s.autoQuestRunning&&!mem.autonomy?.resourceHold?.active&&
+    Array.isArray(mem.autonomy?.bagUsage)&&mem.autonomy.bagUsage[1]>0&&mem.autonomy.bagUsage[0]<mem.autonomy.bagUsage[1]*0.95&&
     !mem.autonomy?.blocked&&Number.isFinite(s.hpPotions)&&s.hpPotions>20&&Number.isFinite(s.mpPotions)&&s.mpPotions>20&&
     p.idleSince!==null&&now-p.idleSince>=2*MIN&&now-p.lastProbe>=10*MIN&&!(mem.deaths||[]).some(t=>now-t<5*MIN);
+}
+function prioritizeProbe(mem,s,catalog,{planned,growth}={},now=Date.now()){
+  return !['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class','stats','skills'].includes(planned)&&growth!=='tame'&&probeDue(mem,s,catalog,now);
 }
 function opportunities(mem,knowledge,now=Date.now()){
   return [...(knowledge?.opportunities||[]),...(init(mem).opportunities||[])].filter(o=>now-o.at>=0&&now-o.at<24*60*MIN).slice(-20);
 }
-module.exports={init,managed,available,update,probeDue,opportunities};
+module.exports={init,managed,available,update,probeDue,prioritizeProbe,opportunities};

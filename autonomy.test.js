@@ -140,7 +140,7 @@ function state(extra={}) {return {name:'Hero',job:'Starweaver',lv:'Lv 57',hp:[90
 
 test('idle combat probe selects a normal level-band target and verifies AUTO without touching an active resource trip',async()=>{
  const mem={},a=A.init(mem),c=catalog();c.maps[1].monsters[0].n=10;c.monsters[0].name='Test Mob';
- mem.gameTelemetry={validated:true,checkedAt:clock};mem.proactive={idleSince:clock-120000,lastProbe:0,probeAttempts:0};
+ a.bagUsage=[0,100];mem.gameTelemetry={validated:true,checkedAt:clock};mem.proactive={idleSince:clock-120000,lastProbe:0,probeAttempts:0};
  let hunting=false,panel=null;const clicks=[];
  const controls=[{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true},{id:'autoBtn'}];
  const controller=A.createController({mem,getCatalog:()=>c,now:()=>clock,policy:{proactive:true,goldReserve:100000},

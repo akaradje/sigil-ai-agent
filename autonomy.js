@@ -676,10 +676,11 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const measured=options.filter(m=>a.farmRates[m.id]?.minutes>=2&&now()-a.farmRates[m.id].at<30*MIN&&(!leveling()||a.farmRates[m.id].target===targetFor(m.id,s)?.id)).sort((x,y)=>y.measuredExpPerMinute-x.measuredExpPerMinute);
     const proposal=trialOption(mem,s,getCatalog(),now(),policy);
     const rankedMeasured=missing.length?measured:rankFarmingOptions(measured,mem.cognitive);
-    const best=proposal||(!trial?(!missing.length&&rankedMeasured.length?rankedMeasured[0]:current&&current.score>=options[0].score*0.8?current:options[0]):null);
+    const best=probing?(rankedMeasured.find(m=>m.id!==current?.id)||options.find(m=>m.id!==current?.id)||current||options[0]):
+      proposal||(!trial?(!missing.length&&rankedMeasured.length?rankedMeasured[0]:current&&current.score>=options[0].score*0.8?current:options[0]):null);
     if(!best)return;
-    trial=!!proposal;
-    a.farm={map:best.id,name:best.name,started:now(),returnMap:returnPoint(s),returnMode:s.autoQuestMode||'mq',expectedDrops:best.materialChance,estimate:true,trial,baseline:best.baseline,pendingProfile:leveling()};
+    trial=probing||!!proposal;
+    a.farm={map:best.id,name:best.name,started:now(),returnMap:returnPoint(s),returnMode:probing?'farm':s.autoQuestMode||'mq',expectedDrops:best.materialChance,estimate:true,trial,baseline:best.baseline,pendingProfile:leveling()};
     a.last.farm=now();save();
     await pick(c=>c.aq==='stop',true);
     if(leveling()&&/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');

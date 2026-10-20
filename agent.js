@@ -653,8 +653,9 @@ async function runCycle() {
       actionInFlight=true;try{const result=await executor.run('gear');if(result.ok)memory.autonomy.gearPending=false;saveMemory();}finally{actionInFlight=false;}return;
     }
     const growth=autonomyPolicy.powerProgression?Development.chooseTask(memory,p.state,catalog):null;
+    const urgentProbe=autonomyPolicy.proactive&&Proactive.prioritizeProbe(memory,p.state,catalog,{planned,growth});
     // Expiring tame offers and unspent points must not starve behind a farming/town loop.
-    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&(Development.routineReady(memory,p.state)||growth==='growth_materials'&&Development.materialReady(memory,p.state)))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+    if(!urgentProbe&&!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&(Development.routineReady(memory,p.state)||growth==='growth_materials'&&Development.materialReady(memory,p.state)))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;try{if(growth==='tame'||!['stats','skills'].includes(planned))await development.run(growth);else await executor.run(planned);}finally{actionInFlight=false;}return;
     }
     if(dnaEnabled&&!critical.includes(planned)&&dnaEngine.canApply(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
@@ -663,6 +664,9 @@ async function runCycle() {
       catch{dnaEnabled=false;memory.dna={enabled:false,genes:DNA.genes()};memory.last.combat=0;}
       finally{actionInFlight=false;}
       return;
+    }
+    if(autonomyPolicy.enabled&&urgentProbe&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      actionInFlight=true;try{await autonomy.run('combat_probe');}finally{actionInFlight=false;}return;
     }
     if(autonomyPolicy.enabled&&!critical.includes(planned)&&IQ.rankDue(memory)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3) {
       actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}

@@ -2,7 +2,7 @@
 const {test}=require('node:test'),a=require('node:assert/strict'),P=require('./proactive-planner'),DNA=require('./strategy-dna');
 const MIN=60000,NOW=200*MIN;
 function fixture(){const catalog={fingerprint:'patch',levelCap:100,jobs:{mage:{line:['mage'],weapon:'staff'}},gear:[],maps:[],expByLevel:Object.fromEntries(Array.from({length:101},(_,i)=>[i,100]))};
- return {s:{name:'test',job:'Mage',lv:'Lv 76',zone:'Field',exp:20,gold:100000,hp:[100,100],hpPotions:50,mpPotions:50},m:{gameTelemetry:{validated:true,checkedAt:NOW},autonomy:{},equipment:{power:100},cognitive:{workingMemory:{learningPhase:'waiting-for-combat'}}},catalog};}
+ return {s:{name:'test',job:'Mage',lv:'Lv 76',zone:'Field',exp:20,gold:100000,hp:[100,100],hpPotions:50,mpPotions:50},m:{gameTelemetry:{validated:true,checkedAt:NOW},autonomy:{bagUsage:[0,100]},equipment:{power:100},cognitive:{workingMemory:{learningPhase:'waiting-for-combat'}}},catalog};}
 test('two minute cold-start probe respects fresh telemetry, work ownership, health, potions and cooldown',()=>{
  const {s,m,catalog}=fixture();P.update(m,s,catalog,NOW);m.gameTelemetry.checkedAt=NOW+2*MIN;P.update(m,s,catalog,NOW+2*MIN);
  a.equal(P.probeDue(m,s,catalog,NOW+2*MIN),true);
@@ -28,4 +28,11 @@ test('a combat window interrupted by managed work cannot establish a plateau',()
  const {s,m,catalog}=fixture();for(let i=0;i<=40;i++){const now=NOW+i*MIN;m.gameTelemetry.checkedAt=now;m.combatTelemetry={lastDamage:{zone:s.zone,at:now}};
   m.autonomy.trip=i===20?{kind:'shop'}:null;P.update(m,s,catalog,now);}
  a.equal(P.init(m).opportunities.length,0);
+});
+test('due combat probes precede ordinary pet/rank/configuration work but never safety, earned points, tame offers or a full bag',()=>{
+ const {s,m,catalog}=fixture();P.init(m).idleSince=NOW-2*MIN;
+ a.equal(P.prioritizeProbe(m,s,catalog,{planned:'configure',growth:'pets'},NOW),true);
+ for(const planned of ['revive','survive','class','stats','skills'])a.equal(P.prioritizeProbe(m,s,catalog,{planned,growth:'pets'},NOW),false);
+ a.equal(P.prioritizeProbe(m,s,catalog,{planned:'configure',growth:'tame'},NOW),false);
+ m.autonomy.bagUsage=[95,100];a.equal(P.probeDue(m,s,catalog,NOW),false);
 });
