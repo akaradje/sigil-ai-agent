@@ -25,6 +25,12 @@ test('native 60-percent potion cycling does not starve nonintrusive development'
   assert.equal(D.routineReady(m,s),true);assert.equal(D.chooseTask(m,s,{},now),'pets');
   assert.equal(D.routineReady(m,{...s,hp:[400,1000]}),false);assert.equal(D.chooseTask(m,{...s,hp:[400,1000]},null,now),null);
 });
+test('duplicate offers cannot monopolize development or fill the ranch with one species',()=>{
+  const d={snapshots:{ranch:{pets:[{name:'Storm Narwhal'},{name:'Storm Narwhal'}]}}};
+  assert.equal(D.worthOffer(d,state({tameOffer:'Storm Narwhal\nLv 66 · wants to join'})),false);
+  assert.equal(D.worthOffer(d,state({tameOffer:'Gloom Nautilus\nLv 68 · wants to join'})),true);
+  d.snapshots.ranch.pets=Array.from({length:10},()=>({name:'Other'}));assert.equal(D.worthOffer(d,state({tameOffer:'Rare boss'})),false);
+});
 test('runes use native recommendation, then collected copies before paid crafting',()=>{
   const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}],runeRows:[]};
   assert.deepEqual(D.runeStep(v,{},state()),{act:'rnlearn',id:'comet_rain'});

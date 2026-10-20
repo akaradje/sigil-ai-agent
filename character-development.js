@@ -41,18 +41,25 @@ function routineReady(mem,s){
   return !a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.45&&
     s.hpPotions>10&&s.mpPotions>10&&!!bag&&bag[0]<Math.floor(bag[1]*0.95);
 }
+function worthOffer(d,s){
+  const pets=d.snapshots?.ranch?.pets||[],offer=norm(s.tameOffer);
+  if(pets.length>=10)return false;
+  return !offer||pets.filter(p=>offer.startsWith(norm(p.name))).length<2;
+}
 function chooseTask(mem,s,catalog,now=Date.now()){
   if(!s.name||s.dead||!s.hp||mem.uiHealth?.safeIdle)return null;
   const d=init(mem);
   if(d.excursion)return 'growth_materials';
   if(s.hp[0]/s.hp[1]<0.45)return null;
-  if(s.controls?.some(c=>c.id==='tameYes')&&due(d,'tame',now,5000))return 'tame';
+  const offered=s.controls?.some(c=>c.id==='tameYes');
+  if(offered&&worthOffer(d,s)&&due(d,'tame',now,5000))return 'tame';
   if(mem.autonomy?.resume||mem.autonomy?.farm?.pendingProfile||mem.autonomy?.trip||s.autoQuestMode==='jq')return null;
   if(due(d,'pets',now,10*MIN))return 'pets';
   if(due(d,'growth_buffs',now,5*MIN))return 'growth_buffs';
   if(['Mage','Starweaver','Sage'].includes(s.job)&&due(d,'runes',now,d.runesPending?MIN:10*MIN))return 'runes';
   if(due(d,'cards',now,d.cardsPending?MIN:20*MIN))return 'cards';
   if(due(d,'growth_evolutions',now,d.evolutionsPending?5*MIN:60*MIN))return 'growth_evolutions';
+  if(offered&&!worthOffer(d,s)&&due(d,'tame_decline',now,30000))return 'tame_decline';
   if(due(d,'growth_rewards',now,30*MIN))return 'growth_rewards';
   if(due(d,'growth_audit',now,15*MIN))return 'growth_audit';
   if(catalog?.development?.mining&&mem.autonomy?.powerProgression&&mem.autonomy?.goal?.missing?.length&&due(d,'growth_materials',now,30*MIN))return 'growth_materials';
@@ -150,6 +157,8 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
         await pick('#tameYes');await open('ranch');const pets=await view();
         if(!pets?.pets?.length)throw Error('Pet acquisition not acknowledged');
         record(task,'Pet acquired through live offer');d.last.pets=0;
+      }else if(task==='tame_decline'){
+        const s=await observe();if(worthOffer(d,s))throw Error('Pet offer changed');await pick('#tameNo');
       }else if(task==='pets'){
         await open('ranch');let v=await view(),best=bestPet(v?.pets),active=v?.pets?.find(p=>p.active);
         if(best&&!active){await pick('peton',best.id);v=await view();if(!v.pets.some(p=>p.id===best.id&&p.active))throw Error('Summon not acknowledged');record(task,'Summoned '+best.name);}
@@ -264,4 +273,4 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
   }
   return {run};
 }
-module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
+module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,worthOffer,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
