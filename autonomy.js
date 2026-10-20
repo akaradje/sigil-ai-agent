@@ -432,6 +432,13 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       return;
     }
+    if(trip.kind==='capacity'){
+      if(!['reserved','unknown'].includes(a.purchase?.status)){
+        await open('prem');await pick(c=>c.act==='crtab'&&c.key==='shop');await buyCapacity();
+        await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);await state();
+      }
+      trip.capacityServiced=true;trip.kind='shop';trip.progressAt=now();return;
+    }
     if(trip.phase==='return'){
       if(policy.sellSurplus&&trip.salesDone!==true){trip.kind='shop';trip.phase='town';trip.progressAt=now();save();return;}
       if(Hygiene.due(mem,now(),policy.sessionRefreshHours||6)&&!trip.hygiene?.failed) {
@@ -454,7 +461,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await resume(trip);return;
     }
     if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
-    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now()))trip.kind='liquidate';
+    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())&&
+      (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
       const names={smith:/Talk to (?:Blacksmith|Smith)|คุย.*(?:ช่างตีเหล็ก|ตีบวก)/i,storage:/Talk to Storage|คุย.*คลัง/i,shop:/Talk to Shop|คุย.*ร้านขาย/i,church:/Talk to (?:Cathedral|Church)|คุย.*(?:โบสถ์|มหาวิหาร)/i};
@@ -469,6 +477,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       if(s.panel!==panel)return;
     }
+    if(trip.serviceReached!==trip.kind){trip.serviceReached=trip.kind;trip.progressAt=now();}
     if(trip.kind==='forge'){
       if(policy.powerProgression&&!trip.runesServiced&&developAtSmith&&mem.development?.runeSmithNeeded){
         trip.runesServiced=true;await developAtSmith();trip.progressAt=now();return;
@@ -578,8 +587,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         }
       }
     }
-    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';return;}
-    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';return;}
+    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageCleanup?.requestedAt&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
+    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&a.bagUsage?.[0]>=Math.floor(a.bagUsage?.[1]*0.95)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+      trip.kind='capacity';trip.progressAt=now();return;
+    }
+    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';trip.progressAt=now();return;}
+    if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
     if(trip.kind==='forge'||!policy.powerProgression)a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {

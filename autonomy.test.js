@@ -94,6 +94,20 @@ test('equipped refinement batches two bounded steps without re-equipping after e
     click:async c=>{if(c.act==='refine'){r++;gold-=400;}},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(r,2);assert.equal(a.trip.powerActions,2);assert.equal(a.trip.powerSpent,800);assert.notEqual(a.gearPending,true);
 });
+test('completed surplus sales can release bounded bag capacity for power progression',async()=>{
+  const m={},a=A.init(m);a.bagUsage=[95,100];a.trip={kind:'shop',phase:'town',at:clock-240000,salePolicyVersion:2,salesDone:true,storageScanned:true};
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{powerProgression:true,sellSurplus:true,crystalBudget:5000,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',hpPotions:30,mpPotions:30,panelText:'Return Scroll have 10\nFocus Tonic have 5',controls:[]}),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.trip.kind,'capacity');assert.equal(a.trip.progressAt,clock);
+});
+test('spent crystal allowance does not expand; ready forge work precedes an optional bank audit',async()=>{
+  const m={},a=A.init(m);a.bagUsage=[95,100];a.premium.reserved=5000;a.trip={kind:'shop',phase:'town',at:clock,salePolicyVersion:2,salesDone:true};a.storageUsage=[40,100];
+  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{powerProgression:true,sellSurplus:true,crystalBudget:5000,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',hpPotions:30,mpPotions:30,panelText:'Return Scroll have 10\nFocus Tonic have 5',controls:[]}),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await c.run('town');assert.equal(a.trip.kind,'forge');assert.equal(a.premium.reserved,5000);
+  a.bagUsage=[70,100];a.trip={kind:'shop',phase:'town',at:clock,salePolicyVersion:2,salesDone:true};
+  await c.run('town');assert.equal(a.trip.kind,'forge');
+});
 
 test('character cap is dynamic; job mastery and zero progress do not imply character cap',()=>{
   assert.equal(C.resolveCap(state({jobExpText:'JOB MASTER',expText:'EXP 0%'}),null).atCap,false);
