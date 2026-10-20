@@ -129,3 +129,9 @@ or a verified boss-respawn wait. Model failures retain deterministic recovery. R
 unsuccessful reviews publish fresh objective evidence to the existing repair pipeline.
 `classReview` records attempted requests, validation and selected tasks separately from
 observed progress; enabling native AUTO alone never demonstrates model participation.
+Generic boss approaches retain their observed destination for up to five minutes;
+handoff requires a fresh validated position near that exact map/coordinate. Local native
+combat then owns the fight, so restarting the class runner cannot pull the character
+back to an obsolete boss-spawn map. The bounded class review uses a small 400-token
+response and 60-second request deadline; a failed model request may retry after one
+minute while retaining the same three-per-hour budget.

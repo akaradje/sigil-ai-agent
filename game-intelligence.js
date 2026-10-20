@@ -142,7 +142,13 @@ function classObjectiveStalled(s,m,now=Date.now()){
 }
 function classReviewDue(s,m,now=Date.now()){
   const r=m.classReview||{},history=(r.history||[]).filter(at=>now>=at&&now-at<3600000);
-  return classObjectiveStalled(s,m,now)&&!m.classBossTrip&&now-(r.at||0)>=300000&&history.length<3;
+  const trip=m.classBossTrip,tripBusy=trip&&now-(trip.fightAt||trip.at)<300000;
+  return classObjectiveStalled(s,m,now)&&!tripBusy&&now-(r.at||0)>=(r.status==='model-unavailable'?60000:300000)&&history.length<3;
+}
+function classBossAtDestination(m,now=Date.now()){
+  const trip=m.classBossTrip,t=m.gameTelemetry,[map,x,y]=String(trip?.key||'').split(',');
+  return !!trip&&t?.validated&&!t.loading&&!t.positionFault&&now>=t.checkedAt&&now-t.checkedAt<=5000&&t.map===map&&
+    [t.x,t.y,Number(x),Number(y)].every(Number.isFinite)&&Number(x)>0&&Number(y)>0&&Math.hypot(t.x-Number(x),t.y-Number(y))<=192;
 }
 function classReviewTask(s,m,response,now=Date.now()){
   let decision;try{if(typeof response!=='string'||response.length>2000)return null;decision=JSON.parse(response);}catch{return null;}
@@ -218,8 +224,17 @@ function chooseTask(s,m,now=Date.now()) {
   if(needsTimeEater && /Time Eater/i.test(s.target||'') && rewind && +rewind[1]>=11 && due('boss_break',20000) && s.hp[0]/s.hp[1]>=0.4)return 'boss_break';
   if(m.classBossTrip) {
     const wanted=m.classBossTrip.boss||'Time Eater';
-    if(objectiveBoss===wanted&&String(s.target||'').includes(wanted)&&s.autoQuestMode==='jq')return 'observe';
     if(objectiveBoss!==wanted) return 'boss_engage';
+    if(!needsTimeEater){
+      if(m.classBossTrip.fighting){
+        if(!/\bon\b/.test(s.autoHunt||'')&&classBossAtDestination(m,now))return 'boss_engage';
+        if(classObjectiveStalled(s,m,now)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
+        return 'observe';
+      }
+      if(classBossAtDestination(m,now))return 'boss_engage';
+      return now-m.classBossTrip.at<300000||!due('class_boss',120000)?'observe':'class_boss';
+    }
+    if(String(s.target||'').includes(wanted)&&s.autoQuestMode==='jq')return 'observe';
     return now-m.classBossTrip.at<90000?'observe':'boss_engage';
   }
   if(needsTimeEater&&!s.autoQuestRunning&&due('job_retry',30000))return 'job_retry';
@@ -442,6 +457,14 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
         }
         case 'boss_engage':
           await close();
+          if(mem.classBossTrip?.boss===classBossObjective(before)&&!/Chrono Gear\s*0\s*\/\s*1/i.test(before.jobQuestProgress||'')){
+            if(!classBossAtDestination(mem))throw Error('Boss destination not yet verified');
+            await pick(c=>c.aq==='stop',true);
+            if(!/\bon\b/.test((await observe()).autoHunt||''))await pick(c=>c.id==='autoBtn');
+            if(!/\bon\b/.test((await observe()).autoHunt||''))throw Error('Native boss combat activation not confirmed');
+            mem.classBossTrip.fighting=true;mem.classBossTrip.fightAt ||=Date.now();
+            result='native combat enabled at verified '+mem.classBossTrip.boss+' destination; waiting for observed quest credit';break;
+          }
           if(!(await observe()).autoQuestRunning)await pick(c=>c.aq==='jq');
           mem.classBossTrip=null;mem.last.class_boss=Date.now();
           result='job quest combat resumed after boss approach; ready to turn in if item acquired';break;
@@ -495,4 +518,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,classBossObjective,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

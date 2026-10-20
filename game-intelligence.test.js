@@ -175,7 +175,7 @@ test('trash EXP and damage cannot hide a stalled Sage boss objective; actual bos
  m.jobQuestAt=now-180000;m.combatTelemetry={lastDamage:{zone:s.zone,at:now}};
  assert.equal(IQ.classBossObjective(s),'Ignar the Flame Tyrant');assert.equal(IQ.classObjectiveStalled(s,m,now),true);assert.equal(IQ.chooseTask(s,m,now),'class_boss');
  s.target='Lv 66 Ignar the Flame Tyrant';assert.equal(IQ.classObjectiveStalled(s,m,now),false);assert.equal(IQ.chooseTask(s,m,now),'observe');
- m.classBossTrip={at:now,boss:'Ignar the Flame Tyrant'};assert.equal(IQ.chooseTask({...s,target:''},m,now+60000),'observe');assert.equal(IQ.chooseTask({...s,target:''},m,now+90001),'boss_engage');
+ m.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};assert.equal(IQ.chooseTask({...s,target:''},m,now+60000),'observe');assert.equal(IQ.chooseTask({...s,target:''},m,now+90001),'observe');assert.equal(IQ.chooseTask({...s,target:''},m,now+300001),'class_boss');
 });
 
 test('stalled class model reviews use durable cooldown/budget and only verified gameplay decisions',()=>{
@@ -185,7 +185,23 @@ test('stalled class model reviews use durable cooldown/budget and only verified 
  assert.equal(IQ.classReviewTask({...s,autoQuestRunning:false,controls:[{aq:'jq'}]},m,'{"action":"resume_quest"}',now),'job_retry');
  m.classBoss={name:'Ignar the Flame Tyrant',up:false,at:now};assert.equal(IQ.classReviewTask(s,m,'{"action":"wait"}',now),'observe');
  m.classReview={at:now,history:[now]};assert.equal(IQ.classReviewDue(s,m,now+10000),false);
+ m.classReview.status='model-unavailable';assert.equal(IQ.classReviewDue(s,m,now+60001),true);
  m.classReview=JSON.parse(JSON.stringify({at:now-300001,history:[now-300001,now-600000,now-900000]}));assert.equal(IQ.classReviewDue(s,m,now),false);
+});
+
+test('generic boss handoff requires fresh validated map and position, not a travel timer or stale target HUD',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',target:'Ignar the Flame Tyrant'};
+ m.jobQuestAt=now-400000;m.classBossTrip={at:now-100000,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};
+ m.gameTelemetry={validated:true,checkedAt:now,map:'other-map',x:500,y:500};assert.equal(IQ.classBossAtDestination(m,now),false);assert.equal(IQ.chooseTask(s,m,now),'observe');
+ m.gameTelemetry.map='boss-map';m.gameTelemetry.x=1000;assert.equal(IQ.classBossAtDestination(m,now),false);
+ m.gameTelemetry.x=600;assert.equal(IQ.classBossAtDestination(m,now),true);assert.equal(IQ.chooseTask(s,m,now),'boss_engage');
+ m.gameTelemetry.checkedAt=now-6000;assert.equal(IQ.classBossAtDestination(m,now),false);
+});
+
+test('verified generic boss engagement enables local native combat without restarting the wrong quest route',async()=>{
+ const now=Date.now(),mem=IQ.freshMemory();let hunt=false;const clicks=[];mem.classBossTrip={at:now,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};mem.gameTelemetry={validated:true,checkedAt:now,map:'boss-map',x:500,y:500};
+ const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...healthy(),job:'Starweaver',autoQuestRunning:false,autoHunt:hunt?'on':'',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',controls:[{id:'autoBtn',on:hunt},{aq:'jq'}]}),click:async c=>{clicks.push(c.id||c.aq);if(c.id==='autoBtn')hunt=true;}});
+ assert.equal((await e.run('boss_engage')).ok,true);assert.deepEqual(clicks,['autoBtn']);assert.equal(mem.classBossTrip.fighting,true);assert.ok(mem.classBossTrip.fightAt>=now);
 });
 
 test('a class boss route selects the actual objective, disables trash hunting, and persists its destination',async()=>{
