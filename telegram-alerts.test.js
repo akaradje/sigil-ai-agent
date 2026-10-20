@@ -12,6 +12,13 @@ function sample(change = {}, brain = {}) {
 }
 function keys(e) { return e.db.pending.map((v) => v.key); }
 
+test('activity recovery alerts distinguish attempts from verified success and persist their cursor',()=>{
+ const s=sample();s.agent.strategy={autonomy:{events:[{id:1,type:'activity_recovery',detail:{reason:'COMBAT_IDLE',action:'resume'}}]}};
+ let e=new AlertEngine({},start);e.observe(s,start);let alerts=e.db.pending.filter(p=>p.key.startsWith('autonomy:'));assert.equal(alerts.length,1);assert.match(alerts[0].text,/รอยืนยัน/);assert.doesNotMatch(alerts[0].text,/กู้อาการค้างแล้ว/);
+ e.acknowledge(e.db.pending);e=new AlertEngine(JSON.parse(JSON.stringify(e.db)),start+MIN);e.observe(s,start+MIN);assert.equal(e.db.pending.filter(p=>p.key.startsWith('autonomy:')).length,0);
+ s.agent.strategy.autonomy.events.push({id:2,type:'activity_recovered',detail:{}},{id:3,type:'activity_escalated',detail:{reason:'MINING_STALLED'}});e.observe(s,start+MIN);alerts=e.db.pending.filter(p=>p.key.startsWith('autonomy:'));assert.equal(alerts.length,2);assert.ok(alerts.some(a=>a.text.includes('ความคืบหน้าจริง')));
+});
+
 test('publication alert requires a verified commit link and retains deduplication through restart',()=>{
  const s=sample();s.publication={identity:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',events:[{id:1,jobId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',status:'PUBLISHED',commit:'c'.repeat(40),purpose:'VERIFIED_GROWTH_PLATEAU',files:['strategy-dna.js']}]};
  let engine=new AlertEngine({},start);engine.observe(s,start);const events=engine.db.pending.filter(e=>e.key.startsWith('publication:'));

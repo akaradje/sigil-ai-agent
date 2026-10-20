@@ -7,12 +7,12 @@ const crypto = require('node:crypto');
 const MIN = 60_000;
 const REPAIR_EDITABLE = Object.freeze(['game-intelligence.js', 'game-telemetry.js', 'ui-resilience.js', 'cognitive-brain.js', 'cognitive-brain.test.js']);
 const EDITABLE = Object.freeze([...REPAIR_EDITABLE,'progression.js','character-development.js','strategy-dna.js']);
-const OPPORTUNITY_REASONS=new Set(['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL']);
+const OPPORTUNITY_REASONS=new Set(['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL','VERIFIED_ACTIVITY_STALL']);
 const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'game-intelligence.js',
-  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js', 'cognitive-brain.js', 'runtime-paths.js','world-knowledge.js','proactive-planner.js']);
+  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js', 'cognitive-brain.js', 'runtime-paths.js','world-knowledge.js','proactive-planner.js','activity-watchdog.js']);
 const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'character-development.test.js', 'ui-resilience.test.js',
   'game-telemetry.test.js', 'progression.test.js', 'session-hygiene.test.js', 'strategy-dna.test.js',
-  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs', 'cognitive-brain.test.js', 'runtime-paths.test.js','world-knowledge.test.js','proactive-planner.test.js','self-publication.test.js']);
+  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs', 'cognitive-brain.test.js', 'runtime-paths.test.js','world-knowledge.test.js','proactive-planner.test.js','self-publication.test.js','activity-watchdog.test.js']);
 const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'package.json', 'supervisor.js', 'telegram-alerts.js', 'viewer.js',
   'self-evolution.js', 'self-evolution-runner.js', 'self-deployment.js', 'self-healing-check.js', 'self-publication.js','uptime-worker/monitor.mjs', 'scripts/migrate-state.js','scripts/check-public-files.py','scripts/check-public-paths.py','scripts/test_check_public_files.py'])]);
 const ACTIVE = new Set(['REPAIRING', 'VERIFYING']);
@@ -73,7 +73,9 @@ function healthSnapshot({memory, bootId, buildId, completedAt, paused, availabil
   return { updatedAt: completedAt, observedAt: h.checkedAt || 0, bootId, buildId,
     safeIdle: Boolean(h.safeIdle), badSince: h.badSince || null, paused: Boolean(paused),
     offline: availability?.status === 'down', login: Boolean(h.login),
-    expectedReload: Boolean(memory.sessionHygiene?.pending || memory.positionRecovery?.pending || memory.uiRecovery?.pending&&now-memory.uiRecovery.at<90000),
+    expectedReload: [memory.sessionHygiene?.pending,memory.positionRecovery,memory.uiRecovery].some(r=>r&&r.pending!==false&&Number.isFinite(r.at)&&now>=r.at&&now-r.at<90000)||Boolean(memory.activityWatchdog?.incident?.lastAction==='reload'&&now>=memory.activityWatchdog.incident.attemptedAt&&now-memory.activityWatchdog.incident.attemptedAt<90000),
+    activityStalled:Boolean(memory.activityWatchdog?.incident?.attemptedAt)||['recovery-pending','verifying','escalated'].includes(memory.activityWatchdog?.status),
+    activity:{status:memory.activityWatchdog?.status||'observing',mode:memory.activityWatchdog?.baseline?.mode||null,lastObservedAt:memory.activityWatchdog?.lastAt||null,lastRecoveryAt:memory.activityWatchdog?.lastRecovery?.at||null},
     cycleErrorAt,completedCycles,dead:Boolean(state.dead),positionFault:Boolean(memory.gameTelemetry?.positionFault),
     missing: (h.missing || []).filter(x => ['name','job','level','jobLevel','hp','mp','gold','crystals','zone','exp'].includes(x)) };
 }
@@ -81,7 +83,7 @@ function healthSnapshot({memory, bootId, buildId, completedAt, paused, availabil
 function evaluateCanaryHealth(h, start, baseline = {}, now = Date.now()) {
   if (!Number.isFinite(start) || start>now || !validHealth(h, now) || !/^[a-f0-9-]{36}$/.test(baseline.bootId||'') || h.updatedAt <= start || h.bootId === baseline.bootId || h.buildId !== baseline.candidateBuildId)
     return {healthy:false, reason:'UNVERIFIED_HEARTBEAT'};
-  if (h.fatalCrash || h.safeIdle || h.paused || h.offline || h.login || h.expectedReload || h.lastError || h.cycleErrorAt>=start || h.dead || h.positionFault)
+  if (h.fatalCrash || h.safeIdle || h.paused || h.offline || h.login || h.expectedReload || h.lastError || h.cycleErrorAt>=start || h.dead || h.positionFault || h.activityStalled)
     return {healthy:false, abortImmediately:Boolean(h.fatalCrash), reason:'RUNTIME_UNHEALTHY'};
   if (baseline.expPerMin > 0 && (!h.eligible || typeof baseline.context!=='string' || !baseline.context || h.context !== baseline.context || !Number.isFinite(h.expPerMin)))
     return {healthy:false, reason:'INCOMPARABLE_EXP_SAMPLE'};

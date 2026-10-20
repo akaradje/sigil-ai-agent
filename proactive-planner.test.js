@@ -1,6 +1,12 @@
 'use strict';
 const {test}=require('node:test'),a=require('node:assert/strict'),P=require('./proactive-planner'),DNA=require('./strategy-dna');
 const MIN=60000,NOW=200*MIN;
+test('verified activity escalation creates one repair opportunity; pending or stale suspicions do not',()=>{
+ const {s,m,catalog}=fixture();m.activityWatchdog={status:'recovery-pending',incident:{id:1,reason:'COMBAT_IDLE'},evidence:{at:NOW,samples:40,durationSec:600,map:'field',mode:'combat',attempts:3}};
+ P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.length,0);
+ m.activityWatchdog.status='escalated';P.update(m,s,catalog,NOW);P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.filter(o=>o.reason==='VERIFIED_ACTIVITY_STALL').length,1);
+ P.init(m).opportunities=[];m.activityWatchdog.evidence.at=NOW-61*MIN;P.update(m,s,catalog,NOW);a.equal(P.init(m).opportunities.length,0);
+});
 function fixture(){const catalog={fingerprint:'patch',levelCap:100,jobs:{mage:{line:['mage'],weapon:'staff'}},gear:[],maps:[],expByLevel:Object.fromEntries(Array.from({length:101},(_,i)=>[i,100]))};
  return {s:{name:'test',job:'Mage',lv:'Lv 76',zone:'Field',exp:20,gold:100000,hp:[100,100],hpPotions:50,mpPotions:50},m:{gameTelemetry:{validated:true,checkedAt:NOW},autonomy:{bagUsage:[0,100]},equipment:{power:100},cognitive:{workingMemory:{learningPhase:'waiting-for-combat'}}},catalog};}
 test('two minute cold-start probe respects fresh telemetry, work ownership, health, potions and cooldown',()=>{

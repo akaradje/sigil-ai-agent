@@ -67,6 +67,15 @@ test('snapshot exports only enumerated health fields, never arbitrary runtime/er
     bootId,buildId,completedAt:NOW,paused:false},NOW);
   assert.deepEqual(h.missing,['hp']);assert.equal(JSON.stringify(h).includes('SYNTHETIC_PRIVATE'),false);
 });
+
+test('activity stalls reject a live canary and old reload flags cannot defer repair forever',()=>{
+ const memory={uiHealth:{checkedAt:NOW},positionRecovery:{pending:true,at:NOW-120000},activityWatchdog:{status:'verifying',incident:{attemptedAt:NOW-10000},baseline:{mode:'mine'}}};
+ const h=E.healthSnapshot({memory,bootId,buildId,completedAt:NOW,paused:false},NOW);
+ assert.equal(h.expectedReload,false);assert.equal(h.activityStalled,true);
+ assert.equal(E.evaluateCanaryHealth(h,NOW-2000,{bootId:crypto.randomUUID(),candidateBuildId:buildId},NOW).reason,'RUNTIME_UNHEALTHY');
+ memory.positionRecovery.at=NOW-1000;assert.equal(E.healthSnapshot({memory},NOW).expectedReload,true);
+ assert.ok(E.SOURCES.includes('activity-watchdog.js'));assert.ok(E.SOURCES.includes('activity-watchdog.test.js'));assert.equal(E.EDITABLE.includes('activity-watchdog.js'),false);
+});
 test('proposals cannot traverse paths, edit protected tests, delete or ambiguously replace code',()=>{
   const p=proposal(),base={'ui-resilience.js':'// synthetic unit fixture marker'};
   assert.equal(E.validateProposal(p,base).changed.length,2);

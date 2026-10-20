@@ -20,6 +20,7 @@ const IQ = require('./game-intelligence');
 const UI = require('./ui-resilience');
 const Telemetry = require('./game-telemetry');
 const Progression = require('./progression');
+const Activity = require('./activity-watchdog');
 const Hygiene = require('./session-hygiene');
 const DNA = require('./strategy-dna');
 const Autonomy = require('./autonomy');
@@ -600,6 +601,7 @@ async function runPolicy(s) {
 
 // ------------------------------------------------------------------ cycle
 let busy = false;
+let cycleStartedAt=0;
 let cycle = 0;
 let paused = false;
 let directive = '';
@@ -607,6 +609,7 @@ let directive = '';
 async function runCycle() {
   if (busy || paused || availability.blocked()) return;
   busy = true;
+  cycleStartedAt=Date.now();
   cycle++;
   try {
     const p = await perceive(false);
@@ -647,6 +650,18 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(memory.activityWatchdog?.pending&&!critical.includes(planned)){
+      if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
+      const action=Activity.take(memory,p.state);
+      if(action){
+        saveMemory();actionInFlight=true;
+        try{await Activity.recover(memory,p.state,action,{autonomy,development,executor,catalog,policy:autonomyPolicy,persist:saveMemory,
+          reload:()=>evalIn("setTimeout(()=>location.reload(),100);'activity recovery reload scheduled'"),
+          restart:()=>{saveMemory();setTimeout(()=>process.exit(75),100);}});}
+        finally{actionInFlight=false;saveMemory();}
+        return;
+      }
+    }
     if(autonomyPolicy.proactive&&!automatic&&planned==='observe'&&worldKnowledge.nextPanelProbe()&&
       Date.now()-(Proactive.init(memory).lastDiscovery||0)>10*60000&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       Proactive.init(memory).lastDiscovery=Date.now();actionInFlight=true;
@@ -862,6 +877,9 @@ setTimeout(() => runCycle().catch((e) => log('first ' + e.message)), 4000);
 
 // Independent bounded panel watchdog also runs while a remote model call is waiting.
 setInterval(async()=>{
+  if(Activity.cycleHung(memory,{busy,startedAt:cycleStartedAt,paused,offline:availability.blocked()})){
+    Activity.reserveRestart(memory);saveMemory();log('activity watchdog: stalled cycle, requesting service restart');process.exit(75);
+  }
   if(paused||cleanupBusy||actionInFlight||availability.blocked())return;
   cleanupBusy=true;
   try {
@@ -880,6 +898,7 @@ setInterval(()=>{if(fastBossMode&&!busy&&!paused)runCycle().catch(e=>log('boss r
 
 // Read-only combat sampling never clicks, spends or changes the native hunt loop.
 let samplingCombat=false;
+let activityResourceAt=0,activitySavedAt=0;
 setInterval(async()=>{
   if(samplingCombat||paused||availability.blocked())return;
   samplingCombat=true;
@@ -894,10 +913,18 @@ setInterval(async()=>{
     if(memory.uiRecovery?.pending&&memory.gameTelemetry.validated&&!memory.uiHealth.safeIdle){
       memory.uiRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'hud_recovered',{});saveMemory();
     }
-    if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle&&(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||''))){
+    if(memory.positionRecovery?.pending&&memory.gameTelemetry.validated&&!memory.gameTelemetry.positionFault&&!memory.uiHealth.safeIdle){
       memory.positionRecovery.pending=false;Autonomy.event(Autonomy.init(memory),'position_recovered',{});saveMemory();
     }
     if(!memory.uiHealth.safeIdle&&!memory.gameTelemetry.positionFault)UI.observeCombat(memory,{...s,targetIdentity:raw.targetId});
+    if(memory.development?.excursion?.kind==='mine'&&Date.now()-activityResourceAt>=10000){
+      activityResourceAt=Date.now();
+      const resource=JSON.parse(await evalIn(Development.SCENE_EXPRESSION));
+      if(resource.available)memory.development.activityResource={at:Date.now(),map:resource.map,level:resource.mineLv,exp:resource.mineExp,materials:resource.materials};
+    }
+    const sequence=memory.autonomy?.sequence;
+    Activity.observe(memory,s,catalog,{paused,offline:availability.blocked()});
+    if(sequence!==memory.autonomy?.sequence||Date.now()-activitySavedAt>=30000){saveMemory();activitySavedAt=Date.now();}
   }
   catch {memory.combatTelemetry && (memory.combatTelemetry.active=null);}
   finally {samplingCombat=false;}

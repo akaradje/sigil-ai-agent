@@ -82,3 +82,25 @@ checkout to the same reviewed commit while the worker and guard are stopped. Pre
 publication receipts, runtime memory, private config and rollback backups. Inspect the
 Dashboard knowledge/probe state and worker ledger after restarting. Tests prove the
 implemented contracts; they do not guarantee mastery of future unknown game systems.
+
+## Verified activity watchdog
+
+The independent read-only sampler checks task outcomes even while the decision loop
+waits for its input budget. Combat/route stalls require three minutes; mining and town
+work require five minutes, at least 30 fresh samples, and no sample gap over 15 seconds.
+Combat damage or EXP gains, mining EXP/level or required materials, real town receipts,
+and travel displacement count as progress. Command timestamps, changing workflow phases,
+unrelated passive mining loot and a responsive HTTP endpoint do not count. Pauses,
+outages, loading, invalid telemetry and the first 90 seconds of a reload suspend sampling.
+
+Recovery uses the existing controller and input budget, yielding a stalled resource
+excursion to leveling with a 30-minute resource backoff. Persistent stalls advance to a
+browser reload and then service restart, with at most three recovery actions per hour
+persisted across restarts. A decision cycle blocked for 150 seconds also requests a
+service restart, at most once per hour. Pending transactions and critical combat/class
+work retain their existing protection. Native AUTO activation or a successful command
+does not confirm recovery: fresh productive evidence must return. Telegram reports
+attempts separately from confirmed recovery. Unresolved verified stalls become bounded
+repair opportunities and fail deployment canary health; the watchdog remains protected
+from autonomous candidate edits. Inspect `/health` activity and `strategy.activityWatchdog`
+for the observed context, recovery history and evidence.

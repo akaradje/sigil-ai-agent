@@ -136,6 +136,9 @@ class AlertEngine {
     const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      activity_recovery:e=>`⚠️ ตรวจพบเกมไม่มีความคืบหน้า (${e.reason}) กำลัง${e.action==='reload'?'โหลดหน้าเกมใหม่':e.action==='restart'?'เริ่มบริการใหม่':'กู้ลูปงานเดิม'} · รอยืนยันผลในเกม`,
+      activity_recovered:()=>`✅ กู้อาการค้างแล้ว ตรวจพบความคืบหน้าจริงในเกมอีกครั้ง`,
+      activity_escalated:e=>`🛠 กู้เบื้องต้นแล้วยังค้าง (${e.reason}) ส่งหลักฐานให้ระบบซ่อมโค้ดตรวจต่อ และจำกัดการรีสตาร์ทเพื่อป้องกันวนซ้ำ`,
       dna_evolved:e=>`🧬 DNA Evolved: ${e.metric==='potions'?'ใช้ยาลดลง':e.metric==='gold'?'Gold/min เพิ่ม':'EXP/min เพิ่ม'} ${e.gainPercent}% ในช่วงทดสอบ · ${e.map} · รุ่น ${e.generation} (ผลสังเกต ไม่รับประกันผลรอบถัดไป)`,
       dna_rollback:e=>`↩️ DNA กลับใช้ Elite เดิม: ${e.reason}`,
       dna_drift:e=>`🧬 ผลฟาร์มเปลี่ยนต่อเนื่องที่ ${e.map} กำลังเก็บ baseline ใหม่และเพิ่มรอบตรวจกลยุทธ์`,

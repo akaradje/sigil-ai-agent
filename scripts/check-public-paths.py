@@ -12,6 +12,8 @@ ALLOWED = {
     'README.md',
     'agent-goal.example.txt',
     'agent.js',
+    'activity-watchdog.js',
+    'activity-watchdog.test.js',
     'autonomy.js',
     'autonomy.test.js',
     'character-development.js',
