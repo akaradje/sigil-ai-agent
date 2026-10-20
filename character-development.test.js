@@ -2,6 +2,15 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('boss combat selects the rendered requested entity before enabling AUTO',async()=>{
+  const m={autonomy:{wingPriority:true},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'boss',id:'time',boss:'Time Eater',map:'crystal',phase:'travel',profileReady:true,bossPoint:{x:500,y:600},started:now-60000}}},events=[];let target='',auto=false;
+  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:auto?'on':'',target,controls:[{id:'autoBtn'}]}),scan:async()=>null,scene:async()=>({available:true,map:'crystal',x:500,y:600,bosses:[{id:'entity-time',kind:'time',visible:true}]}),sceneAction:async(id,kind)=>{events.push([id,kind]);target='Lv 34 Time Eater';},travel:async()=>{},click:async c=>{events.push(c.id);auto=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  assert.equal((await ctl.run('growth_materials')).ok,true);assert.deepEqual(events,[['entity-time','boss'],'autoBtn']);assert.equal(m.development.excursion.seen,true);assert.equal(m.development.excursion.phase,'fight');
+});
+test('waiting for a guaranteed boss material can continue safe mining instead of standing idle or starting town chores',()=>{
+  const c={monsters:[{id:'time',lv:34,boss:true,drops:[['gear',1]]}],development:{mining:[{tier:1,level:1,mapLevel:0,ore:'copper'}]},maps:[{id:'south',range:'Lv 1-6'}]};
+  assert.equal(D.materialPlan(c,[{id:'gear'}],{available:true,mineLv:1},state(),{wingPriority:true,skipBoss:true}).map,'south');
+});
 test('resource boss routing pins the requested live boss before enabling generic boss hunting',async()=>{
   const m={autonomy:{wingPriority:true},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'boss',id:'time',boss:'Time Eater',map:'crystal',phase:'fight',started:now-60000,fightAt:now-30000}}},events=[];let auto=true;
   const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:auto?'on':'',target:'Lv 30 Other Boss',bossRows:[{name:'Time Eater',up:true,key:'crystal,500,600'}],controls:[{id:'autoBtn'},{act:'bbgo',key:'crystal,500,600'}]}),scan:async()=>null,scene:async()=>({available:true,map:'crystal',x:100,y:100}),sceneAction:async()=>{},travel:async()=>{},click:async c=>{events.push(c.id||c.key);if(c.id==='autoBtn')auto=false;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});

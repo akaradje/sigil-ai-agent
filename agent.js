@@ -309,7 +309,7 @@ async function resourceSceneInput(id,tier){
   await gate();UI.assertReady(memory.uiHealth);
   const s=(await perceive(false)).state,raw=JSON.parse(await evalIn(Development.SCENE_EXPRESSION));
   if(s.dead||!s.hp||s.hp[0]/s.hp[1]<0.65||s.panelOpen||s.menuOpen||s.mapOpen||/\bon\b/.test(s.autoHunt||'')||!raw.available||raw.mining)throw Error('Resource input safety changed');
-  const nodes=raw.nodes.filter(n=>n.id===id&&n.tier===tier&&[n.x,n.y,n.wx,n.wy].every(Number.isFinite));if(nodes.length!==1)throw Error('Resource node changed');
+  const nodes=(tier==='boss'?raw.bosses||[]:raw.nodes).filter(n=>n.id===id&&(tier==='boss'||n.tier===tier)&&[n.x,n.y,n.wx,n.wy].every(Number.isFinite));if(nodes.length!==1)throw Error('Resource target changed');
   const n=nodes[0];
   if(n.visible){await req('/click?x='+n.x+'&y='+n.y);return;}
   const dx=n.wx-raw.x,dy=n.wy-raw.y;if(Math.hypot(dx,dy)<50)throw Error('Resource node obscured by HUD');

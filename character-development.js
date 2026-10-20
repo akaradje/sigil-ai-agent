@@ -30,6 +30,7 @@ const EXPRESSION='JSON.stringify(('+readDevelopment.toString()+')())';
 const SCENE_EXPRESSION=`Promise.all([import('/src/life-ui.js'),import('/src/premium-ui.js')]).then(([{LIFE:l},prem])=>{const g=window.SIGIL,p=g?.p,c=document.getElementById('game'),r=c?.getBoundingClientRect(),v=g?.view,cam=g?.camRender;
   if(!p||!g.ready||g.mapLoad||g.fade||!r||!v||!cam||l.map!==g.world?.id)return JSON.stringify({available:false});
   return JSON.stringify({available:true,map:g.world.id,x:p.x,y:p.y,freeWarps:prem.warpsLeft(),mineLv:p.life?.mine?.lv||1,mineExp:p.life?.mine?.exp||0,mining:l.acts.get(g.link?.id)?.kind==='mine',pending:!!l.pend,materials:Object.fromEntries(['mithril_ore','moon_sapphire','chrono_gear','sigil_ore','storm_feather','time_crystal'].map(id=>[id,p.items?.[id]||0])),
+    bosses:g.mons.filter(m=>m.T?.boss&&!m.dead).map(m=>{const x=Math.round(r.left+(m.x-cam.x)*v.scale),y=Math.round(r.top+(m.y-(m.z||0)-(m.drawH||80)*.45-cam.y)*v.scale),hit=x>0&&y>0&&x<innerWidth&&y<innerHeight?document.elementFromPoint(x,y):null;return {id:m.id,kind:m.kind,x,y,wx:m.x,wy:m.y,visible:hit===c&&m.drawH>84};}),
     nodes:l.ore.filter(n=>n.up).map(n=>{const x=Math.round(r.left+(n.x-cam.x)*v.scale),y=Math.round(r.top+(n.y-14-cam.y)*v.scale),hit=x>0&&y>0&&x<innerWidth&&y<innerHeight?document.elementFromPoint(x,y):null;return {id:n.i,tier:n.tier,x,y,wx:n.x,wy:n.y,visible:hit===c};})});})`;
 function init(mem){return mem.development ||= {version:1,last:{},failures:{},snapshots:{},history:[],steps:0};}
 function remember(mem,view,now=Date.now()){
@@ -85,6 +86,9 @@ function materialPlan(catalog,missing,scene,s,options={}){
   const boss=catalog?.monsters?.filter(m=>m.boss&&m.lv<=lv-15&&!options.skipBoss&&m.drops?.some(([id,p])=>wanted.has(id)&&p>=1)).sort((a,b)=>a.lv-b.lv)[0];
   if(boss&&options.wingPriority)return {kind:'boss',boss:boss.name,id:boss.id};
   const need=(catalog?.development?.mining||[]).filter(t=>wanted.has(t.ore)||wanted.has(t.gem));
+  if(!need.length&&options.wingPriority&&options.skipBoss&&catalog?.monsters?.some(m=>m.boss&&m.drops?.some(([id,p])=>wanted.has(id)&&p>=1))){
+    const stock=(catalog.development?.mining||[]).filter(t=>t.level<=scene?.mineLv&&t.mapLevel<=lv-15).at(-1);if(stock)need.push(stock);
+  }
   if(need.length&&scene?.available){
     const target=Math.max(...need.map(t=>t.tier)),tiers=catalog.development.mining.filter(t=>t.tier<=target&&t.level<=scene.mineLv),tier=tiers.at(-1);
     const map=tier&&catalog.maps.filter(m=>!m.town&&Number(m.range?.match(/\d+/)?.[0])>=tier.mapLevel&&Number(m.range?.match(/\d+/)?.[0])<=(catalog.development.mining.find(t=>t.tier===tier.tier+1)?.mapLevel??Infinity)-1&&Number(m.range?.match(/\d+/)?.[0])<=lv-15)[0];
@@ -273,8 +277,9 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
           d.resourcePlan=plan;if(plan&&returnMap){
             await close();
             if(plan.kind==='boss'){
-              await open('bosses');const s=await observe(),boss=s.bossRows.find(b=>b.name===plan.boss&&b.up);
-              if(!boss){d.bossRetryAt=now()+5*MIN;record(task,'Required boss is not alive; use another resource source');}
+              await open('bosses');const s=await observe(),entry=s.bossRows.find(b=>b.name===plan.boss),boss=entry?.up?entry:null;
+              if(!boss){const timer=entry?.text?.match(/Back in\s+(\d+):(\d+)/i),wait=timer?(Number(timer[1])*60+Number(timer[2]))*1000+5000:5*MIN;d.bossRetryAt=now()+Math.max(MIN,Math.min(35*MIN,wait));record(task,'Required boss is not alive; use another resource source');
+                if(a.wingPriority){d.last[task]=now()-MIN;d.result={task,ok:true,at:now()};return d.result;}}
               else{d.excursion={...plan,returnMap,started:now(),phase:'travel',initialAmounts:raw.materials,map:boss.key.split(',')[0]};save();await pick('bbgo',boss.key);}
             }else{d.excursion={...plan,returnMap,started:now(),phase:'travel'};save();await travel(plan.map);}
           }
@@ -309,6 +314,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
             await travel(trip.returnMap);mem.autonomy.farm=null;mem.autonomy.resume={map:trip.returnMap,mode:'farm',at:now()};
             record(task,'Bounded '+trip.kind+' trip finished; restore leveling');d.excursion=null;
           }else if(raw.available&&raw.map===trip.map){
+            if(trip.kind==='boss'&&trip.phase==='fight'&&!trip.seen&&!norm(s.target).endsWith(norm(trip.boss)))trip.phase='travel';
             if(trip.kind==='boss'&&!trip.bossPoint){
               await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
               await open('bosses');const board=await observe(),boss=board.bossRows.find(b=>b.name===trip.boss&&b.up);
@@ -323,10 +329,20 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
               const planned=materialPlan(getCatalog(),mem.autonomy?.goal?.missing,raw,s,{skipBoss:true});
               if(planned&&planned.tier!==trip.tier)trip.done=true;
             }else if(trip.phase==='travel'){
-              if(trip.kind==='boss'&&trip.bossPoint&&Math.hypot(raw.x-trip.bossPoint.x,raw.y-trip.bossPoint.y)>220){if(now()-trip.approachAt>90000)trip.done=true;return;}
-              await open('auto');await pick('atab','hunt');
-              for(const [k,v] of [['target',trip.kind==='hunt'?trip.target:'boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
-              await close();if(!/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');trip.phase='fight';trip.fightAt=now();
+              if(!trip.profileReady){
+                await open('auto');await pick('atab','hunt');
+                for(const [k,v] of [['target',trip.kind==='hunt'?trip.target:'boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
+                await close();trip.profileReady=true;
+              }
+              if(trip.kind==='boss'){
+                if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+                const live=await scene(),boss=live.bosses?.filter(b=>b.kind===trip.id);
+                if(boss?.length!==1){trip.done=true;d.bossRetryAt=now()+5*MIN;return;}
+                await sceneAction(boss[0].id,'boss');if(!boss[0].visible)return;
+                await sleep(500);if(!norm((await observe()).target).endsWith(norm(trip.boss)))throw Error('Requested boss target not acknowledged');
+                trip.seen=true;
+              }
+              if(!/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');trip.phase='fight';trip.fightAt=now();
             }else if(trip.kind==='boss'&&(now()-trip.fightAt>2*MIN||trip.seen&&!norm(s.target).endsWith(norm(trip.boss)))){trip.done=true;d.bossRetryAt=now()+5*MIN;}
             else if(norm(s.target).endsWith(norm(trip.boss)))trip.seen=true;
           }
