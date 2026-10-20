@@ -46,7 +46,7 @@ function routineReady(mem,s){
 function materialReady(mem,s){
   const a=mem.autonomy||{};
   // The game's capacity is for gear; mining materials stack outside those slots.
-  return !!a.wingPriority&&a.goal?.slot==='wing'&&!!a.goal.missing?.length&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20;
+  return !!a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20;
 }
 function worthOffer(d,s){
   const pets=d.snapshots?.ranch?.pets||[],offer=norm(s.tameOffer);
@@ -264,11 +264,13 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
         if(before.autoQuestRunning){await close();const stop=(await observe()).controls.filter(c=>c.aq==='stop');if(stop.length!==1)throw Error('Quest stop is not unique');await click(stop[0]);await sleep(800);}
         let trip=d.excursion;
         if(!trip){
-          if(before.hp[0]/before.hp[1]<0.85||before.hpPotions<20||before.mpPotions<20)throw Error('Resource trial needs health and supplies');
-          const raw=await scene(),a=mem.autonomy,plan=materialPlan(getCatalog(),a?.goal?.missing,raw,before,{wingPriority:a?.wingPriority,skipBoss:now()<(d.bossRetryAt||0)}),returnMap=a?.farm?.map||a?.returnMap||getCatalog().maps?.find(m=>!m.town&&m.name===before.zone)?.id;
+          await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+          let prepared=await observe();
+          if(prepared.hp[0]/prepared.hp[1]<0.85&&prepared.hpPotions>=20){await pick('#potHp');await sleep(1200);prepared=await observe();}
+          if(prepared.hp[0]/prepared.hp[1]<0.85||prepared.hpPotions<20||prepared.mpPotions<20)throw Error('Resource trial needs health and supplies');
+          const raw=await scene(),a=mem.autonomy,plan=materialPlan(getCatalog(),a?.goal?.missing,raw,prepared,{wingPriority:a?.wingPriority,skipBoss:now()<(d.bossRetryAt||0)}),returnMap=a?.farm?.map||a?.returnMap||getCatalog().maps?.find(m=>!m.town&&m.name===prepared.zone)?.id;
           d.resourcePlan=plan;if(plan&&returnMap){
-            await close();if(before.autoQuestRunning){const stop=(await observe()).controls.filter(c=>c.aq==='stop');if(stop.length!==1)throw Error('Quest stop not unique');await click(stop[0]);await sleep(800);}
-            if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+            await close();
             if(plan.kind==='boss'){
               await open('bosses');const s=await observe(),boss=s.bossRows.find(b=>b.name===plan.boss&&b.up);
               if(!boss){d.bossRetryAt=now()+5*MIN;record(task,'Required boss is not alive; use another resource source');}

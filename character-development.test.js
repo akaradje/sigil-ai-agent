@@ -2,6 +2,14 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('wing departure stops combat and uses an owned potion rather than waiting forever for a high health sample',async()=>{
+  const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},farm:{map:'old'}}},events=[];let hp=700,auto=true,potions=25;
+  const ctl=D.createController({mem:m,observe:async()=>state({hp:[hp,1000],hpPotions:potions,mpPotions:25,autoHunt:auto?'on':'',controls:[{id:'autoBtn'},{id:'potHp'}]}),scan:async()=>null,scene:async()=>({available:true,mineLv:1}),sceneAction:async()=>{},
+    travel:async id=>events.push(id),click:async c=>{events.push(c.id);if(c.id==='autoBtn')auto=false;if(c.id==='potHp'){hp=1000;potions--;}},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},
+    getCatalog:()=>({development:{mining:[{tier:1,level:1,mapLevel:0,ore:'copper'},{tier:4,level:20,mapLevel:46,ore:'mithril'}]},maps:[{id:'south',range:'Lv 1-6'}],monsters:[]}),now:()=>now});
+  assert.equal((await ctl.run('growth_materials')).ok,true);assert.deepEqual(events,['autoBtn','potHp','south']);assert.equal(m.development.excursion.kind,'mine');
+  m.autonomy.goal.missing=[{id:'sigil_ore'}];assert.equal(D.materialReady(m,state({hpPotions:25,mpPotions:25})),false);
+});
 test('wing gathering chains bounded stages without returning through the EXP map between them',async()=>{
   const m={autonomy:{wingPriority:true,inventory:{items:{}},farm:{map:'original'},goal:{slot:'wing',missing:[{id:'mithril'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',returnMap:'original',started:now-16*60000}}},travelled=[];
   const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:''}),scan:async()=>null,scene:async()=>({available:true,map:'south'}),sceneAction:async()=>{},travel:async id=>travelled.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
@@ -18,7 +26,7 @@ test('travel recovery spends only an observed free warp and refuses paid wing co
 test('explicit wing focus gets material time even with a full gear bag, while active town work and health stay protected',()=>{
   const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},bagUsage:[100,100]}};
   const s=state({hpPotions:25,mpPotions:25});assert.equal(D.routineReady(m,s),false);assert.equal(D.materialReady(m,s),true);assert.equal(D.chooseTask(m,s,{},now),'growth_materials');
-  assert.equal(D.materialReady(m,{...s,hp:[700,1000]}),false);m.autonomy.trip={kind:'shop'};assert.equal(D.materialReady(m,s),false);assert.equal(D.chooseTask(m,s,{},now),null);
+  assert.equal(D.materialReady(m,{...s,hp:[600,1000]}),false);m.autonomy.trip={kind:'shop'};assert.equal(D.materialReady(m,s),false);assert.equal(D.chooseTask(m,s,{},now),null);
 });
 test('wing focus uses a guaranteed boss drop first and mines during the boss retry window',()=>{
   const c={monsters:[{id:'time',name:'Time Eater',lv:34,boss:true,drops:[['gear',1]]}],development:{mining:[{tier:1,level:1,mapLevel:0,ore:'copper'},{tier:4,level:20,mapLevel:46,ore:'mithril'}]},maps:[{id:'south',range:'Lv 1-6'}]};
