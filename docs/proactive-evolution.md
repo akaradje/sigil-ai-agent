@@ -135,3 +135,7 @@ combat then owns the fight, so restarting the class runner cannot pull the chara
 back to an obsolete boss-spawn map. The bounded class review uses a small 400-token
 response and 60-second request deadline; a failed model request may retry after one
 minute while retaining the same three-per-hour budget.
+The persisted `classObjective` clock advances only when the observed quest objective
+changes. Retrying a command, missing tracker during loading and unrelated EXP cannot
+reset it. Older installations can retain the same objective's prior observed review
+timestamp without treating a retry request as successful progress.

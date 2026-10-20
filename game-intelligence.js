@@ -138,7 +138,9 @@ function classBossObjective(s){
 function classObjectiveStalled(s,m,now=Date.now()){
   const boss=classBossObjective(s),damage=m.combatTelemetry?.lastDamage;
   const fighting=boss&&String(s.target||'').includes(boss)&&damage?.zone===s.zone&&now>=damage.at&&now-damage.at<=10000;
-  return !!s.jobQuestProgress&&!!CLASS_PATH[s.job]&&!s.dead&&s.hp?.[0]/s.hp?.[1]>=0.3&&Number.isFinite(m.jobQuestAt)&&now-m.jobQuestAt>=180000&&now>=(m.trainingUntil||0)&&!fighting;
+  const objective=m.classObjective,matching=objective?.character===s.name&&objective.job===s.job&&objective.signature===String(s.jobQuestProgress||'').replace(/\s+/g,' ').trim();
+  const at=matching?objective.at:m.jobQuestAt;
+  return !!s.jobQuestProgress&&!!CLASS_PATH[s.job]&&!s.dead&&s.hp?.[0]/s.hp?.[1]>=0.3&&Number.isFinite(at)&&now-at>=180000&&now>=(m.trainingUntil||0)&&!fighting;
 }
 function classReviewDue(s,m,now=Date.now()){
   const r=m.classReview||{},history=(r.history||[]).filter(at=>now>=at&&now-at<3600000);
@@ -186,6 +188,13 @@ function rememberCombat(mem,s,now=Date.now()) {
 }
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
+  if(s.jobQuestProgress&&CLASS_PATH[s.job]){
+    const signature=s.jobQuestProgress.replace(/\s+/g,' ').trim(),old=mem.classObjective;
+    if(!old||old.character!==s.name||old.job!==s.job||old.signature!==signature){
+      const review=mem.classReview,same=mem.classAdvancement?.character===s.name&&review?.objective?.replace(/\s+/g,' ').trim()===signature;
+      mem.classObjective={character:s.name,job:s.job,signature,at:!old&&same&&Number.isFinite(review.at)&&review.at<=now?review.at:now,lastAt:now,samples:1};
+    }else{old.lastAt=now;old.samples++;}
+  }
   const advancement=mem.classAdvancement;
   if(advancement&&advancement.character===s.name&&String(s.job||'').toLowerCase()===advancement.to&&advancement.from!==s.job&&!advancement.completedAt){
     advancement.completedAt=now;advancement.phase='complete';mem.classTrip=null;mem.classBossTrip=null;mem.combatJob=null;mem.last.configure=0;
@@ -471,7 +480,7 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
         case 'job_retry':
           await close();await pick(c=>c.aq==='stop',true);await pick(c=>c.aq==='jq');
           if(!(await observe()).autoQuestRunning)throw Error('class quest retry not started');
-          mem.trainingUntil=0;mem.jobQuestAt=Date.now();result='retry class quest after training';break;
+          mem.trainingUntil=0;result='retry class quest after training';break;
         case 'quest':
           await close();
           if(mem.trainingUntil>Date.now())await pick(c=>c.aq==='mq');

@@ -189,6 +189,15 @@ test('stalled class model reviews use durable cooldown/budget and only verified 
  m.classReview=JSON.parse(JSON.stringify({at:now-300001,history:[now-300001,now-600000,now-900000]}));assert.equal(IQ.classReviewDue(s,m,now),false);
 });
 
+test('class progress clock survives retry commands, transient missing trackers and restart',async()=>{
+ const now=Date.now(),mem=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',autoQuestRunning:false,controls:[{aq:'jq'}]};
+ IQ.updateMetrics(mem,s,now-300000);let auto=false;
+ const e=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...s,autoQuestRunning:auto}),click:async()=>{auto=true;}});
+ assert.equal((await e.run('job_retry')).ok,true);assert.equal(mem.classObjective.at,now-300000);assert.equal(mem.jobQuestAt,now-300000);
+ IQ.updateMetrics(mem,{...s,jobQuestProgress:null,exp:99},now);IQ.updateMetrics(mem,s,now+1000);const restored=JSON.parse(JSON.stringify(mem));assert.equal(restored.classObjective.at,now-300000);assert.equal(IQ.classObjectiveStalled(s,restored,now+1000),true);
+ IQ.updateMetrics(restored,{...s,jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 1/1'},now+2000);assert.equal(restored.classObjective.at,now+2000);
+});
+
 test('generic boss handoff requires fresh validated map and position, not a travel timer or stale target HUD',()=>{
  const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Hunt Ignar the Flame Tyrant 0/1',target:'Ignar the Flame Tyrant'};
  m.jobQuestAt=now-400000;m.classBossTrip={at:now-100000,boss:'Ignar the Flame Tyrant',key:'boss-map,500,500'};
