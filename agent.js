@@ -752,7 +752,6 @@ async function runCycle() {
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||'')||memory.classBossTrip?.fighting||IQ.classBossAtDestination(memory));
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
-    Telemetry.combatSample(memory,p.state);
     IQ.updateMetrics(memory,p.state,Date.now(),catalog);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
     updateDNA(p.state,true);
     if(autonomyPolicy.proactive){
@@ -1032,7 +1031,6 @@ setInterval(async()=>{
   try {
     const s=(await perceive(false)).state;
     const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
-    Telemetry.combatSample(memory,s);
     IQ.observeClassBoss(memory,s);
     updateDNA(s);
     updateCognition(s,true);

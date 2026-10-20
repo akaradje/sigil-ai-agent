@@ -24,40 +24,8 @@ function update(mem,raw,tileSize,now=Date.now()) {
   t.confirmed=outside&&now-t.badSince>=30000;
   return t;
 }
-// Read-only combat measurement from the rendered HUD: the target HP bar is the
-// only damage evidence the agent may read. A finished engagement becomes a
-// measured kill time, which the brain (UCB) and the autonomy both need.
-function combatSample(mem, state, now = Date.now()) {
-  const t = mem.combatTelemetry = mem.combatTelemetry || {};
-  const target = String(state.target || '').trim();
-  const zone = String(state.zone || '').trim();
-  const ratio = Number.isFinite(state.targetHpRatio) ? state.targetHpRatio : null;
-  const active = t.active;
-  if (!target || ratio == null) {
-    // The target is gone: an engagement that made progress is a measured kill.
-    if (active && active.startedAt && now > active.startedAt && active.lastRatio != null && active.lastRatio < 1) {
-      const seconds = (now - active.startedAt) / 1000;
-      if (seconds >= 0.4) {
-        const samples = (t.samples || []).concat([{ zone: active.zone, seconds, at: now }]).slice(-40);
-        t.samples = samples;
-        const times = samples.filter(s => s.zone === active.zone).map(s => s.seconds).sort((a, b) => a - b);
-        t.current = { zone: active.zone, at: now, count: times.length, medianSeconds: Math.round(times[Math.floor(times.length / 2)] * 100) / 100 };
-      }
-    }
-    t.active = null;
-    return t;
-  }
-  if (!active || active.target !== target) {
-    t.active = { target, zone, startedAt: now, lastRatio: ratio, lastAt: now };
-    return t;
-  }
-  active.lastAt = now;
-  if (ratio < active.lastRatio) t.lastDamage = { zone, at: now, target, from: active.lastRatio, to: ratio };
-  active.lastRatio = ratio;
-  return t;
-}
 function recoveryDue(mem,now=Date.now()) {
   const r=mem.positionRecovery||{},history=(r.history||[]).filter(t=>now-t<3600000);
   return !!mem.gameTelemetry?.confirmed&&now-(r.at||0)>=600000&&history.length<3;
 }
-module.exports={EXPRESSION,readPublicState,update,combatSample,recoveryDue};
+module.exports={EXPRESSION,readPublicState,update,recoveryDue};

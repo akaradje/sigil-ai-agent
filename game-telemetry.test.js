@@ -27,17 +27,3 @@ test('ward projection reads only the visible shield bar fraction',()=>{
  const g={running:true,ready:true,p:{map:'field',x:10,y:20},world:{id:'field',w:96,h:68}};
  const s=JSON.parse(vm.runInNewContext(T.EXPRESSION,{window:{SIGIL:g},document:{querySelector:selector=>{assert.equal(selector,'#bossMech .wb>b');return {style:{width:'87%'}};}}}));assert.equal(s.bossWardRatio,0.87);
 });
-
-test('combat measurement turns a finished engagement into a measured kill time and a damage event',()=>{
- const m={},now=1800000000000;
- T.combatSample(m,{target:'Bone Dragonling',zone:'Starfall Crater',targetHpRatio:1},now);
- T.combatSample(m,{target:'Bone Dragonling',zone:'Starfall Crater',targetHpRatio:0.8},now+1000);
- assert.equal(m.combatTelemetry.lastDamage.zone,'Starfall Crater');assert.equal(m.combatTelemetry.lastDamage.at,now+1000);
- T.combatSample(m,{target:'Bone Dragonling',zone:'Starfall Crater',targetHpRatio:0.4},now+2000);
- T.combatSample(m,{target:'',zone:'Starfall Crater'},now+3000);
- assert.equal(m.combatTelemetry.current.count,1);assert.equal(m.combatTelemetry.current.medianSeconds,3);
- assert.equal(m.combatTelemetry.active,null);
- const m2={};T.combatSample(m2,{target:'Rock',zone:'Field',targetHpRatio:1},now);
- T.combatSample(m2,{target:'',zone:'Field'},now+2000);
- assert.equal(m2.combatTelemetry.current,undefined);
-});

@@ -31,6 +31,7 @@ function createEmptyBrainState() {
       native_all_learned:skill('native_all_learned', 'Native AUTO: all learned skills', {skillScope:'ALL_LEARNED'}),
       native_hotbar:skill('native_hotbar', 'Native AUTO: verified hotbar', {skillScope:'HOTBAR'}),
       native_quest:skill('native_quest', 'Native Auto Quest', {mode:'quest'}),
+      native_auto:skill('native_auto', 'Native AUTO without a verified profile', {mode:'auto'}),
     },
     activeCurriculum:{currentGoal:'OPTIMIZE_EXP_VELOCITY', targetMetric:'expPerMin', baselineValue:0, targetValue:0},
     consolidatedThrough:0, lessons:[]};
@@ -169,7 +170,8 @@ class CognitiveBrain {
     if (died) m.deaths++;
     m.dangerScore = round(m.deaths / m.visits);
     prune(maps,128,'lastAt');
-    const s = Object.hasOwn(this.state.proceduralSkills,skillId) ? this.state.proceduralSkills[skillId] : null;
+    const s = Object.hasOwn(this.state.proceduralSkills,skillId) ? this.state.proceduralSkills[skillId] :
+      (skillId ? (this.state.proceduralSkills[skillId]=skill(skillId,skillId,{})) : null);
     if (s) {
       s.uses++;if(!died && !stuck && reward > 0)s.wins++;
       s.avgReward = round(s.avgReward + (reward-s.avgReward)/s.uses);
@@ -252,7 +254,9 @@ class CognitiveBrain {
     const applied=mem.dna?.needsApply?null:mem.dna?.enabled?
       (mem.dna.context===ctx?.key?DNA.profile(mem):null):
       native?.character===s.name&&native.job===s.job&&now-native.at>=0&&now-native.at<30*MIN?native.genes:null;
-    const actualSkill=s.autoQuestRunning?'native_quest':!applied?null:
+    // Native AUTO without a verified profile still fights: it is measured under
+    // its own skill id so the UCB can tell the builds apart.
+    const actualSkill=s.autoQuestRunning?'native_quest':!applied?'native_auto':
       applied.skillScope==='HOTBAR'?'native_hotbar':'native_all_learned';
     const eligible=ctx && actualSkill && !mem.uiHealth?.safeIdle && !mem.autonomy?.trip && !mem.development?.excursion &&
       !s.panelOpen&&!s.menuOpen&&!s.mapOpen&&!s.modalText&&!t.positionFault&&

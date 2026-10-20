@@ -222,11 +222,14 @@ test('confirmed position faults after a censored window are remembered once with
   assert.equal(r.brain.state.proceduralSkills.native_all_learned.uses,0);
 });
 
-test('an unverified native configuration earns no skill mastery',t=>{
+test('an unverified native configuration is measured as its own build and never as the verified profile',t=>{
   const r=rig(t),f=session();delete f.mem.nativeCombatProfile;tick(r,f,0);
   for(let i=1;i<=7;i++)tick(r,f,10000,{exp:i*10});
-  assert.equal(r.brain.state.totalTicksPlayed,0);
-  assert.equal(r.brain.workingMemory.activeSkillId,null);
+  // The unverified build is measured on its own id; the verified profile's
+  // mastery stays untouched until the game confirms that profile.
+  assert.equal(r.brain.workingMemory.activeSkillId,'native_auto');
+  assert.equal(r.brain.state.proceduralSkills.native_all_learned.uses,0);
+  assert.equal(r.brain.state.proceduralSkills.native_hotbar.uses,0);
 });
 
 test('town consolidation requires serviced, verified inventory and runs once per new experience',t=>{
@@ -246,4 +249,21 @@ test('failed persistence is observable and leaves no partially written main file
   fs.writeFileSync(path.join(r.dir,'blocked'),'not a directory');
   assert.throws(()=>r.brain.save());
   assert.equal(fs.readFileSync(path.join(r.dir,'blocked'),'utf8'),'not a directory');
+});
+
+test('native AUTO without a verified profile is measured as its own build',t=>{
+ const {brain}=rig(t);
+ const {catalog,mem,s}=session();
+ mem.dna={genes:{},needsApply:true};delete mem.nativeCombatProfile;
+ let now=NOW;
+ const tick=ms=>{now+=ms;mem.gameTelemetry.checkedAt=now;
+   mem.combatTelemetry={lastDamage:{zone:s.zone,at:now},current:{zone:s.zone,count:4,medianSeconds:2.5,at:now}};
+   brain.observe(s,mem,catalog,now);};
+ tick(0);for(let i=0;i<13;i++){s.exp=i>=7?50:0;tick(10000);}
+ assert.ok(brain.state.totalTicksPlayed>0,'a measured combat window must record an experience');
+ assert.ok(brain.state.proceduralSkills.native_auto.uses>0);
+ assert.ok(brain.state.masteryIndex>1);
+ const map=Object.values(brain.state.semanticWorldModel.maps).find(m=>m.mapName==='Field');
+ assert.ok(map,'the measured map must be in the world model');
+ assert.ok(map.avgExpPerMin>0);assert.equal(map.avgTtkSec,2.5);
 });
