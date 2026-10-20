@@ -253,7 +253,7 @@ test('at level cap a verified complete gear set switches to stockpiling and keep
 function premiumRig({ambiguous=false,budget=5000}={}) {
   const m={},a=A.init(m);a.bagUsage=[59,60];let panel=null,modal='',crystals=5000,owned=0;const snapshots=[],clicks=[];
   const controller=A.createController({mem:m,getCatalog:()=>catalog(),policy:{crystalBudget:budget,goldReserve:100000},now:()=>clock,
-    observe:async()=>state({panel,crystals,modalText:modal,premiumRows:[{id:'bag',price:150,owned,disabled:false}],
+    observe:async()=>state({zone:'Town',panel,crystals,modalText:modal,premiumRows:[{id:'bag',price:150,owned,disabled:false}],
       controls:modal?[{label:'Buy'}]:[{act:'crtab',key:'shop'},{act:'crbuy',key:'bag'}]}),
     click:async c=>{clicks.push(c);if(c.act==='crbuy')modal='Confirm purchase 150';if(c.label==='Buy'){modal='';if(!ambiguous){crystals-=150;owned+=10;}}},
     open:async p=>{panel=p;},close:async()=>{panel=null;modal='';},sleep:async()=>{},save:()=>snapshots.push(structuredClone(a)),log:()=>{}});
@@ -271,6 +271,18 @@ test('ambiguous capacity acknowledgement retains budget and blocks automatic ret
 });
 test('capacity spending cannot exceed the remaining budget or buy other products',async()=>{
   const r=premiumRig({budget:100});await r.controller.run('capacity');assert.equal(r.clicks.filter(c=>c.act==='crbuy').length,0);
+});
+
+test('verified sales on a full-bag visit may buy headroom within the original budget, once',async()=>{
+  for(const completed of [false,true]){
+    const r=premiumRig();r.a.bagUsage=[94,100];r.a.storageUsage=[100,100];
+    r.a.trip={kind:'capacity',phase:'town',at:clock,bagAtArrival:[99,100],salesDone:completed,salePolicyVersion:2};
+    await r.controller.run('town');
+    assert.equal(r.a.premium.spent,completed?150:0);assert.equal(r.a.trip.capacityServiced,true);
+    if(completed){assert.equal(r.a.purchase.id,'bag');assert.equal(r.a.purchase.status,'confirmed');}
+  }
+  const r=premiumRig({budget:100});r.a.bagUsage=[94,100];r.a.trip={kind:'capacity',phase:'town',at:clock,bagAtArrival:[99,100],salesDone:true};
+  await r.controller.run('town');assert.equal(r.a.premium.spent,0);assert.equal(r.clicks.filter(c=>c.act==='crbuy').length,0);
 });
 test('pre-dispatch action-budget rejection releases only the unspent reservation',async()=>{
   const m={},a=A.init(m);a.bagUsage=[59,60];
@@ -421,6 +433,13 @@ test('a saved farming return is revalidated after leveling and activates AUTO on
     key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await ctl.run('autonomy_wait');assert.deepEqual(routes,['field']);assert.equal(a.resume.map,'field');
   await ctl.run('autonomy_wait');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(hunting,true);assert.equal(a.farm.target,'mob');assert.equal(a.resume,null);
+});
+
+test('ending a trial rejects its obsolete return map before dispatching any travel',async()=>{
+  const m={},a=A.init(m);a.farm={map:'field',name:'Field',trial:true,returnMap:'obsolete',returnMode:'farm',started:clock-240000};const keys=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,observe:async()=>state(),
+    click:async()=>{throw Error('unexpected travel input');},key:async x=>keys.push(x),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('finish_farm');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.deepEqual(keys,[]);assert.equal(a.resume.map,'field');
 });
 
 test('an input-budget pause after a verified hunt profile retains AUTO activation across restart',async()=>{

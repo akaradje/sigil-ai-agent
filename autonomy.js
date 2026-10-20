@@ -16,6 +16,13 @@ function event(a,type,detail,now=Date.now()) {
   a.events.push({id:++a.sequence,type,detail,at:now});a.events=a.events.slice(-80);
 }
 function wingReserve(a,reserve=100000){return a.wingPriority&&a.goal?.slot==='wing'?reserve+(a.goal.cost?.gold||0):reserve;}
+function bagCapacityNeeded(a){
+  const bag=a.bagUsage;if(!bag||bag[1]<=0)return false;
+  if(bag[0]>=Math.floor(bag[1]*0.95))return true;
+  const arrival=a.trip?.bagAtArrival;
+  return a.trip?.salesDone===true&&arrival?.[1]===bag[1]&&arrival[0]>=Math.floor(arrival[1]*0.95)&&
+    bag[0]>=bag[1]*0.85&&bag[1]-bag[0]<Math.max(10,Math.ceil(bag[1]*0.1));
+}
 function refineCandidates(catalog,s,worn,rows){
   const mage=['Mage','Starweaver','Sage','Priest','Lumen Oracle'].includes(s.job);
   const score=b=>(b.matk||0)*(mage?3:0)+(b.atk||0)*(mage?0.3:3)+(b.def||0)+(b.mdef||0)*0.8;
@@ -274,7 +281,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     return getCatalog().maps.find(m=>!m.town&&norm(m.name)===norm(s.zone))?.id||a.farm?.map||a.returnMap||null;
   }
   async function beginTrip(kind,s) {
-    a.trip={kind,returnMap:returnPoint(s),returnMode:leveling()&&a.farm?'farm':s.autoQuestMode||a.farm?.returnMode||'mq',at:now(),phase:'town'};save();
+    a.trip={kind,returnMap:returnPoint(s),returnMode:leveling()&&a.farm?'farm':s.autoQuestMode||a.farm?.returnMode||'mq',at:now(),phase:'town',bagAtArrival:a.bagUsage?.slice()};save();
     await pick(c=>c.aq==='stop',true);
     if(/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
     if(!getCatalog().maps.some(m=>m.town&&norm(m.name)===norm(s.zone))) {
@@ -308,7 +315,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(mode!=='farm'||!leveling())return map;
     const options=learningFarmingOptions(getCatalog(),s,mem,policy.levelingMaxGap);
     if(options.some(m=>m.id===map))return map;
-    const next=rankFarmingOptions(options,mem.cognitive)[0];
+    const next=options.find(m=>norm(m.name)===norm(s.zone))||rankFarmingOptions(options,mem.cognitive)[0];
     if(!next)throw Error('No verified level-band return route');
     return next.id;
   }
@@ -328,10 +335,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function buyCapacity() {
     const s=await state();
-    const desired=a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2?'store':'bag';
+    const desired=a.trip?.kind==='capacity'?'bag':a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2?'store':'bag';
     const row=(s.premiumRows||[]).find(r=>r.id===desired&&!r.disabled&&r.price>0&&r.price<=s.crystals&&r.price+a.premium.reserved<=policy.crystalBudget);
     if(!row)return false;
-    if(desired==='bag'&&(!a.bagUsage||a.bagUsage[0]<Math.floor(a.bagUsage[1]*0.95)))return false;
+    if(desired==='bag'&&!bagCapacityNeeded(a))return false;
     a.purchase={id:row.id,price:row.price,before:s.crystals,ownedBefore:row.owned,status:'reserved',at:now()};
     a.premium.reserved+=row.price;save(); // Reserve before the irreversible click; survives an ambiguous/crashed request.
     try {
@@ -688,7 +695,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageCleanup?.requestedAt&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
-    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&(!a.wingPriority||a.bagUsage?.[0]>a.bagUsage?.[1]-3)&&a.bagUsage?.[0]>=Math.floor(a.bagUsage?.[1]*0.95)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
       trip.kind='capacity';trip.progressAt=now();return;
     }
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>m.id==='sigil_ore')||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
@@ -753,6 +760,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         if(f.trial){a.farmTrials||={};a.farmTrials[f.map]={at:now(),expPerMinute:a.farmRates[f.map]?.expPerMinute??null,baseline:f.baseline};}
         if(leveling()&&!f.trial){a.last.farm=0;a.resume=null;}
         else {
+          f.returnMap=returnRoute(s,f.returnMap,f.returnMode);
           a.resume={map:f.returnMap,mode:f.returnMode,at:now()};
           if(f.returnMap&&norm(f.returnMap)!==norm(f.map))await travel(f.returnMap);
         }
