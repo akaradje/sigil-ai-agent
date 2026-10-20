@@ -642,12 +642,18 @@ async function runCycle() {
       memory.worldKnowledge=worldKnowledge.view();
       memory.evolutionOpportunities=Proactive.opportunities(memory,memory.worldKnowledge);
     }
+    const planned=IQ.chooseTask(p.state,memory);
+    // Shrine travel and native class quests own the controller until their observed
+    // completion. Routine farming, resource trips and refreshes cannot cancel them.
+    if(IQ.classWorkflowOwned(p.state,memory)){
+      if(['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class','train'].includes(planned))await runPolicy(p.state);
+      return;
+    }
     if(Hygiene.eligible(memory,p.state,catalog,Date.now(),autonomyPolicy.sessionRefreshHours)){
       consolidateCognition(p.state);
       Hygiene.prepare(memory);Autonomy.event(Autonomy.init(memory),'session_refreshing',{});saveMemory();
       await evalIn("setTimeout(()=>location.reload(),100);'town browser refresh scheduled'");return;
     }
-    const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
     if(memory.activityWatchdog?.pending&&!critical.includes(planned)){

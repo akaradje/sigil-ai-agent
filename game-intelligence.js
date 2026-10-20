@@ -125,6 +125,12 @@ function controllerFallbackReady(mem,alive,now=Date.now()){
   return now-mem.agentMissingSince>=60000;
 }
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
+const CLASS_PATH=Object.freeze({Novice:'mage',Mage:'starweaver',Starweaver:'sage'});
+function classWorkflowOwned(s,m,now=Date.now()) {
+  if(!CLASS_PATH[s.job])return false;
+  return !!(m.classTrip?.job===s.job||s.panel==='shrine'||/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||
+    [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')||s.jobQuestProgress&&now>=(m.trainingUntil||0));
+}
 function combatSnapshot(s,now=Date.now()) {
   if(!['bag','equip'].includes(s.panel)||!s.panelOpen||!s.name||!s.job||!s.lv)return null;
   const lines=String(s.panelText||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
@@ -151,6 +157,12 @@ function rememberCombat(mem,s,now=Date.now()) {
 }
 function updateMetrics(mem,s,now=Date.now()) {
   if(!s.name || !s.hp || !n(s.lv)) return;
+  const advancement=mem.classAdvancement;
+  if(advancement&&advancement.character===s.name&&s.job.toLowerCase()===advancement.to&&advancement.from!==s.job&&!advancement.completedAt){
+    advancement.completedAt=now;advancement.phase='complete';mem.classTrip=null;mem.classBossTrip=null;mem.combatJob=null;mem.last.configure=0;
+    if(mem.autonomy?.farm)mem.autonomy.farm.pendingProfile=true;
+    const a=mem.autonomy;if(a){a.events ||= [];a.sequence ||=0;a.events.push({id:++a.sequence,type:'class_advanced',detail:{from:advancement.from,to:s.job},at:now});a.events=a.events.slice(-80);}
+  }
   const sample={t:now,lv:n(s.lv),jl:n(s.jobLv),job:s.job,gold:s.gold,exp:s.exp,quest:s.questProgress||s.quest,zone:s.zone};
   const prev=mem.samples.at(-1);
   if(/Time Eater/i.test(s.target||'')){
@@ -173,6 +185,10 @@ function chooseTask(s,m,now=Date.now()) {
   if(s.dead) return 'revive';
   if(!s.name||!s.hp) return 'observe';
   if(s.hp[0]/s.hp[1]<0.3) return 'survive';
+  const nextClass=CLASS_PATH[s.job];
+  if(nextClass&&m.classTrip?.job===s.job&&now-m.classTrip.at<240000)return s.panel==='shrine'?'class':'observe';
+  if(nextClass&&due('class',60000)&&(/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest||'')||s.panel==='shrine'||
+    [...(s.controls||[]),...(s.offscreen||[])].some(c=>c.go==='shrine')))return 'class';
   const needsTimeEater=/Chrono Gear\s*0\s*\/\s*1/i.test(s.jobQuestProgress||'');
   const rewind=/REWIND\s*(\d+)/i.exec(s.bossMechanic||'');
   if(needsTimeEater && /Time Eater/i.test(s.target||'') && rewind && +rewind[1]>=11 && due('boss_break',20000) && s.hp[0]/s.hp[1]>=0.4)return 'boss_break';
@@ -188,18 +204,21 @@ function chooseTask(s,m,now=Date.now()) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
-  const statWait=m.statsDeferred&&m.statsDeferred.points===s.statPoints&&m.statsDeferred.level===s.lv&&m.statsDeferred.job===s.job&&now-m.statsDeferred.at<900000;
-  if(!statWait&&(s.statPoints>=5||s.statBlocked)&&due('stats',120000)) return 'stats';
-  if(s.skillPoints>0&&due('skills',180000)) return 'skills';
-  if(due('configure',21600000)) return 'configure';
-  if(m.classTrip && m.classTrip.job===s.job && now-m.classTrip.at<240000) return s.panel==='shrine'?'class':'observe';
-  if(due('class',180000)&&(/quest at the shrine|Return to.*Shrine|quest complete/i.test(s.quest)||s.panel==='shrine'||s.controls.some(c=>c.go==='shrine'))) return 'class';
+  if(nextClass&&s.jobQuestProgress&&now>=(m.trainingUntil||0)){
+    if(!s.autoQuestRunning&&s.controls.some(c=>c.aq==='jq')&&due('job_retry',30000))return 'job_retry';
+    if(!needsTimeEater&&s.autoQuestRunning&&s.autoQuestMode==='jq'&&m.deaths.length<3)return 'observe';
+  }
   // Expired training MUST retry first. Previously train reset its own timer at every expiry.
   if(m.trainingUntil&&now>m.trainingUntil&&s.controls.some(c=>c.aq==='jq')&&due('job_retry',600000))return 'job_retry';
   if(s.jobQuestProgress && !m.classTrip && now>(m.trainingUntil||0) && s.autoQuestMode==='mq' && due('job_retry',60000))return 'job_retry';
   // A waiting boss is not evidence that more levels are needed. Train only after actual defeats.
   if(s.jobQuestProgress && !m.classTrip && now>(m.trainingUntil||0) && m.deaths.length>=3 && due('train',1200000))return 'train';
   if(needsTimeEater && now>(m.trainingUntil||0) && due('class_boss',120000))return 'class_boss';
+  if(nextClass&&s.jobQuestProgress&&now>=(m.trainingUntil||0))return 'observe';
+  const statWait=m.statsDeferred&&m.statsDeferred.points===s.statPoints&&m.statsDeferred.level===s.lv&&m.statsDeferred.job===s.job&&now-m.statsDeferred.at<900000;
+  if(!statWait&&(s.statPoints>=5||s.statBlocked)&&due('stats',120000)) return 'stats';
+  if(s.skillPoints>0&&due('skills',180000)) return 'skills';
+  if(due('configure',21600000)) return 'configure';
   if(!s.autoQuestRunning&&due('quest',60000)) return 'quest';
   if(due('gear',900000)||m.gearLevel!==n(s.lv)) return due('gear',120000)?'gear':'observe';
   if(due('combat',21600000)||m.combatJob!==s.job)return due('combat',300000)?'combat':'observe';
@@ -314,22 +333,25 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           mem.combatJob=before.job;mem.last.combat=Date.now();result='verified native DNA profile: HP '+threshold+'%, MP 30%, '+g.skillScope;break;
         }
         case 'class': {
-          const next={Novice:'mage',Mage:'starweaver',Starweaver:'sage'}[before.job];
+          const next=CLASS_PATH[before.job];
           if(!next) {result='no next class on configured path';break;}
+          if(mem.classAdvancement?.from!==before.job||mem.classAdvancement?.character!==before.name)mem.classAdvancement={character:before.name,from:before.job,to:next,startedAt:Date.now(),phase:'travel'};
+          save();
           if(before.panel!=='shrine') {
             await close();
+            await pick(c=>c.id==='autoBtn'&&c.on,true);
             // The game's CTA while AQ is on resets only the Novice job gate. Stop first for advanced jobs.
             await pick(c=>c.aq==='stop',true);
             await pick(c=>c.go==='shrine');
             mem.classTrip={job:before.job,at:Date.now()};result='walking to shrine for '+next;break;
           }
-          if(!await act('jq',next,true)) {
-            if(!await act('job',next,true))await act('jqdone',null,true);
-          }
+          const changed=await act('jq',next,true)||await act('job',next,true)||await act('jqdone',null,true);
+          if(!changed)throw Error('No verified class quest action at shrine');
           mem.classTrip=null;await close();
           await pick(c=>c.aq==='jq',true);
           const after=await observe();
           if(after.job===before.job && /quest at the shrine/i.test(after.quest))throw Error('class quest not accepted');
+          mem.classAdvancement.phase='quest';updateMetrics(mem,after);
           result='class quest accepted/turned in; native quest runner continues';break;
         }
         case 'train':
@@ -444,4 +466,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,classWorkflowOwned,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

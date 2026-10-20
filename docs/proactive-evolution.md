@@ -104,3 +104,16 @@ attempts separately from confirmed recovery. Unresolved verified stalls become b
 repair opportunities and fail deployment canary health; the watchdog remains protected
 from autonomous candidate edits. Inspect `/health` activity and `strategy.activityWatchdog`
 for the observed context, recovery history and evidence.
+
+## Automatic class advancement
+
+A rendered shrine offer on the configured Novice → Mage → Starweaver → Sage path
+preempts routine farming, earned-point chores and overdue configuration. A capped job
+alone never invents a shrine control. The existing observed CTA and shrine actions
+start the trip with native hunting stopped; the persisted class route and active native
+job quest own the controller through travel, objectives and turn-in. Safety, death and
+existing boss/training safeguards retain priority. Stopped native job quests retry with
+failure backoff. Refreshes, resource trips and ordinary farm resumption cannot cancel
+class travel. Completion and Telegram success require the same character's displayed
+job to actually change; acceptance alone is never reported as a completed promotion.
+After promotion the combat profile/configuration is refreshed for the new class.

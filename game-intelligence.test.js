@@ -147,6 +147,37 @@ test('class cap CTA takes priority over redundant gear checks',()=>{
   const m=preparedMemory(),s=healthy();m.last.configure=Date.now();s.quest='Take the Starweaver quest at the shrine';
   assert.equal(IQ.chooseTask(s,m),'class');
 });
+
+test('Sage shrine offer preempts overdue configuration, earned stats and routine leveling',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobLv:'Job 50 MAX',jobExpText:'JOB MASTER',statPoints:20,quest:'Take the Sage quest at the shrine',controls:[{go:'shrine'}]};
+ assert.equal(IQ.chooseTask(s,m,now),'class');assert.equal(IQ.classWorkflowOwned(s,m,now),true);
+ m.last.class=now;assert.equal(IQ.classWorkflowOwned(s,m,now),true);assert.notEqual(IQ.chooseTask(s,m,now),'class');
+ assert.equal(IQ.classWorkflowOwned({...s,job:'Sage',jobLv:'Job 60 MAX'},m,now),false);
+ const noOffer={...s,quest:'Train to Lv 80',controls:[]};assert.equal(IQ.classWorkflowOwned(noOffer,IQ.freshMemory(),now),false);assert.notEqual(IQ.chooseTask(noOffer,IQ.freshMemory(),now),'class');
+});
+
+test('persisted class route owns the controller through arrival, regardless of class action cooldown',()=>{
+ const now=Date.now(),m=JSON.parse(JSON.stringify(IQ.freshMemory())),s={...healthy(),job:'Starweaver'};m.classTrip={job:'Starweaver',at:now};m.last.class=now;
+ assert.equal(IQ.classWorkflowOwned(s,m,now+60000),true);assert.equal(IQ.chooseTask(s,m,now+60000),'observe');
+ s.panel='shrine';assert.equal(IQ.chooseTask(s,m,now+60000),'class');
+ s.job='Sage';assert.equal(IQ.classWorkflowOwned(s,m,now+60000),false);
+});
+
+test('active Sage quest keeps native quest ownership and resumes it when stopped instead of farming',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver',jobQuestProgress:'Sage Quest Magma Heart 0/10 Ignar the Flame Tyrant 0/1',autoQuestMode:'jq',autoQuestRunning:true,controls:[{aq:'stop'}]};
+ assert.equal(IQ.classWorkflowOwned(s,m,now),true);assert.equal(IQ.chooseTask(s,m,now),'observe');
+ s.autoQuestRunning=false;s.controls=[{aq:'jq'}];assert.equal(IQ.chooseTask(s,m,now),'job_retry');
+ assert.equal(IQ.chooseTask({...s,dead:true},m,now),'revive');assert.equal(IQ.chooseTask({...s,hp:[100,1800]},m,now),'survive');
+});
+
+test('class completion requires the observed new job for the same character and emits one durable event',()=>{
+ const now=Date.now(),m=IQ.freshMemory(),s={...healthy(),job:'Starweaver'};
+ m.autonomy={events:[],sequence:0,farm:{map:'field'}};m.classAdvancement={character:s.name,from:'Starweaver',to:'sage',phase:'quest'};m.classTrip={job:'Starweaver',at:now};
+ IQ.updateMetrics(m,s,now);assert.equal(m.classAdvancement.completedAt,undefined);assert.equal(m.autonomy.events.length,0);
+ IQ.updateMetrics(m,{...s,name:'Other',job:'Sage'},now+1000);assert.equal(m.classAdvancement.completedAt,undefined);
+ IQ.updateMetrics(m,{...s,job:'Sage'},now+2000);assert.equal(m.classAdvancement.completedAt,now+2000);assert.equal(m.autonomy.events[0].type,'class_advanced');assert.equal(m.classTrip,null);assert.equal(m.autonomy.farm.pendingProfile,true);
+ const saved=JSON.parse(JSON.stringify(m));IQ.updateMetrics(saved,{...s,job:'Sage'},now+3000);assert.equal(saved.autonomy.events.length,1);
+});
 test('do not interrupt shrine travel before arrival; react to actual shrine panel',()=>{
   const m=preparedMemory(),s=healthy();m.last.configure=Date.now();m.classTrip={job:'Mage',at:Date.now()};
   assert.equal(IQ.chooseTask(s,m),'observe');s.panel='shrine';assert.equal(IQ.chooseTask(s,m),'class');
@@ -190,6 +221,18 @@ test('class travel stops story automation before requesting the advanced shrine'
     observe:async()=>({...healthy(),autoQuestRunning:auto,controls:[...(auto?[{aq:'stop'}]:[]),{go:'shrine'}]}),
     click:async c=>{clicks.push(c.aq||c.go);if(c.aq==='stop')auto=false;}});
   const r=await executor.run('class');assert.equal(r.ok,true);assert.deepEqual(clicks,['stop','shrine']);assert.equal(mem.classTrip.job,'Mage');
+});
+
+test('Sage route disables native hunting before shrine navigation and persists its verified target',async()=>{
+ let hunt=true;const clicks=[],mem=IQ.freshMemory();
+ const executor=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},
+  observe:async()=>({...healthy(),job:'Starweaver',autoQuestRunning:false,controls:[{id:'autoBtn',on:hunt},{go:'shrine'}]}),click:async c=>{clicks.push(c.id||c.go);if(c.id==='autoBtn')hunt=false;}});
+ assert.equal((await executor.run('class')).ok,true);assert.deepEqual(clicks,['autoBtn','shrine']);assert.equal(mem.classAdvancement.to,'sage');assert.equal(mem.classAdvancement.phase,'travel');assert.equal(mem.classTrip.job,'Starweaver');
+});
+
+test('missing class quest controls fail closed instead of claiming acceptance or completion',async()=>{
+ const mem=IQ.freshMemory();const executor=IQ.createExecutor({mem,save:()=>{},log:()=>{},sleep:async()=>{},key:async()=>{},observe:async()=>({...healthy(),job:'Starweaver',panel:'shrine',controls:[]}),click:async()=>assert.fail('no verified control')});
+ assert.equal((await executor.run('class')).ok,false);assert.equal(mem.classAdvancement.completedAt,undefined);assert.match(mem.failures.class.reason,/No verified class quest action/);
 });
 test('offscreen class button is scrolled into view, accepted, then screen cleared',async()=>{
   let panel='shrine',scrolled=false,accepted=false,auto=false;const mem=preparedMemory();

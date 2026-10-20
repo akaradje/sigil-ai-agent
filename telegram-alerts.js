@@ -136,6 +136,7 @@ class AlertEngine {
     const character=agent.state?.name||agent.strategy?.uiHealth?.character;if(!character)return;
     const cursor=d.autonomySeen[character]||0;
     const types={
+      class_advanced:e=>`✨ เปลี่ยนอาชีพสำเร็จ: ${e.from} → ${e.to} · ยืนยันจากอาชีพที่เกมแสดงแล้ว`,
       activity_recovery:e=>`⚠️ ตรวจพบเกมไม่มีความคืบหน้า (${e.reason}) กำลัง${e.action==='reload'?'โหลดหน้าเกมใหม่':e.action==='restart'?'เริ่มบริการใหม่':'กู้ลูปงานเดิม'} · รอยืนยันผลในเกม`,
       activity_recovered:()=>`✅ กู้อาการค้างแล้ว ตรวจพบความคืบหน้าจริงในเกมอีกครั้ง`,
       activity_escalated:e=>`🛠 กู้เบื้องต้นแล้วยังค้าง (${e.reason}) ส่งหลักฐานให้ระบบซ่อมโค้ดตรวจต่อ และจำกัดการรีสตาร์ทเพื่อป้องกันวนซ้ำ`,
