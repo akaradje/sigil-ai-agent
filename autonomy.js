@@ -233,7 +233,8 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(a.farm&&now-a.farm.started>(policy.levelingFocus&&!a.farm.trial?30:10)*MIN)return 'finish_farm';
   if(due('inventory',a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]*0.85?MIN:5*MIN))return 'inventory';
   if(due('equipment',10*MIN))return 'equipment';
-  if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*DNA.profile(mem).bagReturnThreshold)) {
+  const servicedTown=a.townVisit?.active&&a.townVisit.servicedAt&&catalog.maps.some(m=>m.town&&norm(m.name)===norm(s.zone));
+  if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*DNA.profile(mem).bagReturnThreshold)&&(!servicedTown||a.bagUsage[0]>=a.bagUsage[1])) {
     if(!policy.sellSurplus&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
     return due(policy.sellSurplus?'town_shop':'town_storage',5*MIN)?(policy.sellSurplus?'town_shop':'town_storage'):a.farm?'autonomy_wait':null;
   }

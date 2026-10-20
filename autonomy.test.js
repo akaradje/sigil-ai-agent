@@ -100,6 +100,17 @@ test('95 percent bag threshold and proactive potion restock keep a cooldown',()=
   a.last.town_shop=clock;assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:10}),catalog(),clock,policy),null);
   m.uiHealth={safeIdle:true};a.bagUsage=[100,100];assert.equal(A.chooseTask(m,state(),catalog(),clock,policy),null);
 });
+
+test('a completed town visit with remaining bag space cannot immediately request the same sales again',()=>{
+  const m={},a=A.init(m),c=catalog();a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;
+  a.bagUsage=[125,130];a.townVisit={active:true,servicedAt:clock-1000};
+  const s=state({zone:'Town',hpPotions:30,mpPotions:30}),p={enabled:true,sellSurplus:true,levelingFocus:true,crystalBudget:0};
+  assert.equal(A.chooseTask(m,s,c,clock,p),null);
+  a.last.farm=0;assert.equal(A.chooseTask(m,s,c,clock,p),'farm');
+  assert.equal(A.chooseTask(m,{...s,zone:'Field'},c,clock,p),'town_shop');
+  a.bagUsage=[130,130];assert.equal(A.chooseTask(m,s,c,clock,p),'town_shop');
+  a.bagUsage=[125,130];assert.equal(A.chooseTask(m,{...s,hpPotions:0},c,clock,p),'town_shop');
+});
 test('higher-map trials require repeated short bars, measured baseline, survival and available potions',()=>{
   const c=catalog();c.maps.push({id:'higher',name:'Higher',monsters:[{id:'next'}]});c.monsters.push({id:'next',lv:60,hp:1500,exp:200,drops:[]});
   const m={},a=A.init(m);a.farmRates.field={expPerMinute:10000,minutes:3,at:clock};
