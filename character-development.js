@@ -167,7 +167,10 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
   function record(task,detail){d.history.push({task,detail,at:now()});d.history=d.history.slice(-40);d.steps++;}
   async function freeWarp(map,raw){
     if(!raw.available||!(raw.freeWarps>0)||raw.map===map)return false;
-    const before=await observe();await open('prem');await pick('crtab','warp');await pick('crwarp',map);
+    const before=await observe();
+    if(before.autoQuestRunning){const stop=before.controls.filter(c=>c.aq==='stop');if(stop.length!==1)throw Error('Quest stop is not unique');await click(stop[0]);await sleep(800);}
+    if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+    await open('prem');await pick('crtab','warp');await pick('crwarp',map);
     const modal=await observe();if(!/free.*warp|warp.*free|วาร์ปฟรี/i.test(modal.modalText)||/crystal|คริสตัล|ใช้ปีกวาร์ป|use.*warp wing/i.test(modal.modalText))throw Error('Only an existing free warp is authorized');
     const buttons=modal.controls.filter(c=>/^(Warp|วาร์ป)$/i.test(c.label));if(buttons.length!==1)throw Error('Free warp confirmation ambiguous');
     await click(buttons[0]);await sleep(1500);const after=await observe(),live=await scene();
@@ -258,6 +261,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
         d.cardsPending=changed;
       }else if(task==='growth_materials'){
         if(!scene||!travel||!sceneAction)throw Error('Resource navigation adapter unavailable');
+        if(before.autoQuestRunning){await close();const stop=(await observe()).controls.filter(c=>c.aq==='stop');if(stop.length!==1)throw Error('Quest stop is not unique');await click(stop[0]);await sleep(800);}
         let trip=d.excursion;
         if(!trip){
           if(before.hp[0]/before.hp[1]<0.85||before.hpPotions<20||before.mpPotions<20)throw Error('Resource trial needs health and supplies');
@@ -273,8 +277,8 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
           }
         }else{
           const raw=await scene(),s=await observe();
-          if(raw.available&&raw.map!==trip.map&&now()-trip.started>45000&&!trip.warpTried&&raw.freeWarps>0&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
-            trip.warpTried=true;save();await close();await freeWarp(trip.map,raw);
+          if(raw.available&&raw.map!==trip.map&&now()-trip.started>45000&&(trip.warpAttempts??(trip.warpTried?1:0))<2&&raw.freeWarps>0&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
+            trip.warpAttempts=(trip.warpAttempts??(trip.warpTried?1:0))+1;trip.warpTried=true;save();await close();await freeWarp(trip.map,raw);
             if(trip.kind==='boss'){await open('bosses');const live=await observe(),boss=live.bossRows.find(b=>b.name===trip.boss&&b.up);
               if(!boss){trip.done=true;d.bossRetryAt=now()+5*MIN;}
               else{const [map,x,y]=boss.key.split(',');if(map!==trip.map)trip.done=true;else{trip.bossPoint={x:Number(x),y:Number(y)};trip.approachAt=now();await pick('bbgo',boss.key);}}

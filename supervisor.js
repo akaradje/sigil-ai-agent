@@ -163,9 +163,9 @@ async function tick() {
     const r=http.get('http://127.0.0.1:4801/health',{timeout:2500},res=>{res.resume();resolve(res.statusCode===200);});
     r.on('timeout',()=>r.destroy());r.on('error',()=>resolve(false));
   });
-  if(agentAlive) {
+  if(!IQ.controllerFallbackReady(mem,agentAlive)) {
     metric({event:'observer',lv:s.lv,jl:s.jl,hp:s.hp,gold:s.gold,auto:s.autoRunning});
-    mem.controller='agent-v3';return;
+    mem.controller=agentAlive?'agent-v3':'agent-startup-grace';return;
   }
   mem.controller='supervisor-fallback';
 

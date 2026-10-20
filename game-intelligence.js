@@ -118,6 +118,11 @@ const {bracketHold}=require('./progression');
 const DNA=require('./strategy-dna');
 function n(v) { return Number(String(v||'').match(/\d+/)?.[0]||0); }
 function rankDue(m,now=Date.now()) {return now-(m.last?.rank||0)>300000&&now-(m.failures?.rank?.at||0)>(m.failures?.rank?.count||0)*60000;}
+function controllerFallbackReady(mem,alive,now=Date.now()){
+  if(alive){delete mem.agentMissingSince;return false;}
+  mem.agentMissingSince ??= now;
+  return now-mem.agentMissingSince>=60000;
+}
 function freshMemory() { return {version:3,last:{},failures:{},samples:[],rank:null,task:null,classTrip:null,lastProgress:Date.now(),deaths:[],wasDead:false}; }
 function combatSnapshot(s,now=Date.now()) {
   if(!['bag','equip'].includes(s.panel)||!s.panelOpen||!s.name||!s.job||!s.lv)return null;
@@ -435,4 +440,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   }
   return {run,open,close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,matchControl,casterWeapon,createExecutor,bracketHold};

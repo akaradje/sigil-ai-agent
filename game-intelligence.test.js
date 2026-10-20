@@ -2,6 +2,17 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const IQ=require('./game-intelligence');
+test('supervisor does not steal the UI during agent startup or a short restart',()=>{
+  const m={},t=1800000000000;
+  assert.equal(IQ.controllerFallbackReady(m,false,t),false);
+  assert.equal(IQ.controllerFallbackReady(m,false,t+100),false);
+  assert.equal(IQ.controllerFallbackReady(m,true,t+1000),false);
+  assert.equal(m.agentMissingSince,undefined);
+  assert.equal(IQ.controllerFallbackReady(m,false,t+2000),false);
+  assert.equal(IQ.controllerFallbackReady(m,false,t+61999),false);
+  assert.equal(IQ.controllerFallbackReady(m,false,t+62000),true);
+  assert.equal(IQ.controllerFallbackReady(m,true,t+63000),false);
+});
 test('serialized perception fits the local GET adapter header budget',()=>{
   assert.ok(encodeURIComponent('JSON.stringify('+IQ.PERCEPTION+')').length<15000);
 });
