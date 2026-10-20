@@ -767,3 +767,12 @@ test('a ready wing reaches its live recipe before grade, runes and capacity on a
  click:async c=>{calls.push(c.act+':'+c.key);if(c.act==='craft'){gold-=700000;crafted=true;}},developAtSmith:async()=>assert.fail('runes cannot preempt a ready wing'),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(crafted,true);assert.equal(a.wingCraft.status,'crafted');assert.equal(gold,200000);assert.equal(a.trip.phase,'town');assert.ok(!calls.some(c=>/grade|star/.test(c)));
 });
+
+test('supplied boss preparation finishes optional town work without a farming detour and preserves uncertain sales',async()=>{
+ for(const uncertain of [false,true]){
+ const m={},a=A.init(m),c=catalog();m.bossLearning={pending:true,plan:{craftWing:true}};a.wingCraft={status:'equipped'};a.bagUsage=[90,100];a.worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];a.trip={kind:'shop',phase:'return',at:clock,salesDone:false,forgeServiced:true};a.saleIntent={status:uncertain?'uncertain':'confirmed'};let inputs=0;
+ const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true},now:()=>clock,observe:async()=>state({zone:'Town',hp:[1000,1000],hpPotions:30,mpPotions:30}),click:async()=>inputs++,open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+ await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(inputs,0);
+ if(uncertain)assert.ok(a.trip);else{assert.equal(a.trip,null);assert.equal(a.resume,null);assert.equal(a.farm,null);assert.equal(a.townVisit.servicedAt,clock);}
+ }
+});

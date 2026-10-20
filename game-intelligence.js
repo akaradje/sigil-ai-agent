@@ -172,10 +172,13 @@ function bossPlan(s,m,response,now=Date.now()){
   const keys=['diagnosis','enableSkills','disableSkills','craftWing','retreatHp'];
   if(!p||Object.keys(p).some(k=>!keys.includes(k))||typeof p.diagnosis!=='string'||!p.diagnosis.trim()||p.diagnosis.length>900||typeof p.craftWing!=='boolean'||![0.35,0.4,0.5].includes(p.retreatHp))return null;
   const skills=b?.audit?.skill?.controls?.filter(c=>c.act==='askill')||[];
-  for(const k of ['enableSkills','disableSkills'])if(!Array.isArray(p[k])||p[k].length>8||new Set(p[k]).size!==p[k].length||p[k].some(id=>!skills.some(c=>c.key===id)))return null;
+  for(const k of ['enableSkills','disableSkills'])if(!Array.isArray(p[k])||p[k].length>(k==='enableSkills'?9:8)||new Set(p[k]).size!==p[k].length||p[k].some(id=>!skills.some(c=>c.key===id)))return null;
   if(p.enableSkills.some(id=>p.disableSkills.includes(id))||p.disableSkills.includes('energy_coat'))return null;
   if(skills.some(c=>c.key==='energy_coat')&&!p.enableSkills.includes('energy_coat'))return null;
-  return {...p,at:now};
+  // Native defensive buffs are controller invariants. Preserve the model's
+  // attack choices, but never trade away this observed DEF/MATK buff.
+  const defense=skills.some(c=>c.key==='stardust_shield')?['stardust_shield']:[];
+  return {...p,enableSkills:[...new Set([...p.enableSkills,...defense])],disableSkills:p.disableSkills.filter(id=>!defense.includes(id)),enforcedDefense:defense,at:now};
 }
 function bossReviewEvidence(s,m,catalog){
   const b=bossLearning(m,s),a=m.autonomy||{},ids=(b.audit.skill?.controls||[]).filter(c=>c.act==='askill').map(c=>c.key);

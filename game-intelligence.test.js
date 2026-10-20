@@ -479,3 +479,11 @@ test('boss review includes observed enabled skills and compact definitions witho
  const c={monsters:[{name:'Ignar',elem:'fire',hp:100}],definitions:{skills:{energy_coat:{name:'Energy Coat',kind:'buff',buff:{def:20},th:'untrusted long description'.repeat(1000)}}}};
  const e=IQ.bossReviewEvidence(s,m,c);assert.equal(e.bossElement,'fire');assert.deepEqual(e.enabledSkills,['energy_coat']);assert.equal(e.selectedNative.hunt[0].value,true);assert.equal(e.learnedSkills.energy_coat.th,undefined);assert.ok(JSON.stringify(e).length<2000);
 });
+
+test('boss plan preserves observed Stardust Shield even when a model proposes disabling it, including after restart',()=>{
+ const m=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(m,s);b.audit.skill={controls:['energy_coat','stardust_shield','storm_gust'].map(key=>({act:'askill',key}))};
+ let plan=IQ.bossPlan(s,m,JSON.stringify({diagnosis:'Elemental trial',enableSkills:['energy_coat','storm_gust'],disableSkills:['stardust_shield'],craftWing:true,retreatHp:0.4}));
+ assert.deepEqual(plan.enableSkills,['energy_coat','storm_gust','stardust_shield']);assert.deepEqual(plan.disableSkills,[]);assert.deepEqual(plan.enforcedDefense,['stardust_shield']);
+ const fields=Object.fromEntries(['diagnosis','enableSkills','disableSkills','craftWing','retreatHp'].map(k=>[k,plan[k]]));
+ assert.deepEqual(IQ.bossPlan(s,JSON.parse(JSON.stringify(m)),JSON.stringify(fields)).enableSkills,plan.enableSkills);
+});

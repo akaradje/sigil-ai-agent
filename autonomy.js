@@ -535,6 +535,14 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}
       await close();s=await state();
     }
+    // Hand a supplied, healthy town visit back to the boss preparation owner.
+    // Optional surplus inspections and a return-to-farm trip are not prerequisites.
+    if(townMap&&mem.bossLearning?.pending&&mem.bossLearning.plan&&trip.forgeServiced&&
+      (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped')&&s.hp?.[0]/s.hp?.[1]>=0.9&&s.hpPotions>=20&&s.mpPotions>=20&&
+      a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&!['uncertain','confirming'].includes(a.saleIntent?.status)&&!['reserved','unknown'].includes(a.purchase?.status)){
+      a.trip=null;a.resume=null;a.farm=null;if(a.townVisit)a.townVisit.servicedAt=now();
+      event(a,'boss_preparation_services_ready',{},now());save();return;
+    }
     if(now()-(trip.hygiene?.started||trip.progressAt||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
     // Sales and sustain retain ownership. Optional forging cannot renew a visit indefinitely.
     if(trip.kind==='forge'&&trip.phase!=='return'&&trip.salesDone===true&&now()-trip.at>5*MIN&&s.hpPotions>=20&&s.mpPotions>=20){
