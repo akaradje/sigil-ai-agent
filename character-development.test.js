@@ -31,6 +31,18 @@ test('duplicate offers cannot monopolize development or fill the ranch with one 
   assert.equal(D.worthOffer(d,state({tameOffer:'Gloom Nautilus\nLv 68 · wants to join'})),true);
   d.snapshots.ranch.pets=Array.from({length:10},()=>({name:'Other'}));assert.equal(D.worthOffer(d,state({tameOffer:'Rare boss'})),false);
 });
+test('bounded model reviews persist their deadline across restarts and react to new level brackets',()=>{
+  const m={autonomy:{bagUsage:[80,100]}},s=state({hpPotions:22,mpPotions:42});
+  assert.equal(D.reviewDue(m,s,now),false);assert.equal(D.reviewDue(m,s,now+119*60000),false);assert.equal(D.reviewDue(m,s,now+120*60000),true);
+  assert.equal(D.reviewDue(m,{...s,lv:'Lv 75'},now+16*60000),true);
+  m.development.lastReviewAt=now+120*60000;m.development.lastReviewEpoch='Starweaver:14';
+  assert.equal(D.reviewDue(JSON.parse(JSON.stringify(m)),s,now+125*60000),false);
+});
+test('optional model exploration never preempts urgent supplies, trips or UI recovery',()=>{
+  const m={autonomy:{bagUsage:[80,100]}},s=state({hpPotions:22,mpPotions:42});D.reviewDue(m,s,now);
+  assert.equal(D.reviewDue(m,{...s,hpPotions:10},now+180*60000),false);m.autonomy.trip={kind:'forge'};assert.equal(D.reviewDue(m,s,now+180*60000),false);
+  m.autonomy.trip=null;m.uiHealth={safeIdle:true};assert.equal(D.reviewDue(m,s,now+180*60000),false);
+});
 test('runes use native recommendation, then collected copies before paid crafting',()=>{
   const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}],runeRows:[]};
   assert.deepEqual(D.runeStep(v,{},state()),{act:'rnlearn',id:'comet_rain'});

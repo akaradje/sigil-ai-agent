@@ -404,3 +404,10 @@ colour describes options/card slots, separately from equipment tier; a blue Tier
 evidence that it is obsolete. The dashboard shows development history, companion/rune snapshots,
 life-skill observations and the remaining wing recipe. Locked systems are requirements to work
 toward, not successful upgrades. There is no real-money purchase or account-setting workflow.
+
+When the configured model is available, a bounded development review also checks less common
+solo systems such as earned supply boxes, cooking, pet league and spare-pet breeding through
+the existing typed UI tools. Reviews run at most every two hours, or after a newly reached
+five-level bracket/class with a 15-minute cooldown. The deadline persists across restarts.
+Survival, bag/potion emergencies, active trips and UI recovery retain priority; reviews preserve
+the elite companion, useful equipment, wing materials, gold reserve and farming destination.

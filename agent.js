@@ -552,7 +552,7 @@ EFFICIENT CONTROL:
 - Current quest tracker outranks historical logs. At job cap, finish the next class quest before more capped-job farming.
 - Auto Quest mode jq advances the CLASS quest; mq advances the STORY. Story level requirements (e.g. Lv55) do not unlock Starweaver. Chrono Gear is from Time Eater Lv34. Do not switch to story training for this boss unless actual repeated deaths require it.
 - The deterministic boss workflow reads the Boss Board Go button, approaches its live position, then resumes class-quest combat. Do not interrupt a boss approach or a Time Eater fight.
-- Gold is numeric. Maintain a 10000 G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
+- Gold is numeric. Maintain a ${autonomyPolicy.goldReserve} G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
 - Only routine gameplay for this character. No chat/messages, trading, premium purchases or account settings. Sales are permitted only through the opt-in deterministic surplus workflow; never sell, unlock, discard or withdraw gear through LLM tools.
 - With authorized surplus sales enabled, finish town shop inspection before returning to farm. Never deposit weapons or use bulk storage; retain protected, useful and ambiguous gear.
 - Autonomous capacity purchases use a separate deterministic workflow and persistent budget; never attempt them through LLM tools. Public catalog definitions are advisory and current live UI must confirm every action.
@@ -639,7 +639,8 @@ async function runCycle() {
       actionInFlight=true;try{await executor.run('rank');}finally{actionInFlight=false;}
       return;
     }
-    if(automatic&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
+    const developmentReview=autonomyPolicy.powerProgression&&!critical.includes(planned)&&modelReady()&&Development.reviewDue(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3;
+    if(automatic&&!developmentReview&&(!critical.includes(planned)||(planned==='survive'&&(automatic==='town_rest'||memory.autonomy?.trip?.kind==='rest')))) {
       if(actionTimes.filter(t=>Date.now()-t<60000).length>3)return;
       const routine=['stats','skills','gear','rank','combat','configure'];
       const restoring=memory.autonomy?.resume||memory.autonomy?.farm?.pendingProfile;
@@ -647,7 +648,7 @@ async function runCycle() {
       else {actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}}
       return;
     }
-    if(planned!=='observe') {
+    if(planned!=='observe'&&!developmentReview) {
       await runPolicy(p.state);
       fs.appendFileSync(DECISIONS,JSON.stringify({t:Date.now(),cycle,brain:'workflow',task:memory.task,performance:memory.performance})+'\n');
       return;
@@ -655,19 +656,22 @@ async function runCycle() {
     if(memory.classTrip && Date.now()-memory.classTrip.at<240000)return;
     if(memory.classBossTrip)return;
     if(/Time Eater/i.test(p.state.target||'')&&/Chrono Gear\s*0\s*\/\s*1/i.test(p.state.jobQuestProgress||''))return;
-    if(Date.now()-lastStrategic<300000 && !directive) return;
+    if(Date.now()-lastStrategic<300000 && !directive&&!developmentReview) return;
     lastStrategic=Date.now();
     const cycleDeadline=Date.now()+75000;
 
     let usedLlm = false;
     if (modelReady()) {
       try {
+        if(developmentReview){memory.development.lastReviewAt=Date.now();memory.development.lastReviewEpoch=p.state.job+':'+Math.floor(IQ.n(p.state.lv)/5);saveMemory();}
         const ctx = [
           'CURRENT STATE (json):',
           JSON.stringify(describe(p)),
           'VISIBLE BUTTONS:',
           JSON.stringify(p.buttons),
           knowledge(p.state),
+          developmentReview?'CHARACTER DEVELOPMENT REVIEW: Inspect the native guide and all accessible solo power systems. Check earned caches/supply boxes, cooking and life skills, companion growth/league/breeding, equipment sets/options, card caps, skill evolutions and runes. Use only verified current UI. Preserve the active elite pet, useful gear/cards, reserved wing materials and sustain gold. Prefer guaranteed useful gains; do not gamble away good options, buy premium items, trade, message other players or change account settings. Keep the saved leveling destination and close panels after short actions. Record missing requirements as a tactic for the next review.':'',
+          developmentReview?'VERIFIED DEVELOPMENT STATE: '+JSON.stringify({last:memory.development.result,runeNext:memory.development.runeNext,resources:memory.autonomy?.goal,knownPanels:Object.keys(memory.development.snapshots||{})}):'',
           'MEASURED PERFORMANCE: '+JSON.stringify(memory.performance),
           'RECENT TASK / FAILURES: '+JSON.stringify({task:memory.task,failures:memory.failures,rank:memory.rank}),
           directive ? `OPERATOR DIRECTIVE (follow it this cycle): ${directive}` : '',

@@ -46,6 +46,13 @@ function worthOffer(d,s){
   if(pets.length>=10)return false;
   return !offer||pets.filter(p=>offer.startsWith(norm(p.name))).length<2;
 }
+function reviewDue(mem,s,now=Date.now()){
+  const d=init(mem),epoch=s.job+':'+Math.floor(Number(String(s.lv||'').match(/\d+/)?.[0]||0)/5);
+  d.reviewBaseline ||= {at:now,epoch};
+  if(mem.uiHealth?.safeIdle||!routineReady(mem,s))return false;
+  const age=now-(d.lastReviewAt||d.reviewBaseline.at),changed=epoch!==(d.lastReviewEpoch||d.reviewBaseline.epoch);
+  return age>=120*MIN||changed&&age>=15*MIN;
+}
 function chooseTask(mem,s,catalog,now=Date.now()){
   if(!s.name||s.dead||!s.hp||mem.uiHealth?.safeIdle)return null;
   const d=init(mem);
@@ -273,4 +280,4 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
   }
   return {run};
 }
-module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,worthOffer,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
+module.exports={EXPRESSION,SCENE_EXPRESSION,readDevelopment,init,remember,chooseTask,routineReady,worthOffer,reviewDue,runeStep,runeCost,bestPet,buffChoice,materialPlan,createController};
