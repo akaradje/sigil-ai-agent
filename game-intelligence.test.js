@@ -487,3 +487,23 @@ test('boss plan preserves observed Stardust Shield even when a model proposes di
  const fields=Object.fromEntries(['diagnosis','enableSkills','disableSkills','craftWing','retreatHp'].map(k=>[k,plan[k]]));
  assert.deepEqual(IQ.bossPlan(s,JSON.parse(JSON.stringify(m)),JSON.stringify(fields)).enableSkills,plan.enableSkills);
 });
+
+test('unresolved WARD triggers evacuation before the deadline even at healthy HP and records a retreat',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,boss='Ignar',s={...healthy(),hp:[1500,1800],jobQuestProgress:'Hunt Ignar 0/1',target:boss,targetHpRatio:1,hpPotions:30};m.classBossTrip={boss,key:'boss-map,500,500',fighting:true};
+ for(const [i,left,ratio] of [[0,13,1],[1,12,0.99],[5,8,0.9]]){m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+i*1000};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD '+left+' s',bossWardRatio:ratio},now+i*1000);}
+ assert.equal(m.bossLearning.retreat,true);assert.equal(m.bossLearning.pending,true);assert.equal(m.bossLearning.active.abortReason,'ward-deadline');assert.equal(m.bossLearning.active.minHp,1500/1800);
+ m.gameTelemetry={validated:true,map:'town',checkedAt:now+9000};IQ.observeClassBoss(m,s,now+9000);assert.equal(m.bossLearning.history[0].outcome,'retreated');assert.equal(m.bossLearning.history[0].ward.ratio,0.9);assert.equal(m.bossLearning.retreat,false);assert.equal(m.classBossTrip,null);
+});
+
+test('WARD break pace can justify continuing, while a stale ward HUD in town cannot arm retreat',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar',targetHpRatio:1};m.classBossTrip={boss:'Ignar',key:'boss-map,500,500',fighting:true};
+ m.gameTelemetry={validated:true,map:'town',checkedAt:now};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD 8 s',bossWardRatio:1},now);assert.equal(m.bossLearning.retreat,undefined);
+ for(const [i,left,ratio] of [[1,13,1],[6,8,0.1]]){m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+i*1000};IQ.observeClassBoss(m,{...s,bossMechanic:'WARD '+left+' s',bossWardRatio:ratio},now+i*1000);}
+ assert.equal(m.bossLearning.retreat,undefined);assert.ok(m.bossLearning.active.ward.estimatedBreakSeconds<1);
+});
+
+test('boss evacuation stops native combat before using the observed Return Scroll',async()=>{
+ const m=IQ.freshMemory(),s={...healthy(),jobQuestProgress:'Hunt Ignar 0/1'},b=IQ.bossLearning(m,s);b.pending=true;b.retreat=true;let auto=true;const calls=[];
+ const ctl=IQ.createExecutor({mem:m,observe:async()=>({...s,autoHunt:auto?'on':'',controls:[{id:'autoBtn',on:auto},{id:'potTp'}]}),click:async c=>{calls.push(c.id);if(c.id==='autoBtn')auto=false;},key:async()=>{},sleep:async()=>{},log:()=>{},save:()=>{}});
+ assert.equal((await ctl.run('boss_retreat')).ok,true);assert.deepEqual(calls,['autoBtn','potTp']);assert.equal(b.retreat,true);assert.equal(b.history.length,0);
+});

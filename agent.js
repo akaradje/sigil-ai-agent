@@ -631,9 +631,19 @@ async function prepareClassBoss(s){
     if(checked)b.plan={...checked,at:b.plan.at};else{b.plan=null;b.reviewStatus='decision-rejected';}
   }
   const run=async task=>{const f=memory.failures[task];if(f&&now-f.at<Math.min(120000,30000*f.count))return {ok:false};actionInFlight=true;try{return await executor.run(task);}finally{actionInFlight=false;saveMemory();}};
-  if(actionTimes.filter(t=>now-t<60000).length>3)return true;
   if(s.dead){await run('revive');return true;}
-  if(b.retreat){if(now-(memory.last.boss_retreat||0)>30000)await run('boss_retreat');return true;}
+  const recentInputs=actionTimes.filter(t=>now-t<60000).length;
+  if(b.retreat){if(recentInputs<=MAX_ACTIONS_PER_MIN-4&&now-(memory.last.boss_retreat||0)>30000)await run('boss_retreat');return true;}
+  if(recentInputs>3)return true;
+  const failedMap=b.history.at(-1)?.map,position=memory.gameTelemetry;
+  if(!b.active&&failedMap&&position?.validated&&!position.loading&&!position.positionFault&&now-position.checkedAt<=5000&&position.map===failedMap&&
+    !catalog?.maps.some(map=>map.town&&map.id===position.map)){
+    if(now-(memory.last.boss_retreat||0)>30000)await run('boss_retreat');return true;
+  }
+  if(!b.active&&!b.quieted){
+    if(s.autoQuestRunning||/\bon\b/.test(s.autoHunt||'')){const r=await run('boss_stage');if(r.ok)b.quieted=true;return true;}
+    b.quieted=true;
+  }
   if(s.hp?.[0]/s.hp?.[1]<0.3){await run('survive');return true;}
   if(s.autoQuestRunning&&s.autoQuestMode==='jq'){await run('boss_rebuild');return true;}
   const a=Autonomy.init(memory),automatic=Autonomy.chooseTask(memory,s,catalog,now,autonomyPolicy);

@@ -22,3 +22,8 @@ test('reload recovery cannot loop across process restarts or exceed three per ho
   assert.equal(T.recoveryDue(JSON.parse(JSON.stringify(m)),now+600001),false);
   m.positionRecovery.history=[now];assert.equal(T.recoveryDue(m,now+1000),false);assert.equal(T.recoveryDue(m,now+600001),true);
 });
+
+test('ward projection reads only the visible shield bar fraction',()=>{
+ const g={running:true,ready:true,p:{map:'field',x:10,y:20},world:{id:'field',w:96,h:68}};
+ const s=JSON.parse(vm.runInNewContext(T.EXPRESSION,{window:{SIGIL:g},document:{querySelector:selector=>{assert.equal(selector,'#bossMech .wb>b');return {style:{width:'87%'}};}}}));assert.equal(s.bossWardRatio,0.87);
+});

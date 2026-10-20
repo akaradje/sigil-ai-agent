@@ -158,11 +158,25 @@ function observeClassBoss(m,s,now=Date.now()){
   if(f.lastHp!=null)f.hpLost+=Math.max(0,f.lastHp-s.hp[0]);f.lastHp=s.hp[0];f.targetHP=s.targetHP;
   if(s.bossMechanic&&!f.mechanics.includes(s.bossMechanic))f.mechanics=[...f.mechanics,s.bossMechanic].slice(-8);
   f.potionsUsed=Number.isFinite(f.potionsStart)&&Number.isFinite(s.hpPotions)?Math.max(0,f.potionsStart-s.hpPotions):null;
+  const ward=/\bWARD\s*(\d+)\s*(?:s\b|วิ)/i.exec(s.bossMechanic||'');
+  if(ward){
+    const observed=s.bossWardRatio??t.bossWardRatio,left=Number(ward[1]),ratio=Number.isFinite(observed)&&observed>=0&&observed<=1?observed:null;
+    if(!f.ward||left>f.ward.left+1)f.ward={at:now,firstLeft:left,firstRatio:ratio,samples:0};
+    const w=f.ward;w.left=left;w.ratio=ratio;w.samples++;
+    const elapsed=w.firstLeft-left,rate=elapsed>0&&ratio!=null&&w.firstRatio!=null?(w.firstRatio-ratio)/elapsed:0;
+    w.estimatedBreakSeconds=rate>0?ratio/rate:null;
+    // A normal stop + Return Scroll needs several seconds. Potion thresholds
+    // cannot protect against an unresolved WARD blast (public raid mechanic).
+    if(w.samples>=2&&left<=8&&(ratio==null||ratio>0.05)&&(!Number.isFinite(w.estimatedBreakSeconds)||w.estimatedBreakSeconds>left-5)){
+      b.retreat=true;b.pending=true;f.abortReason='ward-deadline';
+    }
+  }
   // Retreat rather than repeating a lethal race. The controller performs normal UI input.
   if(f.samples>=3&&s.hp[0]/s.hp[1]<=(b.plan?.retreatHp||0.35)){b.retreat=true;b.pending=true;}
   function finish(outcome){
+    if(outcome==='left-map-without-credit'&&b.retreat)outcome='retreated';
     const result={...f,at:now,startedAt:f.at,outcome,seconds:Math.round((now-f.at)/1000),bossDamageFraction:Math.max(0,(f.firstBossRatio||0)-(f.lastBossRatio||0))};
-    b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;
+    b.history=[...b.history,result].slice(-12);b.active=null;b.pending=true;b.defeatAt=now;b.failedSignature=f.signature;b.failedPower=f.build?.power;b.audit={};b.receipts={};b.applied=null;b.retreat=false;b.plan=null;b.staged=false;b.quieted=false;
     m.classBossTrip=null;m.trainingUntil=0;if(m.classAdvancement)m.classAdvancement.phase='prepare';
   }
 }
@@ -185,7 +199,7 @@ function bossReviewEvidence(s,m,catalog){
   const monster=catalog?.monsters?.find(x=>x.name===b.boss);
   return {boss:b.boss,objective:b.objective,bossElement:monster?.elem,baseHP:monster?.hp,
     warning:'Base HP is not live raid HP. Unknown damage causes remain uncertain; observed boss HP changes may include other players.',
-    defeats:b.history.slice(-3).map(h=>Object.fromEntries(['outcome','seconds','samples','minHp','targetHP','bossDamageFraction','hpLost','potionsUsed','mechanics'].map(k=>[k,h[k]]))),
+    defeats:b.history.slice(-3).map(h=>Object.fromEntries(['outcome','seconds','samples','minHp','targetHP','bossDamageFraction','hpLost','potionsUsed','mechanics','ward','abortReason'].map(k=>[k,h[k]]))),
     equipment:b.audit.equip?.combat,wing:a.wingCraft?.status,wingGoal:a.goal?.slot==='wing'?a.goal:undefined,
     learnedSkills:Object.fromEntries(ids.map(id=>[id,Object.fromEntries(Object.entries(catalog?.definitions?.skills?.[id]||{}).filter(([k])=>['name','elem','kind','range','buff','cd','mult','hits'].includes(k)))])),
     enabledSkills:(b.audit.skill?.controls||[]).filter(c=>c.act==='askill'&&c.on).map(c=>c.key),

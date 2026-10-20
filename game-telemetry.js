@@ -9,6 +9,7 @@ function readPublicState() {
     sessionStartedAt:typeof performance==='object'&&Number.isFinite(performance.timeOrigin)?performance.timeOrigin:null,
     map:typeof p.map==='string'?p.map:null,world:typeof w.id==='string'?w.id:null,
     x:number(p.x),y:number(p.y),width:number(w.w),height:number(w.h),
+    bossWardRatio:number(parseFloat(globalThis.document?.querySelector('#bossMech .wb>b')?.style.width)/100),
     targetId:['string','number'].includes(typeof p.target)?String(p.target).slice(0,100):null};
 }
 const EXPRESSION='JSON.stringify(('+readPublicState.toString()+')())';
