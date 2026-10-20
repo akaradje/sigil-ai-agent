@@ -11,6 +11,14 @@ rename/reset tickets or unverified buffs. CBT EXP/drop bonuses need no duplicate
 CORE LOOP:
 Survival and recovery first. Advance Mage -> Starweaver -> Sage using current quest requirements.
 Pursue the level leaderboard Top 5 while measuring actual EXP/min and survival by farming area.
+Develop combat power alongside levels: spend earned points, equip better suitable pieces,
+inscribe/equip/upgrade runes, use owned EXP/sustain food, evolve eligible skills and level duplicate cards.
+Accept live companion offers, summon a suitable pet, grow its bond and evolve only when eligible.
+Craft class wings from verified recipes; train mining and hunt required lower-level bosses in bounded
+five-minute resource trips, then restore the leveling map. Respect life-skill and high-class gates.
+Service equipped refinements during regular town visits; preserve level-loss protection, sustain
+reserve and the per-visit spending/action limits. Check enchant grades and Tier II wing stars when ready.
+Use SIGIL_POWER_PROGRESSION=1 to enable these deterministic development workflows.
 Read current recipes and drop sources. Upgrade owned suitable equipment before crafting duplicates.
 Farm missing materials using safe, bounded trials; label predicted drops separately from measurements.
 Craft and refine one verified equipped piece per transaction toward the current public limits.

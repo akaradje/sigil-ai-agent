@@ -44,6 +44,7 @@ function readUI() {
     if(e.dataset.bm)item.bm=e.dataset.bm;
     if(e.dataset.wm)item.wm=e.dataset.wm;
     if(e.dataset.n)item.amount=e.dataset.n;
+    if(e.dataset.sk)item.skill=e.dataset.sk;
     const bossRow=e.closest('.bbrow');
     if(bossRow)item.boss=bossRow.querySelector('.bb-t > b')?.textContent?.trim();
     if(hit&&(e===hit||e.contains(hit)))controls.push(item);
@@ -262,6 +263,7 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
           result='recommended stats committed and verified';break;
         case 'skills': {
           await open('skills');await act('sktab',before.job.toLowerCase(),true);
+          if((await observe()).controls.some(c=>c.act==='rnview'))await act('rnopen');
           const staged=await observe();
           if(staged.controls.some(c=>c.act==='skrec'))await act('skrec');
           if((await observe()).controls.some(c=>c.act==='skapply2')) { await act('skapply2');await confirm('skill|สกิล'); }

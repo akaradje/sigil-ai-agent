@@ -1,0 +1,86 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
+const now=1800000000000;
+const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('expiring pet offers precede town work, but survival and changed UI still win',()=>{
+  const m={autonomy:{trip:{kind:'forge'}}},s=state({controls:[{id:'tameYes'}]});
+  assert.equal(D.chooseTask(m,s,null,now),'tame');
+  assert.equal(D.chooseTask(m,{...s,hp:[200,1000]},null,now),null);
+  assert.equal(D.chooseTask({...m,uiHealth:{safeIdle:true}},s,null,now),null);
+  assert.equal(D.chooseTask(m,state(),null,now),null);
+});
+test('growth retries have backoff and farming resumes between work slices',()=>{
+  const m={},d=D.init(m);assert.equal(D.chooseTask(m,state(),null,now),'pets');
+  d.last.pets=now;assert.equal(D.chooseTask(m,state(),null,now),'growth_buffs');d.last.growth_buffs=now;assert.equal(D.chooseTask(m,state(),null,now),'runes');
+  d.failures.runes={at:now};assert.equal(D.chooseTask(m,state(),null,now),'cards');
+  m.autonomy={resume:{map:'field'}};assert.equal(D.chooseTask(m,state(),null,now),null);
+});
+test('runes use native recommendation, then collected copies before paid crafting',()=>{
+  const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}],runeRows:[]};
+  assert.deepEqual(D.runeStep(v,{},state()),{act:'rnlearn',id:'comet_rain'});
+  v.runeFree=[{id:'astral_lance',recommended:true}];assert.equal(D.runeStep(v,{},state()).id,'astral_lance');
+  v.runeFree.push({id:'comet_rain',recommended:true});assert.equal(D.runeStep(v,{},state()).act,'rnlearn');
+});
+test('locked slots and occupied skill bindings never get reassigned',()=>{
+  const card={id:'leech',known:true,have:0};
+  const v={runeSlots:[{id:'S1',empty:true,selected:true}],runeCards:[card],runeSkills:[{id:'blaze',occupied:true,selected:true}],runeRows:[{set:{key:'leech',skill:'blaze',fee:0}}]};
+  assert.equal(D.runeStep(v,{},state()),null);v.runeSlots[0].locked=true;assert.equal(D.runeStep(v,{},state()),null);
+});
+test('rune crafting follows current level and public cost coefficients',()=>{
+  const c={craft:{gold:100,dust:30},goldPerLevel:100};assert.equal(D.runeCost(c,state()).gold,7300);
+  assert.equal(D.runeCost({...c,goldPerLevel:undefined},state()),null);
+  const v={runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:0,craft:{disabled:false}}]};
+  assert.equal(D.runeStep(v,{development:{runes:{comet_rain:c}}},state()).smith,true);
+});
+test('partial combo installs its missing half instead of treating the slot as complete',()=>{
+  const v={runeSlots:[{id:'C',empty:false,selected:true,text:'Harvest → –'}],runeCards:[{id:'harvest',known:true},{id:'meteor',known:false,learn:{disabled:false}}],runeRows:[{on:true}]};
+  assert.equal(D.runeStep(v,{},state()).id,'meteor');
+});
+test('a pet requires numeric rendered combat stats before it can be selected',()=>{
+  assert.equal(D.bestPet([{id:'x',stats:'???'}]),null);
+  assert.equal(D.bestPet([{id:'a',stats:'Lv 1 · HP 100 · ATK 10'},{id:'b',stats:'Lv 2 · HP 200 · ATK 20'}]).id,'b');
+});
+test('an unacknowledged rune click is not recorded as a successful development',async()=>{
+  const mem={},v={panel:'skills',runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:1,learn:{disabled:false}}]};
+  const ctl=D.createController({mem,observe:async()=>state({controls:[{act:'rnview'},{act:'rnlearn',key:'comet_rain'}]}),scan:async()=>v,click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  const result=await ctl.run('runes');assert.equal(result.ok,false);assert.equal(mem.development.history.length,0);
+});
+test('owned rune learning verifies its codex transition without spending crystals',async()=>{
+  const mem={};let learned=false;
+  const ctl=D.createController({mem,observe:async()=>state({controls:[{act:'rnview'},{act:'rnlearn',key:'comet_rain'}]}),scan:async()=>({panel:'skills',runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:learned,have:learned?0:1,learn:{disabled:false}}]}),click:async()=>{learned=true;},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  assert.equal((await ctl.run('runes')).ok,true);assert.equal(mem.development.steps,1);
+});
+test('development observation fits the existing GET header budget',()=>{assert.ok(encodeURIComponent(D.EXPRESSION).length<15000);});
+test('resource scene reads are narrow and fit the adapter without importing action functions',()=>{
+  assert.ok(encodeURIComponent(D.SCENE_EXPRESSION).length<15000);assert.doesNotMatch(D.SCENE_EXPRESSION,/\.send\(|walkTo\(|lifeTap\(|startAct\(/);
+});
+test('food chooses the highest EXP bonus and never consumes another copy while it is active',()=>{
+  const c={items:{feast:{food:true,use:{buff:{exp:0.1,hp:0.06}}},soup:{food:true,use:{buff:{exp:0.08}}},focus_tonic:{use:{buff:{cd:0.1}}}}};
+  assert.equal(D.buffChoice(c,{feast:2,soup:1},[]),'feast');assert.equal(D.buffChoice(c,{feast:2,soup:1},[{id:'feast'}]),null);
+  assert.equal(D.buffChoice(c,{focus_tonic:1},[]),'focus_tonic');
+});
+test('wing mining starts at the unlocked life tier rather than the character level',()=>{
+  const c={development:{mining:[{tier:1,level:1,mapLevel:0,ore:'copper',gem:'quartz'},{tier:2,level:5,mapLevel:12,ore:'iron',gem:'garnet'},{tier:3,level:12,mapLevel:28,ore:'silver',gem:'sapphire'},{tier:4,level:20,mapLevel:46,ore:'mithril',gem:'crystal'}]},maps:[{id:'south',range:'Lv 1-6'},{id:'sand',range:'Lv 12-18'},{id:'swamp',range:'Lv 28-36'},{id:'obsidian',range:'Lv 46-50'}],monsters:[]};
+  assert.equal(D.materialPlan(c,[{id:'mithril'}],{available:true,mineLv:1},state()).map,'south');
+  assert.equal(D.materialPlan(c,[{id:'mithril'}],{available:true,mineLv:20},state()).map,'obsidian');
+  assert.equal(D.materialPlan(c,[{id:'sapphire'}],{available:false},state()),null);
+});
+test('boss material trips reject bosses close to or above the character level',()=>{
+  const c={monsters:[{id:'hard',name:'Hard',lv:70,boss:true,drops:[['gear',1]]},{id:'safe',name:'Safe',lv:40,boss:true,drops:[['gear',1]]}]};
+  assert.equal(D.materialPlan(c,[{id:'gear'}],null,state()).id,'safe');
+  c.monsters.shift();c.monsters[0].lv=80;assert.equal(D.materialPlan(c,[{id:'gear'}],null,state()),null);
+});
+test('low health during a resource trial schedules return rather than abandoning recovery state',()=>{
+  const m={development:{excursion:{kind:'mine'}}};assert.equal(D.chooseTask(m,state({hp:[400,1000]}),{},now),'growth_materials');
+  assert.equal(D.chooseTask(m,state({dead:true}),{},now),null);
+});
+test('a timed-out resource trip restores the saved farm and keeps the bag/sale state intact',async()=>{
+  const mem={autonomy:{farm:{map:'original'},sales:{count:4}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',returnMap:'original',started:now-6*60000}}},visited=[];
+  const ctl=D.createController({mem,observe:async()=>state({hpPotions:25,mpPotions:25,inventoryComplete:true,autoHunt:''}),scan:async()=>null,scene:async()=>({available:true,map:'south'}),sceneAction:async()=>{},travel:async id=>visited.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  assert.equal((await ctl.run('growth_materials')).ok,true);assert.deepEqual(visited,['original']);assert.equal(mem.development.excursion,null);assert.equal(mem.autonomy.resume.map,'original');assert.equal(mem.autonomy.sales.count,4);
+});
+test('paid rune operations fail before input if the currently rendered price cannot be verified',async()=>{
+  let clicks=0;const mem={},v={panel:'skills',runeSlots:[{id:'L1',empty:true,selected:true}],runeCards:[{id:'comet_rain',known:false,have:0,craft:{disabled:false,tip:'Unexpected price'}}]};
+  const ctl=D.createController({mem,observe:async()=>state({panel:'smith',controls:[{act:'rnview'}]}),scan:async()=>v,click:async()=>clicks++,open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({development:{runes:{comet_rain:{craft:{gold:100,dust:30},goldPerLevel:100}}}}),now:()=>now});
+  assert.equal((await ctl.run('runes')).ok,false);assert.equal(clicks,0);assert.equal(mem.development.steps,0);
+});

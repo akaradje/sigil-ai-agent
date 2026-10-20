@@ -74,6 +74,18 @@ function catalog(extra={}) {return {levelCap:99,capSource:'public-ui-definition'
   items:{shard:{name:'Shard'}},maps:[{id:'town',name:'Town',town:true,monsters:[]},{id:'field',name:'Field',monsters:[{id:'mob'}]}],
   monsters:[{id:'mob',lv:58,hp:1000,exp:100,drops:[['shard',0.4]]}],expByLevel:{57:1000000,58:1200000},...extra};}
 function state(extra={}) {return {name:'Hero',job:'Starweaver',lv:'Lv 57',hp:[900,1000],exp:10,gold:120000,crystals:5000,zone:'Field',controls:[],offscreen:[],autoHunt:'on',autoQuestMode:'mq',...extra};}
+test('power progression services ready secondary gear while pursuing the level leaderboard',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
+  a.goal={slot:'armor',missing:[]};
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true,levelingFocus:true,powerProgression:true}),'town_forge');
+  a.resourceHold={active:true};assert.notEqual(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),catalog(),clock,{enabled:true,levelingFocus:true,powerProgression:true}),'town_forge');
+});
+test('wing plans respect high-class requirements and prioritize a missing usable wing',()=>{
+  const c=catalog();c.jobs.starweaver.jobTier=2;c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',line:'mage',jt:2,tier:5,lv:50,stats:{matk:15},craft:{gold:700000,mats:{ore:8}}},{id:'highwing',name:'High Wing',slot:'wing',line:'mage',jt:3,tier:5,lv:50,stats:{matk:30},craft:{gold:1,mats:{}}});
+  const a={inventory:{items:{shard:15},gear:[]},worn:[{slot:'weapon',uid:'w',text:'Void Staff'}],crafted:{},powerProgression:true};
+  assert.equal(A.progressionGoal(c,state({gold:900000}),a,100000).target,'wing');
+  a.inventory.items.ore=8;assert.equal(A.progressionGoal(c,state({gold:900000}),a,100000).target,'wing');
+});
 
 test('character cap is dynamic; job mastery and zero progress do not imply character cap',()=>{
   assert.equal(C.resolveCap(state({jobExpText:'JOB MASTER',expText:'EXP 0%'}),null).atCap,false);

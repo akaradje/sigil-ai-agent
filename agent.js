@@ -23,6 +23,7 @@ const Progression = require('./progression');
 const Hygiene = require('./session-hygiene');
 const DNA = require('./strategy-dna');
 const Autonomy = require('./autonomy');
+const Development = require('./character-development');
 const Catalog = require('./game-catalog');
 const SelfHealing = require('./self-evolution');
 const {createAvailability}=require('./server-availability');
@@ -61,6 +62,7 @@ function loadEnv() {
 const ENV = { ...loadEnv(), ...process.env };
 const autonomyPolicy={enabled:ENV.SIGIL_AUTONOMY==='1',levelingFocus:ENV.SIGIL_LEVELING_FOCUS==='1',goldReserve:Math.max(10000,Number(ENV.GOLD_RESERVE)||100000),crystalBudget:Math.min(5000,Math.max(0,Number(ENV.CBT_CRYSTAL_BUDGET)||0))};
 autonomyPolicy.sellSurplus=ENV.SIGIL_SELL_SURPLUS==='1';
+autonomyPolicy.powerProgression=ENV.SIGIL_POWER_PROGRESSION==='1';
 autonomyPolicy.targetRank=Number(ENV.SIGIL_TARGET_RANK)===5?5:10;
 autonomyPolicy.sessionRefreshHours=Math.min(8,Math.max(6,Number(ENV.SESSION_REFRESH_HOURS)||6));
 autonomyPolicy.levelingMaxGap=Math.min(5,Math.max(3,Math.floor(Number(ENV.SIGIL_LEVELING_MAX_GAP)||3)));
@@ -227,6 +229,7 @@ async function uiClick(c) {
   let matches=st.controls.filter(x=>c.id?x.id===c.id:c.act?x.act===c.act&&x.key===c.key&&x.k===c.k&&x.v===c.v&&(!c.branch||x.branch===c.branch)&&(!c.amount||x.amount===c.amount):c.open?x.open===c.open:c.aq?x.aq===c.aq:c.go?x.go===c.go:c.bm?x.bm===c.bm:c.wm?x.wm===c.wm:c.place?x.place===c.place:x.label===c.label);
   if(c.boss)matches=matches.filter(x=>x.boss===c.boss);
   if(c.uid)matches=matches.filter(x=>x.uid===c.uid&&x.dir===c.dir);
+  if(c.skill)matches=matches.filter(x=>x.skill===c.skill);
   if(matches.length>1)matches=matches.filter(x=>x.label===c.label);
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
@@ -300,7 +303,19 @@ async function refreshCatalog(s) {
     log('public catalog refreshed; level cap '+(catalog.levelCap??'unknown')+', refine cap '+catalog.refineMax);
   }catch{log('public catalog unavailable; retaining last verified metadata');}
 }
-const autonomy=Autonomy.createController({mem:memory,observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,log,getCatalog:()=>catalog,policy:autonomyPolicy});
+const autonomy=Autonomy.createController({mem:memory,observe:async()=>(await perceive(false)).state,click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,log,getCatalog:()=>catalog,policy:autonomyPolicy,developAtSmith:()=>development.run('runes')});
+async function resourceSceneInput(id,tier){
+  await gate();UI.assertReady(memory.uiHealth);
+  const s=(await perceive(false)).state,raw=JSON.parse(await evalIn(Development.SCENE_EXPRESSION));
+  if(s.dead||!s.hp||s.hp[0]/s.hp[1]<0.65||s.panelOpen||s.menuOpen||s.mapOpen||/\bon\b/.test(s.autoHunt||'')||!raw.available||raw.mining)throw Error('Resource input safety changed');
+  const nodes=raw.nodes.filter(n=>n.id===id&&n.tier===tier&&[n.x,n.y,n.wx,n.wy].every(Number.isFinite));if(nodes.length!==1)throw Error('Resource node changed');
+  const n=nodes[0];
+  if(n.visible){await req('/click?x='+n.x+'&y='+n.y);return;}
+  const dx=n.wx-raw.x,dy=n.wy-raw.y;if(Math.hypot(dx,dy)<50)throw Error('Resource node obscured by HUD');
+  const keys=[];if(Math.abs(dx)>40)keys.push(dx>0?'Right':'Left');if(Math.abs(dy)>40)keys.push(dy>0?'Down':'Up');
+  try{for(const k of keys)await nativeKey('keydown',k);await sleep(Math.hypot(dx,dy)<300?600:1800);}finally{for(const k of keys)await nativeKey('keyup',k).catch(()=>{});}
+}
+const development=Development.createController({mem:memory,observe:async()=>(await perceive(false)).state,scan:async()=>JSON.parse(await evalIn(Development.EXPRESSION)),scene:async()=>JSON.parse(await evalIn(Development.SCENE_EXPRESSION)),sceneAction:resourceSceneInput,travel:id=>autonomy.travel(id),click:uiClick,key:uiKey,scroll:uiScroll,open:executor.open,close:executor.close,sleep,save:saveMemory,getCatalog:()=>catalog,policy:autonomyPolicy});
 
 // ------------------------------------------------------------------ tools
 const TOOLS = [
@@ -602,6 +617,17 @@ async function runCycle() {
     const planned=IQ.chooseTask(p.state,memory);
     const automatic=Autonomy.chooseTask(memory,p.state,catalog,Date.now(),autonomyPolicy);
     const critical=['reconnect','revive','survive','boss_break','boss_engage','class_boss','boss_build','job_retry','class'];
+    if(autonomyPolicy.powerProgression&&memory.development?.excursion&&!critical.includes(planned)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      actionInFlight=true;try{await development.run('growth_materials');}finally{actionInFlight=false;}return;
+    }
+    if(!critical.includes(planned)&&memory.autonomy?.gearPending&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      actionInFlight=true;try{const result=await executor.run('gear');if(result.ok)memory.autonomy.gearPending=false;saveMemory();}finally{actionInFlight=false;}return;
+    }
+    const growth=autonomyPolicy.powerProgression?Development.chooseTask(memory,p.state,catalog):null;
+    // Expiring tame offers and unspent points must not starve behind a farming/town loop.
+    if(!critical.includes(planned)&&autonomyPolicy.enabled&&(growth==='tame'||['stats','skills'].includes(planned)||growth&&!automatic?.startsWith('town')&&!['inventory','capacity'].includes(automatic))&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+      actionInFlight=true;try{if(growth==='tame'||!['stats','skills'].includes(planned))await development.run(growth);else await executor.run(planned);}finally{actionInFlight=false;}return;
+    }
     if(dnaEnabled&&!critical.includes(planned)&&dnaEngine.canApply(memory,p.state)&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;
       try{const wanted=JSON.stringify(dnaEngine.desired()),result=await executor.run('dna_profile');dnaEngine.applied(result.ok&&wanted===JSON.stringify(dnaEngine.desired()));memory.dna=dnaEngine.view();saveMemory();}
@@ -784,6 +810,7 @@ setInterval(async()=>{
   try {
     const s=(await perceive(false)).state;
     if(s.dead)fastBossMode=true;
+    if(!busy&&s.controls.some(c=>c.id==='tameYes'))setTimeout(()=>runCycle().catch(e=>log('pet offer: '+e.message)),0);
     if(s.panelOpen||s.menuOpen||s.mapOpen||s.modalText) {
       panelSince ||= Date.now();
       if(Date.now()-panelSince>25000 && !actionInFlight) {await executor.close();log('watchdog: cleared idle overlay');panelSince=0;}

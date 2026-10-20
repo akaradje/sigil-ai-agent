@@ -10,6 +10,7 @@ ALLOWED = {
     'agent.js', 'game-intelligence.js', 'game-intelligence.test.js',
     'supervisor.js', 'viewer.js', 'viewer.test.js',
     'autonomy.js', 'autonomy.test.js', 'game-catalog.js', 'server-availability.js',
+    'character-development.js', 'character-development.test.js',
     'ui-resilience.js', 'ui-resilience.test.js',
     'game-telemetry.js', 'game-telemetry.test.js',
     'progression.js', 'progression.test.js', 'session-hygiene.js', 'session-hygiene.test.js',

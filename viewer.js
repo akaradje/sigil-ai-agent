@@ -242,6 +242,7 @@ const PAGE = `<!doctype html>
         <div class="cell"><div class="k">พลังต่อสู้ · พลังอุปกรณ์</div><div class="v" id="combatPower">–</div><div class="detail">Gear Power ที่เกมแสดง</div><div class="detail" id="combatAge">รออ่านหน้าสวมใส่</div></div>
         <div class="cell"><div class="k">ผู้เล่นออนไลน์ขณะนี้</div><div class="v" id="onlinePlayers">–</div><div class="detail">คนที่ออนไลน์ตอนนี้ ไม่ใช่จำนวนในตารางอันดับ</div></div>
         <div class="cell" style="grid-column:1/-1"><div class="k">ค่าสู้รบจากหน้าสวมใส่ · ล่าสุดที่อ่าน</div><div class="v" id="combatStats" style="font-size:14px">–</div></div>
+        <div class="cell" style="grid-column:1/-1"><div class="k">พัฒนาตัวละครควบคู่เลเวล</div><div class="v" id="developmentState" style="font-size:14px">รอตรวจระบบ</div><pre id="developmentDetails"></pre><div class="detail" id="developmentAction"></div></div>
         <div class="cell"><div class="k">Gold</div><div class="v" id="gold">–</div></div>
         <div class="cell"><div class="k">Zone</div><div class="v" id="zone" style="font-size:14px">–</div></div>
         <div class="cell"><div class="k">Crystals</div><div class="v" id="crystals">–</div></div>
@@ -466,6 +467,20 @@ async function tickState() {
     const s = j.state || {};
     const b = j.brain || {};
     const a=j.strategy?.autonomy||{};
+    const dev=j.strategy?.development||{},snap=dev.snapshots||{},pets=snap.ranch?.pets||[],runes=snap.runes?.runeSlots||[];
+    const age=x=>x?.at?Math.floor((Date.now()-x.at)/60000)+' นาทีที่แล้ว':'ยังไม่ตรวจ';
+    $('developmentState').textContent=(a.powerProgression?'เพิ่มพลัง + เร่งเลเวล':'รอเปิดโหมดเพิ่มพลัง')+' · ทำแล้ว '+(dev.steps||0)+' ขั้นตอน';
+    const wings=(a.worn||[]).find(w=>w.slot==='wing');
+    $('developmentDetails').textContent=[
+      'สัตว์เลี้ยง: '+(pets.length?pets.length+' ตัว · '+(pets.find(p=>p.active)?.name||'ยังไม่เรียก'):'ยังไม่มี/รอตรวจ')+' · '+age(snap.ranch),
+      'ปีก: '+(wings?wings.text.replace(/\\s+/g,' '):'ยังไม่สวม')+(a.goal?.slot==='wing'?' · เป้าหมาย '+a.goal.name:''),
+      'รูน: '+(runes.length?runes.filter(r=>!r.locked&&!r.empty).length+'/'+runes.filter(r=>!r.locked).length+' ช่องที่เปิด':'รอตรวจ')+' · '+age(snap.runes),
+      'ทักษะชีวิต: '+((snap.life?.life||[]).map(r=>r.text.split('\\n').slice(0,2).join(' ')).join(' · ')||'รอตรวจ'),
+      'ทริปวัตถุดิบ: '+(dev.excursion?dev.excursion.kind+' · '+(dev.excursion.boss||dev.excursion.map):'ฟาร์มหลัก')+(dev.mining?' · ขุดแร่ Lv'+dev.mining.level:''),
+      'ตรวจระบบ: '+Object.keys(snap).join(', '),
+      ...(dev.history||[]).slice(-4).map(e=>e.detail)
+    ].join('\\n');
+    $('developmentAction').textContent=dev.result?(dev.result.ok?'ล่าสุด: ':'รอตรวจ/ลองใหม่: ')+dev.result.task+(dev.result.reason?' · '+dev.result.reason:''):'';
     $('character').textContent=s.name||'Sigil · live';
     $('crystals').textContent=s.crystals??'–';
     $('bag').textContent=a.bagUsage?a.bagUsage.join(' / '):'ยังไม่ตรวจ';

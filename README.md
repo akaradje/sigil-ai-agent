@@ -381,3 +381,26 @@ a combined combat-power formula or add equipment bonuses a second time. The agen
 only from the visible self-character Bag/Gear screen during ordinary observation, then keeps the
 snapshot after the panel closes. Time/level labels identify cached observations; unknown or
 other-character data stays blank. Reading statistics never opens or leaves a panel on screen.
+
+`SIGIL_POWER_PROGRESSION=1` adds character development alongside leaderboard farming. Earned
+stats/skills cannot starve behind town work. The optional controller accepts expiring companion
+offers, summons a pet, feeds owned treats, verifies eligible evolution, inscribes and equips
+Mage-line runes, upgrades collected duplicate cards, uses owned food/Focus Tonic, and checks
+free skill evolutions and rewards. Each short transaction closes its panels and verifies the
+rendered result. Rune prices come from public definitions and must match the current UI.
+
+Wings are a separate class slot: the first Mage wing needs mined materials and boss trophies;
+its second stage has a High-class and level requirement. Missing mining materials queue bounded
+five-minute gathering trips starting at the character's **life-skill** tier. Node navigation reads
+only narrow public scene coordinates and uses normal pointer/keyboard input. Required bosses
+must be alive on the native board and at least 15 levels below the character before an automatic
+trial. Trips return to the saved leveling area on timeout, low health or low potion supplies.
+
+Town forging can improve secondary gear while leveling. It keeps a gold reserve, caps a visit
+at 12 steps / 150,000 G of refinement spending, equips newly crafted pieces, and checks eligible
+enchant grades and Tier II wing stars. Refinements that can lose a level require the game's
+protection. Crafting a ready wing has priority over other ready secondary crafts. Gear rarity
+colour describes options/card slots, separately from equipment tier; a blue Tier 5 piece is not
+evidence that it is obsolete. The dashboard shows development history, companion/rune snapshots,
+life-skill observations and the remaining wing recipe. Locked systems are requirements to work
+toward, not successful upgrades. There is no real-money purchase or account-setting workflow.

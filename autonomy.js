@@ -92,7 +92,7 @@ function levelingTarget(catalog,mapId,state,maxGap=3) {
 function progressionGoal(catalog,state,a,reserve) {
   if(!a.inventory||!catalog)return null;
   const job=catalog.jobs[String(state.job||'').toLowerCase()];if(!job)return null;
-  const allowed=g=>g.lv<=level(state)&&(!g.line||job.line.includes(g.line))&&(!g.fam||g.slot!=='weapon'||g.fam===job.weapon);
+  const allowed=g=>g.lv<=level(state)&&(!g.jt||job.jobTier>=g.jt)&&(!g.line||job.line.includes(g.line))&&(!g.fam||g.slot!=='weapon'||g.fam===job.weapon);
   const own=a.worn.map(w=>({...w,gear:gearForName(catalog,w.text)})).filter(w=>w.gear);
   const upgrades=[];
   for(const w of own.sort((a,b)=>(a.slot==='weapon'?-1:0)-(b.slot==='weapon'?-1:0))) {
@@ -100,7 +100,7 @@ function progressionGoal(catalog,state,a,reserve) {
     if(target&&allowed(target))upgrades.push({kind:'upgrade',uid:w.uid,target:target.id,name:target.name,slot:w.slot,cost,
       missing:bottlenecks(cost,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
-  if(upgrades.length)return upgrades.find(g=>!g.missing.length)||upgrades[0];
+  if(upgrades.some(g=>!g.missing.length))return upgrades.find(g=>!g.missing.length);
   // Craft a missing highest-tier slot once, rather than repeatedly rolling items already owned.
   const crafts=[];
   for(const slot of ['weapon','armor','head','shield','cape','boots','wing','ring','amulet']) {
@@ -113,7 +113,9 @@ function progressionGoal(catalog,state,a,reserve) {
     crafts.push({kind:'craft',target:target.id,name:target.name,slot,cost:target.craft,
       missing:bottlenecks(target.craft,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
-  return crafts.find(g=>!g.missing.length)||crafts[0]||null;
+  const ready=crafts.filter(g=>!g.missing.length);
+  return (a.powerProgression&&ready.find(g=>g.slot==='wing'))||ready[0]||
+    (a.powerProgression&&crafts.find(g=>g.slot==='wing'))||upgrades[0]||crafts[0]||null;
 }
 function update(mem,state,catalog,now=Date.now(),reserve=100000) {
   const a=init(mem);if(!state.name)return a;
@@ -157,6 +159,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(!policy.enabled||mem.uiHealth?.safeIdle||!s.name||s.dead||!s.hp)return null;
   const a=init(mem),due=(k,ms)=>now-(a.last[k]||0)>ms&&now-(a.failures?.[k]||0)>120000;
   a.levelingFocus=!!policy.levelingFocus&&!a.cap?.atCap;
+  a.powerProgression=!!policy.powerProgression;
   policy={...policy,levelingFocus:a.levelingFocus};
   if(s.hp[0]/s.hp[1]<0.3)return s.hpPotions===0?(a.trip?'town':'town_rest'):null;
   if(!catalog)return null; // Keep the existing UI policy running during catalog outages.
@@ -183,8 +186,8 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&a.bagUsage&&a.bagUsage[0]<=a.bagUsage[1]-14&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
   if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
-  if(a.goal&&!a.goal.missing.length&&(!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
-  if(!policy.levelingFocus&&!a.resourceHold?.active&&due('forge',15*MIN))return 'town_forge';
+  if(a.goal&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')&&due('forge',MIN))return 'town_forge';
+  if((policy.powerProgression||!policy.levelingFocus)&&!a.resourceHold?.active&&due('forge',policy.powerProgression?30*MIN:15*MIN))return 'town_forge';
   if((policy.levelingFocus||a.goal?.missing?.length||a.cap?.atCap)&&(policy.levelingFocus||!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
   if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now,policy))return 'farm_trial';
   if(a.farm)return 'autonomy_wait';
@@ -204,7 +207,7 @@ function trialOption(mem,s,catalog,now=Date.now(),policy={}) {
   return next?{...next,baseline:rate.expPerMinute}:null;
 }
 
-function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,now=Date.now}) {
+function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,developAtSmith,now=Date.now}) {
   let actions=0;
   const a=init(mem);
   const leveling=()=>!!policy.levelingFocus&&!a.cap?.atCap;
@@ -290,12 +293,26 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function forge(s) {
     const goal=a.goal,catalog=getCatalog();
+    if(policy.powerProgression&&!a.trip?.advancedChecked){
+      if(a.trip)a.trip.advancedChecked=true;
+      for(const [tab,act] of [['grade','sgrade'],['star','wstar']]){
+        await pick(c=>c.act==='smtab'&&c.key===tab);const live=await state();
+        const row=live.smithRows.find(r=>r.act===act&&!r.disabled&&a.worn.some(w=>w.uid===r.key)&&r.gold>0&&live.gold-r.gold>=policy.goldReserve&&r.gold<=150000-(a.trip?.powerSpent||0)&&r.mats.length&&r.mats.every(m=>m.have!=null&&m.need!=null&&m.have>=m.need));
+        if(row){await pick(c=>c.act===act&&c.key===row.key);await sleep(900);const after=await state();
+          if(after.gold!==live.gold-row.gold)throw Error('Advanced forge debit not acknowledged');
+          const next=after.smithRows.find(r=>r.act===act&&r.key===row.key);
+          if(!next||act==='wstar'&&next.text===row.text)throw Error('Advanced forge outcome not observed');
+          a.advancedForge={at:now(),kind:tab,name:row.name,changed:next.text!==row.text};a.gearPending=true;return true;
+        }
+      }
+      s=await state();
+    }
     if(goal&&!goal.missing.length&&(!a.resourceHold?.active||goal.slot==='weapon')) {
       await pick(c=>c.act==='smtab'&&c.key===(goal.kind==='upgrade'?'up':'craft'));
       if(goal.kind==='craft') {
         const g=catalog.gear.find(g=>g.id===goal.target);
-        if(g.slot==='wing')await pick(c=>c.act==='smwing');
-        else if(g.line)await pick(c=>c.act==='smline');
+        if(g.slot==='wing')await pick(c=>c.act==='smwing'&&!c.on,true);
+        else if(g.line)await pick(c=>c.act==='smline'&&!c.on,true);
         else await pick(c=>c.act==='smtier'&&c.key===String(g.tier));
       }
       let live=await state();const row=live.smithRows.find(r=>r.act===(goal.kind==='upgrade'?'upg':'craft')&&r.key===(goal.uid||goal.target));
@@ -305,30 +322,50 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await pick(c=>c.act===row.act&&c.key===row.key);await sleep(1300);live=await state();
       if(!norm(live.forgeResult).includes(norm(goal.name))||live.gold!==s.gold-row.gold)throw Error('craft/upgrade acknowledgement or gold debit not confirmed');
       a.crafted[goal.target]={at:now()};a.last.equipment=0;a.last.inventory=0;
+      if(policy.powerProgression)a.gearPending=true;
       event(a,'gear_crafted',{name:goal.name,kind:goal.kind,topTier:catalog.gear.filter(g=>g.slot===goal.slot).every(g=>g.tier<=catalog.gear.find(x=>x.id===goal.target).tier)});
-      return;
+      return true;
     }
     await pick(c=>c.act==='smtab'&&c.key==='refine');s=await state();
     const rows=s.smithRows.filter(r=>r.act==='refine'&&(r.worn||a.worn.some(w=>w.uid===r.key)));
     a.gearCapped=rows.length>=a.worn.length&&a.worn.length>=8&&rows.every(r=>r.max);
     const row=rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))).sort((x,y)=>x.refine-y.refine)[0];
-    if(!row)return;
+    if(!row){
+      if(policy.powerProgression&&rows.some(r=>!r.max)&&s.gold-policy.goldReserve>10000){
+        await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state();
+        const ore=shop.smithRows.find(r=>r.act==='buy'&&r.key==='sigil_ore'),unit=Number(ore?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
+        if(unit>0&&shop.gold-unit*10>=policy.goldReserve){
+          const before=shop.gold;await pick(c=>c.act==='buy'&&c.key==='sigil_ore'&&c.amount==='10');
+          if((await state()).gold!==before-unit*10)throw Error('Forge ore purchase not acknowledged');return true;
+        }
+      }
+      return false;
+    }
     const fee=Number(row.costText.replace(/,/g,'').match(/\d+/)?.[0]);
     if(!fee||s.gold-fee<policy.goldReserve)throw Error('refine fee/reserve not confirmed');
+    if(policy.powerProgression&&fee>150000-(a.trip?.powerSpent||0))return false;
     if(row.refine>=(catalog.refineSafe??0)&&row.chance!==100&&!/Guardian Stone.*(?:stay|เดิม)|(?:stay|เดิม).*Guardian Stone/i.test(row.risk)) {
-      if(await pick(c=>c.act==='smguard'&&!c.on,true))return;
-      a.blocked='Guardian Stone protection required';return;
+      if(await pick(c=>c.act==='smguard'&&!c.on,true))return true;
+      if(policy.powerProgression){
+        await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state(),stone=shop.smithRows.find(r=>r.act==='buy'&&r.key==='guardian_stone'),unit=Number(stone?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
+        if(unit>0&&shop.gold-unit*10>=policy.goldReserve&&unit*10<=150000-(a.trip?.powerSpent||0)){
+          await pick(c=>c.act==='buy'&&c.key==='guardian_stone'&&c.amount==='10');if((await state()).gold!==shop.gold-unit*10)throw Error('Guardian purchase not acknowledged');return true;
+        }
+      }
+      a.blocked='Guardian Stone protection required';return false;
     }
     await pick(c=>c.act==='refine'&&c.key===row.key);
     let after=await state();
     if(after.modalText) {
       if(!/refine|ตีบวก/i.test(after.modalText)||/drop to|ลดเหลือ/i.test(after.modalText))throw Error('unprotected refine rejected');
-      await pick(c=>/^Refine$|^Confirm$|^ตีบวก$|^ยืนยัน$/.test(c.label));await sleep(900);after=await state();
+      await pick(c=>/^Refine(?: now| anyway)?$|^Confirm$|^ตีบวก(?:เลย)?$|^ยืนยัน$/i.test(c.label));await sleep(900);after=await state();
     }
     const next=after.smithRows.find(r=>r.key===row.key&&r.act==='refine');
-    if(!next||!after.forgeResult&&!/failed|ล้มเหลว/i.test(after.panelText))throw Error('refine outcome not observed');
+    if(!next||after.gold!==s.gold-fee||!next.max&&![row.refine,row.refine+1].includes(next.refine)||!after.forgeResult&&!/failed|ล้มเหลว/i.test(after.panelText))throw Error('refine outcome not observed');
     a.refine={at:now(),name:row.name,from:row.refine,to:next.max?catalog.refineMax:next.refine,cap:catalog.refineMax};
+    if(policy.powerProgression){a.last.equipment=0;a.gearPending=true;}
     if(next.max)event(a,'refine_max',{name:row.name,cap:catalog.refineMax});
+    return true;
   }
   async function settleSale(intent,trip) {
     for(let attempt=0;attempt<5;attempt++) {
@@ -432,7 +469,17 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       if(s.panel!==panel)return;
     }
-    if(trip.kind==='forge')await forge(s);
+    if(trip.kind==='forge'){
+      if(policy.powerProgression&&!trip.runesServiced&&developAtSmith&&mem.development?.runeSmithNeeded){
+        trip.runesServiced=true;await developAtSmith();trip.progressAt=now();return;
+      }
+      const before=s.gold,changed=await forge(s);
+      if(policy.powerProgression&&changed){
+        trip.powerActions=(trip.powerActions||0)+1;trip.powerSpent=(trip.powerSpent||0)+Math.max(0,before-(await state()).gold);trip.progressAt=now();
+        if(trip.powerActions<12&&trip.powerSpent<150000)return;
+      }
+      trip.forgeServiced=true;
+    }
     if(trip.kind==='rest') {
       await pick(c=>c.act==='rest');const rested=await state();
       if(rested.hp[0]<rested.hp[1]*0.9)throw Error('rest recovery not confirmed');
@@ -486,7 +533,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const live=await state();
         if(live.storageUsage&&live.storageUsage[0]<live.storageUsage[1]&&(live.storageGear||[]).some(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&gearForName(getCatalog(),g.text+' '+g.art)))return;
       }
-      if(!trip.hygiene&&a.goal&&!a.goal.missing.length&&(!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')){trip.kind='forge';return;}
+      if(!trip.hygiene&&a.goal&&!a.goal.missing.length&&(policy.powerProgression||!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
       if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
@@ -512,7 +559,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';return;}
-    a.last.forge=now();trip.phase='return';
+    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){trip.kind='forge';return;}
+    if(trip.kind==='forge'||!policy.powerProgression)a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
     const missing=leveling()?[]:a.goal?.missing?.filter(m=>m.id!=='gold')||[];
@@ -592,6 +640,6 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     } finally {await close();save();}
     return a.lastResult;
   }
-  return {run};
+  return {run,travel:async id=>{actions=0;await travel(id);}};
 }
 module.exports={init,event,catalogChanged,gearForName,surplusGear,surplusDetail,storageDepositAllowed,storedSurplus,storageNeedsScan,commonLootSurplus,levelingTarget,progressionGoal,update,chooseTask,trialOption,createController};

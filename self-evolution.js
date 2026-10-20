@@ -7,8 +7,8 @@ const crypto = require('node:crypto');
 const MIN = 60_000;
 const EDITABLE = Object.freeze(['game-intelligence.js', 'game-telemetry.js', 'ui-resilience.js']);
 const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'game-intelligence.js',
-  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js']);
-const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'ui-resilience.test.js',
+  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js']);
+const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'character-development.test.js', 'ui-resilience.test.js',
   'game-telemetry.test.js', 'progression.test.js', 'session-hygiene.test.js', 'strategy-dna.test.js',
   'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs']);
 const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'package.json', 'supervisor.js', 'telegram-alerts.js', 'viewer.js',

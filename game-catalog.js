@@ -3,15 +3,18 @@ const crypto = require('node:crypto');
 
 // Only immutable public definitions already served to the game page. No player state,
 // private endpoints, network intents or game-state mutations are read or executed.
-const CATALOG_EXPRESSION = `(()=>Promise.all([import('/src/data.js'),import('/src/world.js'),import('/src/premium-data.js'),fetch('/src/ui.js').then(r=>{if(!r.ok)throw Error('public UI unavailable');return r.text();})]).then(([d,w,p,ui])=>{
+const CATALOG_EXPRESSION = `(()=>Promise.all([import('/src/data.js'),import('/src/world.js'),import('/src/premium-data.js'),fetch('/src/ui.js').then(r=>{if(!r.ok)throw Error('public UI unavailable');return r.text();}),import('/src/rune-data.js'),import('/src/wings-data.js'),import('/src/life-data.js')]).then(([d,w,p,ui,r,,l])=>{
   const cap=ui.match(/p\\.lv\\s*>=\\s*(\\d+)[\\s\\S]{0,180}['\"]EXP MAX/);
   const levelCap=cap?Number(cap[1]):null;
   return JSON.stringify({levelCap,capSource:cap?'public-ui-definition':null,refineMax:d.REFINE_MAX,refineSafe:d.REFINE_SAFE,tileSize:w.TS,
-    jobs:Object.fromEntries(Object.entries(d.JOBS).map(([id,j])=>[id,{name:j.name,weapon:d.WEAPON_FAMILY[j.weapon],line:Array.from(d.lineOf(id)),jobCap:d.jobMax(id)}])),
-    gear:Object.entries(d.GEAR).map(([id,g])=>({id,name:g.name,art:g.art,slot:g.slot,fam:g.fam,line:g.line||null,tier:g.tier,lv:g.lv,stats:g.st||{},craft:d.craftCost(id),upgrade:d.upgradeCost(id)})),
+    jobs:Object.fromEntries(Object.entries(d.JOBS).map(([id,j])=>[id,{name:j.name,weapon:d.WEAPON_FAMILY[j.weapon],line:Array.from(d.lineOf(id)),jobTier:d.jobTier(id),jobCap:d.jobMax(id)}])),
+    gear:Object.entries(d.GEAR).map(([id,g])=>({id,name:g.name,art:g.art,slot:g.slot,fam:g.fam,line:g.line||null,jt:g.jt||0,wingTier:g.wingTier||0,tier:g.tier,lv:g.lv,stats:g.st||{},craft:d.craftCost(id),upgrade:d.upgradeCost(id)})),
+    development:{runes:Object.fromEntries(Object.entries(r.RUNES).map(([id,x])=>{const cost=lv=>r.LEG_RUNES[id]?r.legCost():r.COMBO_COND[id]||r.COMBO_EFF[id]?r.comboCost(lv):r.craftCost(id,lv);return [id,{name:x.name,kind:x.kind,line:x.line||null,craft:cost(1),goldPerLevel:cost(2).gold-cost(1).gold}];})),
+      runeUpgrade:Object.fromEntries([1,2,3,4].map(n=>[n,r.upCost(n)])),cards:Object.fromEntries(Object.entries(d.ITEMS).filter(([,i])=>i.card&&i.mon).map(([,i])=>[i.mon,i.card])),
+      mining:l.ORE_TIERS.map((t,i)=>({...t,tier:i+1,level:l.TIER_NEED[i],mapLevel:l.TIER_FROM_LV[i]}))},
     monsters:Object.entries(d.MONSTERS).map(([id,m])=>({id,name:m.name,lv:m.lv,hp:m.hp,exp:m.exp,drops:m.drops||[],boss:!!m.boss})),
     maps:Object.entries(w.MAPS).map(([id,m])=>({id,name:m.th,range:m.lv,town:!!m.town,monsters:(m.mons||[]).map(([id,n])=>({id,n}))})),
-    items:Object.fromEntries(Object.entries(d.ITEMS).map(([id,i])=>[id,{name:i.name}])),shop:p.SHOP.filter(i=>['bag','store'].includes(i.id)),
+    items:Object.fromEntries(Object.entries(d.ITEMS).map(([id,i])=>[id,{name:i.name,price:i.price||null,food:!!i.food,lv:i.lv||0,use:i.use||null}])),shop:p.SHOP.filter(i=>['bag','store'].includes(i.id)),
     expByLevel:Object.fromEntries(Array.from({length:Math.min(1000,(levelCap||200)+1)},(_,i)=>[i+1,d.expToNext(i+1)]))});
 }))()`;
 

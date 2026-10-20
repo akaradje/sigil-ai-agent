@@ -11,7 +11,7 @@
     "supervisor": "node --env-file-if-exists=.env supervisor.js",
     "viewer": "node --env-file-if-exists=.env viewer.js",
     "alerts": "node --env-file-if-exists=.env telegram-alerts.js",
-    "test": "node --test game-intelligence.test.js autonomy.test.js ui-resilience.test.js game-telemetry.test.js progression.test.js session-hygiene.test.js strategy-dna.test.js telegram-alerts.test.js uptime-worker/monitor.test.mjs viewer.test.js self-evolution.test.js self-deployment.test.js self-healing-check.test.js",
+    "test": "node --test game-intelligence.test.js autonomy.test.js character-development.test.js ui-resilience.test.js game-telemetry.test.js progression.test.js session-hygiene.test.js strategy-dna.test.js telegram-alerts.test.js uptime-worker/monitor.test.mjs viewer.test.js self-evolution.test.js self-deployment.test.js self-healing-check.test.js",
     "security:files": "python scripts/check-public-files.py"
   }
 }
