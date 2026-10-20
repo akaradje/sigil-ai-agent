@@ -46,6 +46,9 @@ function routineReady(mem,s){
 }
 function materialReady(mem,s,now=Date.now()){
   const a=mem.autonomy||{};
+  // Give a newly resumed farm time to fight and produce a measured baseline.
+  const farmAt=a.farm?.activatedAt??a.farm?.started;
+  if(a.farm&&(a.farm.pendingProfile||a.farm.pendingActivation||Number.isFinite(farmAt)&&now-farmAt<5*MIN))return false;
   // The game's capacity is for gear; mining materials stack outside those slots.
   return now>=(mem.development?.resourceBackoffUntil||0)&&!!a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&!a.trip&&!a.resume&&!s.dead&&!!s.hp&&s.hp[0]/s.hp[1]>=0.65&&s.hpPotions>=20&&s.mpPotions>=20;
 }

@@ -382,6 +382,67 @@ test('a wider normal-target bracket requires an explicit bounded configuration',
   assert.equal(A.levelingTarget(cat,'field',state(),99),null);
 });
 
+test('a profitable old monster cannot defeat the current level band inside an eligible map',()=>{
+  const c=catalog();c.maps[1].monsters.push({id:'old',n:20},{id:'elite',n:5});
+  c.monsters.push({id:'old',lv:47,hp:1,exp:99999},{id:'elite',elite:true,lv:58,hp:1,exp:99999});
+  assert.equal(A.levelingTarget(c,'field',state()).id,'mob');
+  assert.equal(A.levelingTarget(c,'field',state({lv:'Lv 76'})),null);
+});
+
+test('unfinished native AUTO activation keeps ownership ahead of inventory and optional forging',()=>{
+  const m={},a=A.init(m);a.cbt={claimed:true};a.farm={map:'field',pendingProfile:true,started:clock};
+  assert.equal(A.chooseTask(m,state(),catalog(),clock,{enabled:true,levelingFocus:true}),'autonomy_wait');
+  a.farm.pendingProfile=false;a.last.inventory=clock;a.last.equipment=clock;
+  assert.equal(A.chooseTask(m,state({lv:'Lv 76'}),catalog(),clock,{enabled:true,levelingFocus:true}),'farm');
+});
+
+test('a saved farming return is revalidated after leveling and activates AUTO on the replacement map',async()=>{
+  const m={},a=A.init(m),c=catalog();a.resume={map:'old',mode:'farm',at:clock};
+  c.maps.push({id:'old',name:'Old',monsters:[{id:'low',n:4}]});c.monsters.push({id:'low',lv:40,hp:1,exp:9999,drops:[]});
+  let zone='Town',hunting=false;const routes=[];
+  const controls=[{bm:'world'},{wm:'field'},{go:'field'},{id:'autoBtn'},{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true}];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone,autoHunt:hunting?'on':'',controls}),click:async x=>{if(x.go){routes.push(x.go);zone='Field';}if(x.id==='autoBtn')hunting=true;},
+    key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('autonomy_wait');assert.deepEqual(routes,['field']);assert.equal(a.resume.map,'field');
+  await ctl.run('autonomy_wait');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(hunting,true);assert.equal(a.farm.target,'mob');assert.equal(a.resume,null);
+});
+
+test('an input-budget pause after a verified hunt profile retains AUTO activation across restart',async()=>{
+  const m={},a=A.init(m),c=catalog();a.farm={map:'field',name:'Field',pendingProfile:true,started:clock};
+  let hunting=false,reject=true,opens=0;
+  const args={getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({autoHunt:hunting?'on':'',controls:[{id:'autoBtn'},{act:'atab',key:'hunt'},{act:'aopt',k:'target',v:'mob',on:true},{act:'aopt',k:'prio',v:'near',on:true}]}),
+    click:async x=>{if(x.id==='autoBtn'){if(reject)throw Object.assign(Error('input budget'),{code:'ACTION_BUDGET'});hunting=true;}},
+    open:async()=>{opens++;},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}};
+  await A.createController({...args,mem:m}).run('autonomy_wait');assert.equal(a.lastResult.ok,false);assert.equal(a.farm.pendingProfile,false);assert.equal(a.farm.pendingActivation,true);
+  const restored=JSON.parse(JSON.stringify(m)),before=opens;reject=false;
+  assert.equal(A.chooseTask(restored,state(),c,clock,{enabled:true,levelingFocus:true}),'autonomy_wait');
+  await A.createController({...args,mem:restored}).run('autonomy_wait');assert.equal(restored.autonomy.lastResult.ok,true);assert.equal(hunting,true);assert.equal(restored.autonomy.farm.pendingActivation,false);assert.equal(opens,before);
+});
+
+test('resource backoff leaves town for farming even while wing materials are still missing',async()=>{
+  const m={development:{resourceBackoffUntil:clock+60000}},a=A.init(m),c=catalog();
+  c.gear.push({id:'wing',name:'Arcane Wing',slot:'wing',tier:5,lv:50,craft:{gold:700000,mats:{mithril:8}}});
+  a.wingPriority=true;a.inventory={items:{},gear:[]};a.worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];
+  a.trip={kind:'shop',phase:'return',returnMap:'field',returnMode:'farm',at:clock,salesDone:true,salePolicyVersion:2};const routes=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{wingPriority:true,levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',hpPotions:25,mpPotions:25,gold:900000,controls:[{bm:'world'},{wm:'field'},{go:'field'}]}),
+    click:async x=>{if(x.go)routes.push(x.go);},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.deepEqual(routes,['field']);assert.equal(a.trip,null);assert.equal(a.resume.mode,'farm');
+});
+
+test('optional forge time is bounded by the whole visit after sales and sustain are complete',async()=>{
+  for(const salesDone of [true,false]){
+    const m={},a=A.init(m);a.trip={kind:'forge',phase:'town',at:clock-6*60000,progressAt:clock-1000,salesDone,salePolicyVersion:2};const routes=[];
+    const ctl=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
+      observe:async()=>state({zone:'Town',hpPotions:25,mpPotions:25}),click:async()=>{},key:async()=>routes.push('travel'),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+    await ctl.run('town');
+    if(salesDone){assert.equal(a.trip,null);assert.equal(a.last.forge,clock);assert.equal(a.events.at(-1).type,'optional_forge_deferred');}
+    else {assert.ok(a.trip);assert.equal(a.last.forge,undefined);assert.equal(routes.length,1);}
+  }
+});
+
 test('periodic leveling review does not start a story boss route or walk back to an inferior map',async()=>{
   const m={},a=A.init(m);a.farm={map:'field',returnMap:'town',returnMode:'mq',started:clock-31*60000};
   const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,

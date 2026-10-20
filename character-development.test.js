@@ -2,6 +2,17 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+
+test('wing gathering lets a new farm establish five minutes of combat before another excursion',()=>{
+  const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},farm:{started:now}}},s=state({hpPotions:25,mpPotions:25});
+  assert.equal(D.materialReady(m,s,now+299999),false);
+  assert.equal(D.materialReady(m,s,now+300000),true);
+  m.autonomy.farm.activatedAt=now+300000;assert.equal(D.materialReady(m,s,now+300000),false);
+  delete m.autonomy.farm.activatedAt;
+  m.autonomy.farm.pendingActivation=true;assert.equal(D.materialReady(m,s,now+600000),false);
+  m.autonomy.farm.pendingActivation=false;m.autonomy.farm.pendingProfile=true;assert.equal(D.materialReady(m,s,now+600000),false);
+  m.autonomy.farm.pendingProfile=false;m.development={resourceBackoffUntil:now+900000};assert.equal(D.materialReady(m,s,now+600000),false);
+});
 test('continuously stalled mining yields back to leveling and survives restart with a resource cooldown',async()=>{
  let clock=now;const m={autonomy:{wingPriority:true,inventory:{items:{}},goal:{slot:'wing',missing:[{id:'mithril'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',tier:1,map:'south',returnMap:'original',started:now}}},visited=[];
  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,inventoryComplete:true}),scan:async()=>null,

@@ -108,8 +108,8 @@ function commonLootSurplus(catalog,worn=[]) {
 }
 function levelingTarget(catalog,mapId,state,maxGap=3) {
   const map=catalog?.maps.find(m=>m.id===mapId),lv=level(state),gap=Number.isInteger(maxGap)&&maxGap>=3&&maxGap<=5?maxGap:3;
-  return (map?.monsters||[]).map(entry=>({...catalog.monsters.find(m=>m.id===entry.id),n:entry.n}))
-    .filter(m=>m.id&&!m.boss&&m.n>=1&&m.hp>0&&m.exp>0&&m.lv<=lv+gap&&m.lv>=Math.max(1,lv-20))
+  return (map?.monsters||[]).map(entry=>({...catalog.monsters.find(m=>m.id===entry.id),n:entry.n??1}))
+    .filter(m=>m.id&&!m.boss&&!m.elite&&m.n>=1&&m.hp>0&&m.exp>0&&m.lv<=lv+gap&&m.lv>=Math.max(1,lv-5))
     .sort((x,y)=>(y.exp/y.hp*y.n)-(x.exp/x.hp*x.n))[0]||null;
 }
 function progressionGoal(catalog,state,a,reserve) {
@@ -193,6 +193,8 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(!policy.sellSurplus&&premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
   if(a.trip)return 'town';
   if(a.resume)return 'autonomy_wait';
+  if(a.levelingFocus&&a.farm&&!levelingTarget(catalog,a.farm.map,s,policy.levelingMaxGap))return 'farm';
+  if(a.farm?.pendingProfile||a.farm?.pendingActivation)return 'autonomy_wait';
   if(policy.sellSurplus&&catalog.maps.some(m=>m.town&&norm(m.name)===norm(s.zone))&&
     (!a.townVisit?.active||!a.townVisit.servicedAt))return 'town_shop';
   if(!policy.levelingFocus&&a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
@@ -244,10 +246,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   const targetFor=(map,s)=>levelingTarget(getCatalog(),map,s,policy.levelingMaxGap);
   async function state(){const s=await observe();update(mem,s,getCatalog(),now(),policy.goldReserve);return s;}
   async function pick(pred,optional=false) {
-    if(++actions>9)throw Error('autonomy action budget exceeded');
     let s=await state(),matches=s.controls.filter(pred);
     if(!matches.length&&scroll){const hidden=(s.offscreen||[]).filter(pred);if(hidden.length===1){await scroll(hidden[0]);await sleep(300);s=await state();matches=s.controls.filter(pred);}}
     if(matches.length!==1){if(optional)return false;throw Error('observed control missing or ambiguous');}
+    if(++actions>9)throw Error('autonomy action budget exceeded');
     await click(matches[0]);await sleep(900);return true;
   }
   async function travel(id) {
@@ -286,17 +288,26 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(choice.length===1&&choice[0].on!==desired)throw Error('Common loot sale profile not confirmed');
       a.commonLootSales={enabled:choice.length===1&&choice[0].on,at:now(),reason:desired?'all eight slots at catalog maximum tier':'higher-tier progression remains'};
     }
-    await close();f.target=target.id;f.pendingProfile=false;
+    await close();f.target=target.id;f.pendingProfile=false;f.pendingActivation=true;
+  }
+  function returnRoute(s,map,mode) {
+    if(mode!=='farm'||!leveling())return map;
+    const options=learningFarmingOptions(getCatalog(),s,mem,policy.levelingMaxGap);
+    if(options.some(m=>m.id===map))return map;
+    const next=rankFarmingOptions(options,mem.cognitive)[0];
+    if(!next)throw Error('No verified level-band return route');
+    return next.id;
   }
   async function resume(trip) {
     await close();
     const current=await state();
     if(onTownServiced)onTownServiced(current);
-    if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&
+    if(now()>=(mem.development?.resourceBackoffUntil||0)&&a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.some(m=>!['gold','sigil_ore'].includes(m.id))&&
       getCatalog().maps.some(m=>m.town&&norm(m.name)===norm(current.zone))&&current.hp?.[0]/current.hp?.[1]>=0.85&&current.hpPotions>=20&&current.mpPotions>=20){
       a.returnMap=trip.returnMap||a.returnMap;a.farm=null;a.resume=null;a.trip=null;
       if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();save();return;
     }
+    trip.returnMap=returnRoute(current,trip.returnMap,trip.returnMode);
     if(trip.returnMap)await travel(trip.returnMap);
     if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();
     a.farm=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};a.trip=null;save();
@@ -494,6 +505,11 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await close();s=await state();
     }
     if(now()-(trip.hygiene?.started||trip.progressAt||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
+    // Sales and sustain retain ownership. Optional forging cannot renew a visit indefinitely.
+    if(trip.kind==='forge'&&trip.phase!=='return'&&trip.salesDone===true&&now()-trip.at>5*MIN&&s.hpPotions>=20&&s.mpPotions>=20){
+      a.last.forge=now();trip.forgeServiced=true;trip.phase='return';
+      event(a,'optional_forge_deferred',{visitSeconds:Math.round((now()-trip.at)/1000)},now());
+    }
     if(!townMap){
       // A Return Scroll uses the saved home, which may be a field rather than a town.
       if(!trip.townTravelAt||now()-trip.townTravelAt>90000){
@@ -713,6 +729,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
           await farmProfile(await state());
           if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
           if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Native AUTO probe activation not confirmed');
+          a.farm.pendingActivation=false;a.farm.activatedAt=now();
           event(a,'combat_probe_started',{map:a.farm.map,target:a.farm.target});
         }
       }
@@ -727,6 +744,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         }
       } else if(task==='autonomy_wait') {
         if(a.resume) {
+          const route=returnRoute(s,a.resume.map,a.resume.mode);
+          if(route!==a.resume.map){a.resume.map=route;a.resume.at=now();save();await travel(route);return;}
           const destination=getCatalog()?.maps.find(m=>m.id===a.resume.map);
           // A teleport/walk can be cancelled by the game. Do not wait forever at
           // the wrong map: native quest routing can recover from the current town.
@@ -741,6 +760,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
               await farmProfile(s);
               if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
               if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Farm resume not confirmed');
+              a.farm.pendingActivation=false;a.farm.activatedAt=now();
             } else {
               await close();await pick(c=>c.aq===a.resume.mode);
               if(!(await state()).autoQuestRunning)throw Error('Quest resume not confirmed');
@@ -750,6 +770,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         }else if(a.farm&&norm(a.farm.name)===norm(s.zone)) {
           if(a.farm.pendingProfile||leveling()&&targetFor(a.farm.map,s)?.id!==a.farm.target)await farmProfile(s);
           if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
+          if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Farm activation not confirmed');
+          if(a.farm.pendingActivation||!Number.isFinite(a.farm.activatedAt))a.farm.activatedAt=now();
+          a.farm.pendingActivation=false;
         }
       }
       a.last[task]=now();a.lastResult={task,ok:true,at:now()};save();

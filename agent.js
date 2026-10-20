@@ -649,6 +649,15 @@ async function runCycle() {
     if(autonomyPolicy.powerProgression&&memory.development?.excursion&&!critical.includes(planned)&&actionTimes.filter(t=>Date.now()-t<60000).length<=8){
       actionInFlight=true;try{await development.run('growth_materials');}finally{actionInFlight=false;}return;
     }
+    // Finish owned travel and native AUTO activation before ordinary growth or rank checks.
+    // Waiting for the input budget must not let another workflow spend that budget first.
+    if(autonomyPolicy.enabled&&automatic&&!critical.includes(planned)&&
+      (memory.autonomy?.trip||memory.autonomy?.resume||memory.autonomy?.farm?.pendingProfile||memory.autonomy?.farm?.pendingActivation)){
+      if(actionTimes.filter(t=>Date.now()-t<60000).length<=3){
+        actionInFlight=true;try{await autonomy.run(automatic);}finally{actionInFlight=false;}
+      }
+      return;
+    }
     if(!critical.includes(planned)&&memory.autonomy?.gearPending&&actionTimes.filter(t=>Date.now()-t<60000).length<=3){
       actionInFlight=true;try{const result=await executor.run('gear');if(result.ok)memory.autonomy.gearPending=false;saveMemory();}finally{actionInFlight=false;}return;
     }
