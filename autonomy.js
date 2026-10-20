@@ -114,9 +114,10 @@ function levelingTarget(catalog,mapId,state,maxGap=3) {
 }
 function protectCombat(mem,s,now=Date.now()) {
   const a=mem.autonomy,f=a?.farm,damage=mem.combatTelemetry?.lastDamage,native=mem.nativeCombatProfile;
+  const minHp=f?.protectedUntil>now?0.45:0.75;
   if(!f||!Number.isFinite(f.activatedAt)||f.pendingProfile||f.pendingActivation||f.abort||a.trip||a.resume||a.gearPending||
     mem.development?.excursion||mem.uiHealth?.safeIdle||mem.dna?.needsApply||s.dead||
-    norm(f.name)!==norm(s.zone)||!s.hp||s.hp[0]/s.hp[1]<0.75||s.hpPotions<=10||s.mpPotions<=10||
+    norm(f.name)!==norm(s.zone)||!s.hp||s.hp[0]/s.hp[1]<minHp||s.hpPotions<=10||s.mpPotions<=10||
     !Number.isFinite(s.hpPotions)||!Number.isFinite(s.mpPotions)||!a.bagUsage||a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)||
     s.panelOpen||s.menuOpen||s.mapOpen||s.modalText||!(/\bon\b/.test(s.autoHunt||'')||s.autoQuestRunning)||
     native?.character!==s.name||native.job!==s.job||!Number.isFinite(native.at)||now-native.at<0||now-native.at>30*MIN||

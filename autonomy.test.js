@@ -399,6 +399,8 @@ test('unfinished native AUTO activation keeps ownership ahead of inventory and o
 test('observed native combat gets one bounded learning exposure without delaying safety work',()=>{
   const make=()=>({autonomy:{farm:{map:'field',name:'Field',activatedAt:clock},bagUsage:[50,100]},nativeCombatProfile:{character:'Hero',job:'Starweaver',at:clock},combatTelemetry:{lastDamage:{zone:'Field',at:clock}}});
   const s=state({hpPotions:30,mpPotions:30}),m=make();assert.equal(A.protectCombat(m,s,clock),true);
+  assert.equal(A.protectCombat(m,{...s,hp:[600,1000]},clock),true); // Native potion control continues during the exposure.
+  assert.equal(A.protectCombat(m,{...s,hp:[400,1000]},clock),false);
   m.combatTelemetry.lastDamage.at=clock+179000;assert.equal(A.protectCombat(m,s,clock+179000),true);
   m.combatTelemetry.lastDamage.at=clock+180000;assert.equal(A.protectCombat(m,s,clock+180000),false);
   m.combatTelemetry.lastDamage.at=clock+900000;assert.equal(A.protectCombat(m,s,clock+900000),false);
