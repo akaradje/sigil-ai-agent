@@ -1,6 +1,7 @@
 'use strict';
 // Character development uses rendered, labelled UI and ordinary input only.
 const MIN=60000, norm=s=>String(s||'').replace(/\s+/g,' ').trim();
+const {bottlenecks}=require('./game-catalog');
 function readDevelopment(){
   const panel=document.getElementById('panel'),body=document.getElementById('pbody');
   if(!panel||panel.hidden||!body)return null;
@@ -26,9 +27,9 @@ function readDevelopment(){
 }
 const EXPRESSION='JSON.stringify(('+readDevelopment.toString()+')())';
 // Public scene coordinates identify resource nodes; input still goes through the mouse/keyboard.
-const SCENE_EXPRESSION=`import('/src/life-ui.js').then(({LIFE:l})=>{const g=window.SIGIL,p=g?.p,c=document.getElementById('game'),r=c?.getBoundingClientRect(),v=g?.view,cam=g?.camRender;
+const SCENE_EXPRESSION=`Promise.all([import('/src/life-ui.js'),import('/src/premium-ui.js')]).then(([{LIFE:l},prem])=>{const g=window.SIGIL,p=g?.p,c=document.getElementById('game'),r=c?.getBoundingClientRect(),v=g?.view,cam=g?.camRender;
   if(!p||!g.ready||g.mapLoad||g.fade||!r||!v||!cam||l.map!==g.world?.id)return JSON.stringify({available:false});
-  return JSON.stringify({available:true,map:g.world.id,x:p.x,y:p.y,mineLv:p.life?.mine?.lv||1,mineExp:p.life?.mine?.exp||0,mining:l.acts.get(g.link?.id)?.kind==='mine',pending:!!l.pend,materials:Object.fromEntries(['mithril_ore','moon_sapphire','chrono_gear'].map(id=>[id,p.items?.[id]||0])),
+  return JSON.stringify({available:true,map:g.world.id,x:p.x,y:p.y,freeWarps:prem.warpsLeft(),mineLv:p.life?.mine?.lv||1,mineExp:p.life?.mine?.exp||0,mining:l.acts.get(g.link?.id)?.kind==='mine',pending:!!l.pend,materials:Object.fromEntries(['mithril_ore','moon_sapphire','chrono_gear','sigil_ore','storm_feather','time_crystal'].map(id=>[id,p.items?.[id]||0])),
     nodes:l.ore.filter(n=>n.up).map(n=>{const x=Math.round(r.left+(n.x-cam.x)*v.scale),y=Math.round(r.top+(n.y-14-cam.y)*v.scale),hit=x>0&&y>0&&x<innerWidth&&y<innerHeight?document.elementFromPoint(x,y):null;return {id:n.i,tier:n.tier,x,y,wx:n.x,wy:n.y,visible:hit===c};})});})`;
 function init(mem){return mem.development ||= {version:1,last:{},failures:{},snapshots:{},history:[],steps:0};}
 function remember(mem,view,now=Date.now()){
@@ -164,6 +165,15 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
     if(m.length!==1)throw Error('Development control missing or ambiguous');await click(m[0]);await sleep(800);return observe();
   }
   function record(task,detail){d.history.push({task,detail,at:now()});d.history=d.history.slice(-40);d.steps++;}
+  async function freeWarp(map,raw){
+    if(!raw.available||!(raw.freeWarps>0)||raw.map===map)return false;
+    const before=await observe();await open('prem');await pick('crtab','warp');await pick('crwarp',map);
+    const modal=await observe();if(!/free.*warp|warp.*free|วาร์ปฟรี/i.test(modal.modalText)||/crystal|คริสตัล|ใช้ปีกวาร์ป|use.*warp wing/i.test(modal.modalText))throw Error('Only an existing free warp is authorized');
+    const buttons=modal.controls.filter(c=>/^(Warp|วาร์ป)$/i.test(c.label));if(buttons.length!==1)throw Error('Free warp confirmation ambiguous');
+    await click(buttons[0]);await sleep(1500);const after=await observe(),live=await scene();
+    if(after.crystals!==before.crystals||!live.available||live.map!==map||live.freeWarps!==raw.freeWarps-1)throw Error('Free warp outcome not acknowledged');
+    record('growth_materials','Used an existing free warp to '+map);return true;
+  }
   async function pay(plan,fn){
     const before=await observe(),cost=plan.cost?.gold??plan.fee??0;
     if(!Number.isFinite(cost)||cost<0||before.gold-cost<reserve())throw Error('Development gold reserve');
@@ -263,13 +273,30 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
           }
         }else{
           const raw=await scene(),s=await observe();
+          if(raw.available&&raw.map!==trip.map&&now()-trip.started>45000&&!trip.warpTried&&raw.freeWarps>0&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
+            trip.warpTried=true;save();await close();await freeWarp(trip.map,raw);
+            if(trip.kind==='boss'){await open('bosses');const live=await observe(),boss=live.bossRows.find(b=>b.name===trip.boss&&b.up);
+              if(!boss){trip.done=true;d.bossRetryAt=now()+5*MIN;}
+              else{const [map,x,y]=boss.key.split(',');if(map!==trip.map)trip.done=true;else{trip.bossPoint={x:Number(x),y:Number(y)};trip.approachAt=now();await pick('bbgo',boss.key);}}
+            }return;
+          }
           if(raw.available&&raw.materials&&mem.autonomy?.inventory?.items){
             for(const [id,n] of Object.entries(raw.materials))if(Number.isSafeInteger(n)&&n>=0)mem.autonomy.inventory.items[id]=n;
-            const goal=mem.autonomy.goal;if(goal?.slot==='wing')goal.missing=goal.missing.map(m=>raw.materials[m.id]!=null?{...m,have:raw.materials[m.id],missing:Math.max(0,m.need-raw.materials[m.id])}:m).filter(m=>m.missing>0);
+            const goal=mem.autonomy.goal;if(goal?.slot==='wing'&&goal.cost)goal.missing=bottlenecks(goal.cost,mem.autonomy.inventory.items,Math.max(0,s.gold-Math.max(100000,policy.goldReserve||0)));
             if(goal&&!goal.missing.length)trip.done=true;
-            if(trip.kind==='boss'&&Object.entries(trip.initialAmounts||{}).some(([id,n])=>raw.materials[id]>n)){trip.done=true;d.bossRetryAt=now()+5*MIN;}
+            const guaranteed=getCatalog().monsters?.find(m=>m.id===trip.id)?.drops?.filter(([,p])=>p>=1).map(([id])=>id)||[];
+            if(trip.kind==='boss'&&guaranteed.some(id=>raw.materials[id]>(trip.initialAmounts?.[id]??Infinity))){trip.done=true;d.bossRetryAt=now()+5*MIN;}
           }
           if(now()-trip.started>(mem.autonomy?.wingPriority?15:5)*MIN||s.hp[0]/s.hp[1]<0.65||s.hpPotions<10||s.mpPotions<10||trip.done){
+            if(mem.autonomy?.wingPriority&&s.hp[0]/s.hp[1]>=0.85&&s.hpPotions>=20&&s.mpPotions>=20){
+              await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
+              const a=mem.autonomy;
+              if(a.goal&&!a.goal.missing.length){
+                a.farm=null;a.trip={kind:'shop',phase:'town',at:now(),returnMap:trip.returnMap,returnMode:'farm',salesDone:false,salePolicyVersion:2};
+                d.excursion=null;record(task,'Wing materials complete; sell surplus then craft at the town smith');save();await travel('town');
+              }else{d.excursion=null;record(task,'Resource stage finished; continue wing materials before EXP');}
+              d.last[task]=now()-MIN;d.result={task,ok:true,at:now()};return d.result;
+            }
             await close();if(/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');
             await open('bag');if(!(await observe()).inventoryComplete)await pick('ifilter','all');await observe();await close();
             await travel(trip.returnMap);mem.autonomy.farm=null;mem.autonomy.resume={map:trip.returnMap,mode:'farm',at:now()};
@@ -282,6 +309,7 @@ function createController({mem,observe,scan,scene,sceneAction,travel,click,scrol
               const planned=materialPlan(getCatalog(),mem.autonomy?.goal?.missing,raw,s,{skipBoss:true});
               if(planned&&planned.tier!==trip.tier)trip.done=true;
             }else if(trip.phase==='travel'){
+              if(trip.kind==='boss'&&trip.bossPoint&&Math.hypot(raw.x-trip.bossPoint.x,raw.y-trip.bossPoint.y)>220){if(now()-trip.approachAt>90000)trip.done=true;return;}
               await open('auto');await pick('atab','hunt');
               for(const [k,v] of [['target',trip.kind==='hunt'?trip.target:'boss'],['prio','elite']]){const s=await observe();if(!s.controls.concat(s.offscreen||[]).some(c=>c.act==='aopt'&&c.k===k&&c.v===v&&c.on))await pick('aopt',null,c=>c.k===k&&c.v===v);}
               await close();if(!/\bon\b/.test((await observe()).autoHunt||''))await pick('#autoBtn');trip.phase='fight';trip.fightAt=now();

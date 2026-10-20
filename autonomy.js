@@ -209,6 +209,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&a.bagUsage&&a.bagUsage[0]<=a.bagUsage[1]-14&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
   if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
+  if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.length&&a.goal.missing.every(m=>m.id==='sigil_ore')&&due('forge',MIN))return 'town_forge';
   if(a.goal&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')&&due('forge',MIN))return 'town_forge';
   if((policy.powerProgression||!policy.levelingFocus)&&!a.resourceHold?.active&&due('forge',policy.powerProgression?30*MIN:15*MIN))return 'town_forge';
   if((policy.levelingFocus||a.goal?.missing?.length||a.cap?.atCap)&&(policy.levelingFocus||!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
@@ -355,7 +356,16 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     a.gearCapped=rows.length>=a.worn.length&&a.worn.length>=8&&rows.every(r=>r.max);
     const row=refineCandidates(catalog,s,a.worn,rows.filter(r=>!r.disabled&&!r.max&&r.refine!=null&&(!a.resourceHold?.active||a.worn.some(w=>w.uid===r.key&&w.slot==='weapon'))))[0];
     const reserve=wingReserve(a,policy.goldReserve),oreReserve=a.wingPriority&&goal?.slot==='wing'?(goal.cost?.mats?.sigil_ore||0):0;
-    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve+(row?.refine>=catalog.refineSafe?2:1))return false;
+    if(oreReserve&&(a.inventory?.items?.sigil_ore||0)<oreReserve+(row?.refine>=catalog.refineSafe?2:1)){
+      await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state(),ore=shop.smithRows.find(r=>r.act==='buy'&&r.key==='sigil_ore'),unit=Number(ore?.text?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
+      if(unit>0&&shop.gold-unit*10>=reserve){
+        const stock=a.inventory?.items?.sigil_ore||0;await pick(c=>c.act==='buy'&&c.key==='sigil_ore'&&c.amount==='10');
+        if((await state()).gold!==shop.gold-unit*10)throw Error('Reserved wing ore debit not acknowledged');
+        await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);const bag=await state();
+        if(!bag.inventoryComplete||(bag.inventoryItems.sigil_ore||0)<stock+10)throw Error('Reserved wing ore quantity not acknowledged');
+        return true;
+      }return false;
+    }
     if(!row){
       if(policy.powerProgression&&rows.some(r=>!r.max)&&s.gold-reserve>10000){
         await pick(c=>c.act==='smtab'&&c.key==='buy');const shop=await state();

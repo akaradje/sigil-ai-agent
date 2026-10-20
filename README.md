@@ -398,7 +398,11 @@ capacity does not block stacked material gathering. Public map-wide drops provid
 when mining is unavailable. Node navigation reads
 only narrow public scene coordinates and uses normal pointer/keyboard input. Required bosses
 must be alive on the native board and at least 15 levels below the character before an automatic
-trial. Trips return to the saved leveling area on timeout, low health or low potion supplies.
+trial. Ordinary trips return to the saved leveling area on timeout, low health or low potion
+supplies. Wing focus chains healthy resource stages without repeatedly visiting the EXP map,
+then returns to town for sales and crafting. Long resource journeys can use an existing free
+warp only after the native confirmation identifies it as free; quota and unchanged crystals
+are checked afterward. It never purchases a warp or consumes a paid warp ticket.
 
 Town forging can improve secondary gear while leveling. It keeps a gold reserve, caps a visit
 at 12 steps / 150,000 G of refinement spending, equips newly crafted pieces, and checks eligible

@@ -2,6 +2,19 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),D=require('./character-development');
 const now=1800000000000;
 const state=(extra={})=>({name:'Hero',job:'Starweaver',lv:'Lv 73',hp:[900,1000],controls:[],offscreen:[],gold:2000000,crystals:4000,...extra});
+test('wing gathering chains bounded stages without returning through the EXP map between them',async()=>{
+  const m={autonomy:{wingPriority:true,inventory:{items:{}},farm:{map:'original'},goal:{slot:'wing',missing:[{id:'mithril'}]}},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'mine',map:'south',returnMap:'original',started:now-16*60000}}},travelled=[];
+  const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,autoHunt:''}),scan:async()=>null,scene:async()=>({available:true,map:'south'}),sceneAction:async()=>{},travel:async id=>travelled.push(id),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+  assert.equal((await ctl.run('growth_materials')).ok,true);assert.equal(m.development.excursion,null);assert.deepEqual(travelled,[]);assert.equal(m.autonomy.farm.map,'original');assert.equal(m.autonomy.resume,undefined);
+});
+test('travel recovery spends only an observed free warp and refuses paid wing confirmations',async()=>{
+  for(const paid of [false,true]){
+    const m={autonomy:{wingPriority:true},development:{version:1,last:{},failures:{},snapshots:{},history:[],steps:0,excursion:{kind:'boss',id:'time',boss:'Time Eater',map:'crystal',returnMap:'old',started:now-60000}}};let modal=false,confirmed=0,map='coral',free=1;
+    const ctl=D.createController({mem:m,observe:async()=>state({hpPotions:25,mpPotions:25,bossRows:[{name:'Time Eater',up:true,key:'crystal,500,500'}],modalText:modal?(paid?'Use 1 Warp Wing':'Use 1 free warp'):'',controls:[{act:'crtab',key:'warp'},{act:'crwarp',key:'crystal'},{label:'Warp'},{act:'bbgo',key:'crystal,500,500'}]}),
+      scan:async()=>null,scene:async()=>({available:true,map,freeWarps:free,x:0,y:0}),sceneAction:async()=>{},travel:async()=>{},click:async c=>{if(c.act==='crwarp')modal=true;if(c.label==='Warp'){confirmed++;map='crystal';free=0;modal=false;}},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},getCatalog:()=>({}),now:()=>now});
+    await ctl.run('growth_materials');assert.equal(confirmed,paid?0:1);if(paid)assert.equal(m.development.result.ok,false);else assert.deepEqual(m.development.excursion.bossPoint,{x:500,y:500});
+  }
+});
 test('explicit wing focus gets material time even with a full gear bag, while active town work and health stay protected',()=>{
   const m={autonomy:{wingPriority:true,goal:{slot:'wing',missing:[{id:'mithril'}]},bagUsage:[100,100]}};
   const s=state({hpPotions:25,mpPotions:25});assert.equal(D.routineReady(m,s),false);assert.equal(D.materialReady(m,s),true);assert.equal(D.chooseTask(m,s,{},now),'growth_materials');
