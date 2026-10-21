@@ -769,6 +769,15 @@ async function runCycle() {
     const p = await perceive(false);
     if (!p.state) { log('no state'); return; }
     latestState=p.state;latestButtons=p.buttons||[];
+    // A town trip that stopped making progress must not keep the hero in town
+    // behind an open panel: close it and let the field work resume.
+    const trip=memory.autonomy?.trip;
+    if(trip&&p.state.panelOpen&&Date.now()-(trip.progressAt||trip.at||Date.now())>300000){
+      try{await executor.close();}catch{}
+      memory.autonomy.trip=null;memory.autonomy.resume=null;memory.autonomy.blocked=null;
+      log('autonomy trip stalled with a panel open; closed it and resumed the field');
+      saveMemory();
+    }
     if(memory.gameTelemetry?.positionFault&&!memory.uiHealth?.login) {
       if(Telemetry.recoveryDue(memory)) {
         const now=Date.now(),previous=memory.positionRecovery||{};
