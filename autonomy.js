@@ -668,7 +668,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     // budget, whatever step it is on. The walk from the field is not errand
     // time, so the budget starts when the hero reaches town. A visit that
     // cannot finish leaves the field.
-    const errandSince=trip&&(trip.townTravelAt||trip.at||now());
+    const errandSince=trip&&(trip.errandAt||trip.townTravelAt||trip.at||now());
     if(trip&&now()-errandSince>TOWN_MAX_MS){
       a.blocked='Town trip timed out';
       event(a,'town_timeout_abort',{kind:trip.kind,visitSeconds:Math.round((now()-trip.at)/1000),errandSeconds:Math.round((now()-errandSince)/1000)},now());
@@ -760,6 +760,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       if(s.panel!==panel)return;
     }
+    // The errand budget measures the work at the counter, not the walk to it.
+    // The panel is open from here on, so the budget starts now.
+    if(!trip.errandAt){trip.errandAt=now();save();}
     if(trip.serviceReached!==trip.kind){trip.serviceReached=trip.kind;trip.progressAt=now();}
     if(trip.kind==='forge'){
       if(policy.powerProgression&&!(a.wingPriority&&a.goal?.slot==='wing'&&!a.goal.missing?.length)&&!trip.runesServiced&&developAtSmith&&mem.development?.runeSmithNeeded){
