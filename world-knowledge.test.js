@@ -41,3 +41,17 @@ test('unknown system inspection reads one navigation panel only while safely idl
  a.equal(await k.inspectNext(args),true);a.equal(opened,1);a.equal(closed,1);
  a.equal(k.view().opportunities.at(-1).evidence.controls[0].act,'ascend');a.equal(k.nextPanelProbe(),null);
 });
+
+test('a boss whose shield the build cannot break becomes a gate until the damage reaches the requirement',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'sigil-gate-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const file=path.join(dir,'world-knowledge.json');let now=100000;const k=new WorldKnowledge({file,now:()=>now});
+ const gate=k.gateBoss('Ignar the Flame Tyrant',{factor:1.58,requiredMatk:3716,requiredPower:1650,observedMatk:2352,observedPower:1050,reason:'shield-not-broken-in-time',map:'Leviathan Grave'});
+ a.equal(gate.factor,1.58);a.equal(gate.requiredMatk,3716);a.equal(gate.map,'Leviathan Grave');
+ a.equal(k.bossGate('Ignar the Flame Tyrant',{matk:2352,power:1050}).boss,'Ignar the Flame Tyrant');
+ a.equal(k.bossGate('Ignar the Flame Tyrant',{matk:3800,power:1050}),null);
+ a.equal(k.bossGate('Ignar the Flame Tyrant',{matk:2352,power:1700}),null);
+ a.equal(k.view().bossGates.length,1);
+ now+=1000;k.gateBoss('Ignar the Flame Tyrant',{factor:1.7,requiredMatk:3999});
+ a.equal(k.view().bossGates[0].attempts,2);
+ a.equal(new WorldKnowledge({file}).view().bossGates.length,1);
+});

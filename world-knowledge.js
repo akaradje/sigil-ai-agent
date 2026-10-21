@@ -23,23 +23,25 @@ class WorldKnowledge {
   // the shortfall in damage per second tells the bot what it has to farm for
   // before trying that boss again.
   gateBoss(boss,evidence={}){
-    if(!id(boss))return null;
+    const key=String(boss||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,64);
+    if(!key)return null;
     const e=evidence||{},now=this.now();
     this.db.bossGates ||= {};
-    const previous=this.db.bossGates[boss];
+    const previous=this.db.bossGates[key];
     const factor=Math.max(1,Number(e.factor)||1);
     const gate={boss,at:now,factor:Math.round(factor*100)/100,
       requiredMatk:Math.round(Number(e.requiredMatk)||0),requiredPower:Math.round(Number(e.requiredPower)||0),
       observedMatk:Math.round(Number(e.observedMatk)||0),observedPower:Math.round(Number(e.observedPower)||0),
       reason:String(e.reason||'shield-not-broken-in-time').slice(0,120),
       map:e.map?String(e.map).slice(0,60):null,attempts:(previous?.attempts||0)+1};
-    this.db.bossGates[boss]=gate;
+    this.db.bossGates[key]=gate;
     this.db.bossGates=Object.fromEntries(Object.entries(this.db.bossGates).sort((a,b)=>b[1].at-a[1].at).slice(0,16));
     this.dirty=true;this.save(true);
     return gate;
   }
   bossGate(boss,measured={}){
-    const g=this.db.bossGates?.[boss];if(!g)return null;
+    const key=String(boss||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,64);
+    const g=this.db.bossGates?.[key];if(!g)return null;
     const m=measured||{};
     const matkOk=g.requiredMatk&&Number.isFinite(m.matk)&&m.matk>=g.requiredMatk;
     const powerOk=g.requiredPower&&Number.isFinite(m.power)&&m.power>=g.requiredPower;

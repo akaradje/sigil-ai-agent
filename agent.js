@@ -780,7 +780,10 @@ async function runCycle() {
     // world model, with the damage the build is short of.
     if(memory.bossLearning?.wardGate){
       const g=memory.bossLearning.wardGate;memory.bossLearning.wardGate=null;
-      try{worldKnowledge.gateBoss(g.boss,g);}catch{}
+      try{
+        const gate=worldKnowledge.gateBoss(g.boss,g);
+        if(gate)log('boss gate: '+gate.boss+' needs '+(gate.requiredMatk||gate.requiredPower)+' ('+gate.factor+'x)');
+      }catch(e){log('boss gate failed: '+e.message);}
     }
     saveMemory();
     updateDNA(p.state,true);
