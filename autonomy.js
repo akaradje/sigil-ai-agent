@@ -661,11 +661,14 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function town(s) {
     const trip=a.trip;
-    // Hard cap: a town visit may not hold the hero for more than 90 seconds,
-    // whatever step it is on. A visit that cannot finish leaves the field.
-    if(trip&&now()-(trip.at||now())>TOWN_MAX_MS){
+    // Hard cap: the errand in town may not hold the hero for more than the
+    // budget, whatever step it is on. The walk from the field is not errand
+    // time, so the budget starts when the hero reaches town. A visit that
+    // cannot finish leaves the field.
+    const errandSince=trip&&(trip.townTravelAt||trip.at||now());
+    if(trip&&now()-errandSince>TOWN_MAX_MS){
       a.blocked='Town trip timed out';
-      event(a,'town_timeout_abort',{kind:trip.kind,visitSeconds:Math.round((now()-trip.at)/1000)},now());
+      event(a,'town_timeout_abort',{kind:trip.kind,visitSeconds:Math.round((now()-trip.at)/1000),errandSeconds:Math.round((now()-errandSince)/1000)},now());
       await abortTrip(trip,'Town trip timed out');
       return;
     }

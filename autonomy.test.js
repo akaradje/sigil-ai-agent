@@ -914,3 +914,16 @@ test('a town visit older than the 70 second budget is cut off',async()=>{
   assert.ok(a.events.some(e=>e.type==='town_timeout_abort'));
   assert.equal(a.townCooldownUntil,clock+45*60000);
 });
+
+test('the town budget measures the errand, not the walk from the field',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  // The trip started two minutes ago but the hero reached town a moment ago.
+  const trip={kind:'shop',phase:'town',at:clock-120000,townTravelAt:clock-5000,returnMap:'field',returnMode:'farm',salesDone:false,salePolicyVersion:2,storageScanned:true};
+  a.trip=trip;
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',hpPotions:35,mpPotions:35,inventoryComplete:true,inventoryItems:{},inventoryGear:[],controls:[]}),
+    click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.ok(a.trip,'a visit inside its errand budget keeps working');
+  assert.ok(!a.events.some(e=>e.type==='town_timeout_abort'));
+});
