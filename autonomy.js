@@ -478,7 +478,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function sellSurplus(trip) {
     await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
-    if(['uncertain','confirming'].includes(a.saleIntent?.status)&&!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
+    if(['uncertain','confirming'].includes(a.saleIntent?.status)){
+     if(boundUncertainSale())a.saleIntent=null;
+     else if(!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
+   }
     for(let i=0;i<2;i++) {
       if(actions>6)return; // Leave room for select, dialog and confirmation this slice.
       const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
@@ -525,15 +528,30 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     w.after=after;w.delta=comparable?after.power-w.before.power:null;w.status='equipped';w.completedAt=now();
     event(a,'wing_completed',{name:w.name,before:w.before?.power??null,after:after.power,delta:w.delta,uid:w.uid});save();return true;
   }
+  // An uncertain sale must not keep the hero in town for ever. The item stays
+  // in the bag, the intent is dropped and the trip continues to the field.
+  function boundUncertainSale(){
+    const intent=a.saleIntent;
+    if(!intent||!['uncertain','confirming'].includes(intent.status))return false;
+    const at=now();
+    if(!intent.since)intent.since=at;
+    if(at-intent.since<5*MIN)return false;
+    intent.status='abandoned';intent.abandonedAt=at;a.blocked=null;
+    event(a,'sale_outcome_abandoned',{name:intent.name},at);
+    save();return true;
+  }
   async function town(s) {
     const trip=a.trip;
     if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();trip.forgeServiced=true;trip.phase='return';return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {
-      await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
-      if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}
-      await close();s=await state();
+      if(boundUncertainSale())a.saleIntent=null;
+      else {
+        await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
+        if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}
+        await close();s=await state();
+      }
     }
     // Hand a supplied, healthy town visit back to the boss preparation owner.
     // Optional surplus inspections and a return-to-farm trip are not prerequisites.
