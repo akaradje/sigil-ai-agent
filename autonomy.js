@@ -534,8 +534,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const intent=a.saleIntent;
     if(!intent||!['uncertain','confirming'].includes(intent.status))return false;
     const at=now();
+    const since=intent.since||intent.at||at;
     if(!intent.since)intent.since=at;
-    if(at-intent.since<5*MIN)return false;
+    if(at-since<5*MIN)return false;
     intent.status='abandoned';intent.abandonedAt=at;a.blocked=null;
     event(a,'sale_outcome_abandoned',{name:intent.name},at);
     save();return true;
@@ -546,7 +547,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {
-      if(boundUncertainSale())a.saleIntent=null;
+      if(boundUncertainSale()){a.saleIntent=null;trip.phase='return';}
       else {
         await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
         if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}

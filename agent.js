@@ -772,7 +772,7 @@ async function runCycle() {
     // A town trip that stopped making progress must not keep the hero in town
     // behind an open panel: close it and let the field work resume.
     const trip=memory.autonomy?.trip;
-    if(trip&&p.state.panelOpen&&Date.now()-(trip.progressAt||trip.at||Date.now())>300000){
+    if(trip&&p.state.panelOpen&&Date.now()-(trip.townTravelAt||trip.at||Date.now())>1800000){
       try{await executor.close();}catch{}
       memory.autonomy.trip=null;memory.autonomy.resume=null;memory.autonomy.blocked=null;
       log('autonomy trip stalled with a panel open; closed it and resumed the field');
