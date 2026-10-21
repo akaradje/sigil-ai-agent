@@ -489,7 +489,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const inspectionLimit=a.wingPriority&&a.goal?.slot==='wing'&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3?4:8;
       const item=surplusGear(getCatalog(),before,a.worn)
         .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])||(x.rarity??99)-(y.rarity??99))
-        .find(g=>!trip.keepUIDs?.includes(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
+        .find(g=>!trip.keepUIDs?.includes(g.uid)&&!saleBlockedRecently(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
       if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
       if(!isWeapon(item))trip.secondaryInspections=(trip.secondaryInspections||0)+1;
@@ -544,8 +544,18 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       trip.keepUIDs=[...new Set([...(trip.keepUIDs||[]),intent.uid])];
       trip.keepReasons={...(trip.keepReasons||{}),[intent.uid]:'sale outcome uncertain'};
     }
+    // The item is also remembered across trips: offering it again would keep
+    // the hero in town for ever.
+    a.saleBlocked={...(a.saleBlocked||{}),[intent.uid]:at};
     event(a,'sale_outcome_abandoned',{name:intent.name},at);
     save();return true;
+  }
+  // An item whose sale could not be confirmed is not offered again for a while.
+  function saleBlockedRecently(uid){
+    const at=a.saleBlocked?.[uid];
+    if(!at)return false;
+    if(now()-at>30*MIN){delete a.saleBlocked[uid];return false;}
+    return true;
   }
   async function town(s) {
     const trip=a.trip;
