@@ -521,7 +521,12 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
       const hidden=(s.offscreen||[]).filter(pred);
       if(hidden.length===1) {await scroll(hidden[0]);await sleep(350);s=await observe();matches=s.controls.filter(pred);}
     }
-    if(matches.length!==1) { if(optional)return false;throw Error('control missing or ambiguous'); }
+    if(matches.length!==1) { if(optional)return false;
+      // Name what was on screen: a missing target is a different fix than an
+      // ambiguous one, and the operator has to see which it was.
+      const seen=(s.controls||[]).map(c=>c.label).filter(Boolean).slice(0,12).join(' | ');
+      throw Error('control missing or ambiguous: matches='+matches.length+' saw=['+seen+']');
+    }
     await click(matches[0]); await sleep(650);return true;
   }
   const act=(a,id,optional=false)=>pick(c=>c.act===a&&(id==null||c.key===id),optional);
