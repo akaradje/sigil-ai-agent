@@ -479,7 +479,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   async function sellSurplus(trip) {
     await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
     if(['uncertain','confirming'].includes(a.saleIntent?.status)){
-     if(boundUncertainSale())a.saleIntent=null;
+     if(boundUncertainSale(trip))a.saleIntent=null;
      else if(!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
    }
     for(let i=0;i<2;i++) {
@@ -530,7 +530,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   // An uncertain sale must not keep the hero in town for ever. The item stays
   // in the bag, the intent is dropped and the trip continues to the field.
-  function boundUncertainSale(){
+  function boundUncertainSale(trip){
     const intent=a.saleIntent;
     if(!intent||!['uncertain','confirming'].includes(intent.status))return false;
     const at=now();
@@ -538,6 +538,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(!intent.since)intent.since=at;
     if(at-since<5*MIN)return false;
     intent.status='abandoned';intent.abandonedAt=at;a.blocked=null;
+    // The item stays in the bag and is kept for this trip, so the same sale is
+    // not attempted again and the hero can leave the town.
+    if(trip&&intent.uid){
+      trip.keepUIDs=[...new Set([...(trip.keepUIDs||[]),intent.uid])];
+      trip.keepReasons={...(trip.keepReasons||{}),[intent.uid]:'sale outcome uncertain'};
+    }
     event(a,'sale_outcome_abandoned',{name:intent.name},at);
     save();return true;
   }
@@ -547,7 +553,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
     if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&['uncertain','confirming'].includes(a.saleIntent?.status)) {
-      if(boundUncertainSale()){a.saleIntent=null;trip.phase='return';}
+      if(boundUncertainSale(trip)){a.saleIntent=null;trip.phase='return';}
       else {
         await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
         if(!await settleSale(a.saleIntent,trip)){a.blocked='Uncertain sale requires review';trip.phase='return';return;}
