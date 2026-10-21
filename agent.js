@@ -711,6 +711,17 @@ async function prepareClassBoss(s){
       }catch(e){b.reviewStatus='model-unavailable';b.reviewError=/no usable answer/.test(e.message||'')?'empty-completion':/curl exit 28|timeout|abort/i.test(e.message||'')?'timeout':'transport-or-response';markModelDown('boss defeat review unavailable');}
       finally{b.reviewOutcomes=[...(b.reviewOutcomes||[]).filter(r=>now-r.at<3600000),{at:now,status:b.reviewStatus,error:b.reviewStatus==='model-unavailable'?b.reviewError:undefined}].slice(-12);brain.reviewingClass=false;saveMemory();}return true;
     }
+    // The model is unavailable or its review is not due: keep the verified
+    // native build as the plan so the trial can still run. The fallback plan is
+    // written after the last defeat, so the retry gate treats it as a fresh
+    // attempt, and it is spaced out so the hero does not loop on one boss.
+    if(b.defeatAt&&now-b.defeatAt>600000){
+      b.plan={diagnosis:'native build while the model is unavailable',enableSkills:[],disableSkills:[],
+        craftWing:false,retreatHp:0.35,at:now};
+      b.reviewStatus='native-fallback';
+      log('boss plan: native fallback, the reviewed plan is unavailable');
+      saveMemory();
+    }
     return false; // Continue verified growth while the review is unavailable.
   }
   if(b.plan.craftWing&&a.wingCraft?.status!=='equipped'){
