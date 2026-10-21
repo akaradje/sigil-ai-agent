@@ -786,6 +786,16 @@ async function runCycle() {
       log('autonomy trip stalled with a panel open; closed it and resumed the field');
       saveMemory();
     }
+    // Keep the AI status honest: a failure from an earlier outage must not stay
+    // on the dashboard while the model is reachable again.
+    const learning=memory.bossLearning;
+    if(learning?.pending&&learning.reviewStatus==='model-unavailable'&&Date.now()-(learning.reviewAt||0)>600000){
+      learning.reviewAt=Date.now();
+      try{await chat([{role:'user',content:'reply with the single word ok'}],undefined,{maxTokens:8,timeoutSec:30});
+        learning.reviewStatus='model-available';}
+      catch{learning.reviewStatus='model-unavailable';}
+      saveMemory();
+    }
     // Combat pre-flight: a panel left open over a field map hides the fight and
     // can swallow a potion click. Outside town the screen must be clean.
     if(p.state.panelOpen&&catalog){
