@@ -107,6 +107,13 @@ function storedSurplus(catalog,s,worn,entries=[]) {
     return gear?.slot==='weapon'&&gear.fam&&(gear.fam!==job.weapon||current&&gear.lv<=level(s)&&gear.lv<=current.lv&&gear.tier<=current.tier);
   });
 }
+// The storage holds what the shop will not take. It is worth scanning when
+// the bag has room, and also when the bag is nearly full and pickups are
+// blocked, which is exactly when the shop cannot help.
+function storageWorthScanning(a) {
+  if(!a.bagUsage)return false;
+  return a.bagUsage[0]<=a.bagUsage[1]-14||a.bagUsage[0]>=a.bagUsage[1]-3;
+}
 function storageNeedsScan(a,catalog,s,now) {
   const c=a.storageCleanup;
   return a.storageUsage?.[0]>0&&(!c||c.requestedAt||c.remaining>0||c.job!==s.job||c.fingerprint!==catalog?.fingerprint||now-c.checkedAt>6*60*MIN);
@@ -240,7 +247,7 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
     if(!policy.sellSurplus&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
     return due(policy.sellSurplus?'town_shop':'town_storage',5*MIN)?(policy.sellSurplus?'town_shop':'town_storage'):a.farm?'autonomy_wait':null;
   }
-  if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&a.bagUsage&&a.bagUsage[0]<=a.bagUsage[1]-14&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
+  if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&storageWorthScanning(a)&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
   if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
   if(policy.proactive&&Proactive.probeDue(mem,s,catalog,now))return 'combat_probe';
@@ -657,7 +664,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await resume(trip);return;
     }
     if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
-    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&a.bagUsage?.[0]<=a.bagUsage?.[1]-14&&storageNeedsScan(a,getCatalog(),s,now())&&
+    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageWorthScanning(a)&&storageNeedsScan(a,getCatalog(),s,now())&&
       (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
