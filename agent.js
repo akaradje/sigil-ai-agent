@@ -734,6 +734,9 @@ async function prepareClassBoss(s){
 
 // ------------------------------------------------------------------ cycle
 let busy = false;
+// The newest reading of the game. The dashboard asks for it constantly, so it
+// is served from here instead of a fresh perception that would time out.
+let latestState=null,latestButtons=[];
 let cycleStartedAt=0;
 let cycle = 0;
 let paused = false;
@@ -747,6 +750,7 @@ async function runCycle() {
   try {
     const p = await perceive(false);
     if (!p.state) { log('no state'); return; }
+    latestState=p.state;latestButtons=p.buttons||[];
     if(memory.gameTelemetry?.positionFault&&!memory.uiHealth?.login) {
       if(Telemetry.recoveryDue(memory)) {
         const now=Date.now(),previous=memory.positionRecovery||{};
@@ -973,10 +977,10 @@ http.createServer(async (req, res) => {
       evolutionOpportunities:autonomyPolicy.proactive?memory.evolutionOpportunities||[]:[],
       selfHealing:SelfHealing.healthSnapshot({memory,bootId:selfHealingBootId,buildId:selfHealingBuildId,completedAt:cycleCompletedAt,paused,availability:availability.state,cycleErrorAt,completedCycles:cycle,state:healingState})}));
     if (u.pathname === '/state') {
-      const p = await perceive(false);
+      const p = latestState ? {state:latestState, buttons:latestButtons} : await perceive(false);
       return res.end(JSON.stringify({
         cycle, paused, busy, version:4, availability:availability.state, strategy:memory, directive, brain: { ...brain, model: MODEL, ready: modelReady() },
-        state: p.state, buttons: p.buttons,
+        state: p.state, buttons: p.buttons, stateAt: Date.now(),
       }, null, 1));
     }
     if (u.pathname === '/relaytest') {
@@ -1049,6 +1053,7 @@ setInterval(async()=>{
   samplingCombat=true;
   try {
     const s=(await perceive(false)).state;
+    latestState=s;
     const raw=JSON.parse(await evalIn(Telemetry.EXPRESSION));Telemetry.update(memory,raw,catalog?.tileSize);
     IQ.observeClassBoss(memory,s);
     updateDNA(s);
