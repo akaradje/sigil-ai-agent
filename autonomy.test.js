@@ -848,3 +848,15 @@ test('a completely full bag still reaches town while the cooldown runs',async()=
   assert.ok(a.trip,'a full bag must still be able to reach town');
   assert.ok(!a.events.some(e=>e.type==='town_visit_deferred'));
 });
+
+test('a trip that ends while the hero is still leveling resumes the farm route, not the quest route',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.trip={kind:'shop',phase:'return',returnMap:'field',returnMode:'mq',at:clock,salesDone:true};
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',autoHunt:'on',controls:[{bm:'world'},{wm:'field'},{go:'field'}]}),
+    click:async()=>{},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.trip,null);
+  assert.equal(a.resume.mode,'farm');
+  assert.equal(a.resume.map,'field');
+});

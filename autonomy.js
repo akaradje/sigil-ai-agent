@@ -388,7 +388,11 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     trip.returnMap=returnRoute(current,trip.returnMap,trip.returnMode);
     if(trip.returnMap)await travel(trip.returnMap);
     if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();
-    a.farm=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};a.trip=null;save();
+    // A visit that ends while the hero is still leveling resumes the farm
+    // route: the quest chain waits for its level requirement, the field does
+    // not, and the field is where the EXP per minute comes from.
+    const mode=leveling()?'farm':trip.returnMode;
+    a.farm=null;a.resume={map:trip.returnMap,mode,at:now()};a.trip=null;save();
   }
   // Best effort: the hero leaves town with AUTO hunting again instead of idling
   // in the field until the next cycle picks the resume up.
