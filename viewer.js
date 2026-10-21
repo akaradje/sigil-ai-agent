@@ -511,7 +511,9 @@ async function tickState() {
     const dna=j.strategy?.dna;
     const cognitive=j.strategy?.cognitive;
     const world=j.strategy?.worldKnowledge;
+    const gates=(world&&world.bossGates)||[];
     $('worldKnowledge').textContent=world?world.maps+' แมป · '+world.monsters+' มอนสเตอร์ · '+world.recipes+' สูตร · แหล่งข้อมูลสาธารณะ':'รอฐานความรู้';
+    if(gates.length)$('worldKnowledge').textContent+=' · บอสที่รอพลัง: '+gates.map(g=>g.boss+' (ต้อง '+(g.requiredMatk||g.requiredPower||0)+' · '+g.factor+'x)').join(', ');
     $('opportunities').textContent=(j.strategy?.evolutionOpportunities||[]).map(o=>o.reason).join(' · ')||'ยังไม่มีโอกาสพัฒนาที่มีหลักฐานเพียงพอ';
     $('mastery').textContent=cognitive?.enabled?'Mastery '+cognitive.masteryIndex+' / 100 · '+cognitive.totalExperiences+' ประสบการณ์ · '+cognitive.knownMapsCount+' บริบทแมป':cognitive?.issue||'รอข้อมูลการเรียนรู้';
     const curriculum=cognitive?.activeCurriculum;

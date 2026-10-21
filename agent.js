@@ -628,7 +628,8 @@ async function prepareClassBoss(s){
     const fields=Object.fromEntries(['diagnosis','enableSkills','disableSkills','craftWing','retreatHp'].map(k=>[k,b.plan[k]]));
     // Revalidate persisted plans after upgrades against the currently audited skills.
     const checked=IQ.bossPlan(s,memory,JSON.stringify(fields));
-    if(checked)b.plan={...checked,at:b.plan.at};else{b.plan=null;b.reviewStatus='decision-rejected';}
+    if(checked)b.plan={...checked,at:b.plan.at};
+    else{b.plan=null;b.reviewStatus='decision-rejected';log('boss plan rejected: '+JSON.stringify(fields).slice(0,300));}
   }
   const run=async task=>{const f=memory.failures[task];if(f&&now-f.at<Math.min(120000,30000*f.count))return {ok:false};actionInFlight=true;try{return await executor.run(task);}finally{actionInFlight=false;saveMemory();}};
   if(s.dead){await run('revive');return true;}
