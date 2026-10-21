@@ -560,6 +560,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(now()-at>30*MIN){delete a.saleBlocked[uid];return false;}
     return true;
   }
+  // True when a recent sale could not be confirmed, so the surplus round is
+  // skipped for now.
+  function hasBlockedSale(){
+    for(const uid of Object.keys(a.saleBlocked||{}))if(saleBlockedRecently(uid))return true;
+    return false;
+  }
   async function town(s) {
     const trip=a.trip;
     if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();trip.forgeServiced=true;trip.phase='return';return;}
@@ -573,6 +579,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         await close();s=await state();
       }
     }
+    // A recent unconfirmable sale stops the whole surplus round: the hero
+    // plays instead of queueing item after item in the shop.
+    if(townMap&&policy.sellSurplus&&trip.phase!=='return'&&trip.salesDone!==true&&hasBlockedSale())trip.salesDone=true;
     // Hand a supplied, healthy town visit back to the boss preparation owner.
     // Optional surplus inspections and a return-to-farm trip are not prerequisites.
     if(townMap&&mem.bossLearning?.pending&&mem.bossLearning.plan&&(trip.kind==='shop'||trip.forgeServiced)&&
