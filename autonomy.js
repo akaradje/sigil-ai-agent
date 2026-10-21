@@ -14,6 +14,13 @@ const TOWN_COOLDOWN_MS=45*MIN;  // no new town visit right after one
 const UNREADABLE_TOWN=/outcome not observed|observed control missing or ambiguous/i;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
+// The story route cannot advance a story chapter that is gated by level: while
+// the hero is below the required level the level band is the only EXP source.
+function storyGated(s) {
+  if(String(s.autoQuestMode||'')!=='mq')return false;
+  const m=String(s.quest||'').match(/Requires\s*Lv\s*(\d+)/i);
+  return !!m&&Number(m[1])>level(s);
+}
 function init(mem) {
   const a=mem.autonomy ||= {version:1,events:[],sequence:0,premium:{reserved:0,spent:0},inventory:null,worn:[],last:{},crafted:{},farmRates:{}};
   if(!Number.isFinite(a.townCooldownUntil))a.townCooldownUntil=0;
@@ -985,6 +992,9 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
             a.resume=null;if(a.blocked==='Town trip timed out')a.blocked=null;
           }
         }else if(a.farm&&norm(a.farm.name)===norm(s.zone)) {
+          // A level gated story chapter cannot be advanced by walking its
+          // route: stop it and keep the level band hunt that earns the EXP.
+          if(leveling()&&storyGated(s))await pick(c=>c.aq==='stop',true);
           if(a.farm.pendingProfile||leveling()&&targetFor(a.farm.map,s)?.id!==a.farm.target)await farmProfile(s);
           if(!/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
           if(!/\bon\b/.test((await state()).autoHunt||''))throw Error('Farm activation not confirmed');

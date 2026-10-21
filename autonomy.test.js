@@ -860,3 +860,26 @@ test('a trip that ends while the hero is still leveling resumes the farm route, 
   assert.equal(a.resume.mode,'farm');
   assert.equal(a.resume.map,'field');
 });
+
+test('a level gated story route is stopped while the hero levels',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.farm={map:'field',name:'Field',started:clock,pendingProfile:false,target:'mob'};
+  let questRunning=true;const stops=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Field',autoQuestMode:'mq',autoQuestRunning:questRunning,quest:'Sage Quest Chapter 27 Requires Lv 89 (1 more level)',autoHunt:'on',
+      controls:[{aq:'stop'},{id:'autoBtn'}]}),
+    click:async x=>{if(x.aq==='stop'){stops.push(x.aq);questRunning=false;}},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('autonomy_wait');
+  assert.deepEqual(stops,['stop']);
+});
+test('a story route whose chapter is reachable is left running',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.farm={map:'field',name:'Field',started:clock,pendingProfile:false,target:'mob'};
+  const stops=[];
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Field',autoQuestMode:'mq',autoQuestRunning:true,quest:'Sage Quest Chapter 27 Requires Lv 40',autoHunt:'on',
+      controls:[{aq:'stop'},{id:'autoBtn'}]}),
+    click:async x=>{if(x.aq==='stop')stops.push(x.aq);},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('autonomy_wait');
+  assert.deepEqual(stops,[]);
+});

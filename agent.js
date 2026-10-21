@@ -569,6 +569,7 @@ EFFICIENT CONTROL:
 - Generic panels close automatically after 25 seconds while you think. Always re-observe before acting on older panel information.
 - Current quest tracker outranks historical logs. At job cap, finish the next class quest before more capped-job farming.
 - Auto Quest mode jq advances the CLASS quest; mq advances the STORY. Story level requirements (e.g. Lv55) do not unlock Starweaver. Chrono Gear is from Time Eater Lv34. Do not switch to story training for this boss unless actual repeated deaths require it.
+- The story tracker gates the next chapter by level ("Requires Lv N"). While the hero is below that level the story route cannot advance it: keep the level-band AUTO hunt running and do not start the mq story route. Measured EXP per minute on the level band is the evidence.
 - The deterministic boss workflow reads the Boss Board Go button, approaches its live position, then resumes class-quest combat. Do not interrupt a boss approach or a Time Eater fight.
 - Gold is numeric. Maintain a ${autonomyPolicy.goldReserve} G reserve; consider measured gold/min and deaths over 10 minutes before optional spending.
 - Only routine gameplay for this character. No chat/messages, trading, premium purchases or account settings. Sales are permitted only through the opt-in deterministic surplus workflow; never sell, unlock, discard or withdraw gear through LLM tools.
