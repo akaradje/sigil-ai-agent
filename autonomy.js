@@ -702,7 +702,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       // A Return Scroll uses the saved home, which may be a field rather than a town.
       if(!trip.townTravelAt||now()-trip.townTravelAt>90000){
         const towns=getCatalog().maps.filter(m=>m.town);if(towns.length!==1)throw Error('No unique verified town route');
-        trip.townTravelAt=now();save();await travel(towns[0].id);
+        await travel(towns[0].id);
+        // The errand budget starts at the arrival, not at the departure: the
+        // walk from the field must not eat the time the errand needs.
+        trip.townTravelAt=now();save();
       }
       return;
     }
