@@ -873,9 +873,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const level=Number(String(w?.text||'').match(/\+(\d+)/)?.[1]||0);
         if(g&&level<(g.refinement||[]).length){trip.kind='forge';trip.progressAt=now();save();return;}
       }
-      // A nearly full bag needs headroom before the endless surplus sale round
-      // takes the whole visit: the capacity purchase comes first.
-      if(policy.sellSurplus&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&
+      // The sale comes before the headroom purchase: selling the surplus the
+      // ratchet found is free, and only a bag that is still nearly full after
+      // that needs a bigger one.
+      if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.capacityServiced&&bagCapacityNeeded(a)&&
         a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
         trip.kind='capacity';trip.progressAt=now();save();return;
       }
@@ -895,7 +896,7 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageCleanup?.requestedAt&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
-    if(policy.powerProgression&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone===true&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
       trip.kind='capacity';trip.progressAt=now();return;
     }
     if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone===true&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&(!a.goal.missing?.length||a.goal.missing?.some(m=>m.id==='sigil_ore'))||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
