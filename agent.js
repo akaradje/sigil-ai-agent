@@ -776,6 +776,10 @@ async function runCycle() {
       memory.evolutionOpportunities=Proactive.opportunities(memory,memory.worldKnowledge);
     }
     const planned=IQ.chooseTask(p.state,memory,Date.now(),catalog);
+    // A character that is out of the game comes back first. The boss
+    // preparation must never own the cycle while the browser sits on the
+    // character select, or the hero stays out of the world.
+    if(['reconnect','revive'].includes(planned)){await runPolicy(p.state);return;}
     if(await prepareClassBoss(p.state))return;
     // Shrine travel and native class quests own the controller until their observed
     // completion. Routine farming, resource trips and refreshes cannot cancel them.
