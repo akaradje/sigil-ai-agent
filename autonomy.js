@@ -674,7 +674,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     // to sell: the items the shop refuses still have to leave the bag.
     if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageWorthScanning(a)&&
       (storageNeedsScan(a,getCatalog(),s,now())||(a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]-3))&&
-      (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN))trip.kind='liquidate';
+      (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN||
+        (a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]-3)))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
       const names={smith:/Talk to (?:Blacksmith|Smith)|คุย.*(?:ช่างตีเหล็ก|ตีบวก)/i,storage:/Talk to Storage|คุย.*คลัง/i,shop:/Talk to Shop|คุย.*ร้านขาย/i,church:/Talk to (?:Cathedral|Church)|คุย.*(?:โบสถ์|มหาวิหาร)/i};
