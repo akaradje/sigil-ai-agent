@@ -69,7 +69,12 @@ function observeCombat(mem,s,now=Date.now()) {
   }
   c.samples=c.samples.filter(x=>now-x.at<15*60000).slice(-80);
   const here=c.samples.filter(x=>x.zone===s.zone).map(x=>x.seconds).sort((a,b)=>a-b);
-  c.current={zone:s.zone,count:here.length,medianSeconds:here.length?here[Math.floor(here.length/2)]:null,estimated:true,at:now};
+  const median=here.length?here[Math.floor(here.length/2)]:null;
+  // The measured kill time per zone, so every map keeps its own average even
+  // after the hero moves on.
+  c.zones=c.zones||{};
+  c.zones[s.zone]={count:here.length,medianSeconds:median,at:now};
+  c.current={zone:s.zone,count:here.length,medianSeconds:median,estimated:true,at:now};
   return c;
 }
 module.exports={assess,update,assertReady,recoveryDue,observeCombat};

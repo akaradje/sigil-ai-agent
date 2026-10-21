@@ -177,7 +177,19 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
       // One charged burst is the only damage that can land inside the window.
       // Ask for it first; an unsolved shield after that is a damage problem.
       if(!w.bursts)b.wardRequest={at:now,boss:f.boss,left,ratio,breakSeconds:w.estimatedBreakSeconds??null,deadline:now+left*1000};
-      else {b.retreat=true;b.pending=true;f.abortReason='ward-deadline';}
+      else {
+        b.retreat=true;b.pending=true;f.abortReason='ward-deadline';
+        // The shield could not be broken in time. Remember how far short this
+        // build is, so the bot farms for the upgrade instead of trying again.
+        const needed=(w.firstLeft-w.left)+(Number.isFinite(w.estimatedBreakSeconds)?w.estimatedBreakSeconds:0);
+        const factor=w.firstLeft>0&&needed>0?needed/w.firstLeft:0;
+        if(factor>1){
+          const stats=m.combatSummary?.stats||{},power=Number(m.combatSummary?.power)||0,matk=Number(stats.MATK)||0;
+          b.wardGate={boss:f.boss,at:now,factor:Math.round(factor*100)/100,map,
+            requiredMatk:Math.round(matk*factor),requiredPower:Math.round(power*factor),
+            observedMatk:matk,observedPower:power,reason:'shield-not-broken-in-time'};
+        }
+      }
     }
   } else if(f.ward&&now-(f.ward.lastSeenAt||f.ward.at)>5000&&Number.isFinite(f.ward.ratio)&&f.ward.ratio>0.05){
     // The shield window closed with the shield still up: the blast lands.
@@ -250,6 +262,16 @@ function wardAbortOf(b){
   if(!last||!String(last.abortReason||'').startsWith('ward'))return null;
   return {at:last.at,reason:last.abortReason,left:last.ward?.left??null,ratio:last.ward?.ratio??null,
     breakSeconds:last.ward?.estimatedBreakSeconds??null,power:last.build?.power??null};
+}
+// A boss the world model has gated: its shield could not be broken with the
+// build the hero has, so the bot farms for the upgrade first.
+function bossGated(s,m,boss){
+  const g=(m.worldKnowledge?.bossGates||[]).find(x=>x&&x.boss===boss);
+  if(!g)return null;
+  const matk=Number(m.combatSummary?.stats?.MATK),power=Number(m.combatSummary?.power);
+  if(g.requiredMatk&&Number.isFinite(matk)&&matk>=g.requiredMatk)return null;
+  if(g.requiredPower&&Number.isFinite(power)&&power>=g.requiredPower)return null;
+  return g;
 }
 function bossReady(s,m,now=Date.now(),catalog){
   const b=bossLearning(m,s,now,catalog),r=b?.receipts;
@@ -418,7 +440,7 @@ function chooseTask(s,m,now=Date.now(),catalog) {
     if(!needsTimeEater){
       if(m.classBossTrip.fighting){
         if(!/\bon\b/.test(s.autoHunt||'')&&classBossAtDestination(m,now))return 'boss_engage';
-        if(classObjectiveStalled(s,m,now,catalog)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
+        if(classObjectiveStalled(s,m,now,catalog)&&!bossGated(s,m,objectiveBoss)&&now-m.classBossTrip.fightAt>=180000&&due('class_boss',120000))return 'class_boss';
         return 'observe';
       }
       if(classBossAtDestination(m,now))return s.hp[0]/s.hp[1]<0.85?'survive':'boss_engage';
@@ -434,7 +456,7 @@ function chooseTask(s,m,now=Date.now(),catalog) {
     return 'observe';
   }
   if(needsBuild && due('boss_build',5000))return 'boss_build';
-  if(objectiveBoss&&!needsTimeEater&&classObjectiveStalled(s,m,now,catalog)&&!String(s.target||'').includes(objectiveBoss)&&due('class_boss',120000))return 'class_boss';
+  if(objectiveBoss&&!needsTimeEater&&classObjectiveStalled(s,m,now,catalog)&&!String(s.target||'').includes(objectiveBoss)&&!bossGated(s,m,objectiveBoss)&&due('class_boss',120000))return 'class_boss';
   if(nextClass&&s.jobQuestProgress&&now>=(m.trainingUntil||0)){
     if(!s.autoQuestRunning&&s.controls.some(c=>c.aq==='jq')&&due('job_retry',30000))return 'job_retry';
     if(!needsTimeEater&&s.autoQuestRunning&&s.autoQuestMode==='jq'&&m.deaths.length<3)return 'observe';
@@ -790,4 +812,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,wardAbortOf,classWorkflowOwned,classBossObjective,classQuestSteps,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,wardAbortOf,bossGated,classWorkflowOwned,classBossObjective,classQuestSteps,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

@@ -640,6 +640,10 @@ async function prepareClassBoss(s){
     if(recentInputs<=MAX_ACTIONS_PER_MIN-4&&now-(memory.last.boss_ward_burst||0)>15000)await run('boss_ward_burst');
     return true;
   }
+  // A gated boss waits for the upgrade the world model measured: the character
+  // farms for it instead of spending another attempt.
+  const gated=IQ.bossGated(s,memory,b.boss);
+  if(gated){b.gatedAt=gated.at;return false;}
   // After a defeat the character farms before the next trial: real EXP and a
   // measured kill time need an uninterrupted stretch of combat, and the gear
   // only improves while the character plays.
@@ -771,7 +775,14 @@ async function runCycle() {
     fastBossMode=Boolean(p.state.dead||/Time Eater/i.test(p.state.target||'')||memory.classBossTrip?.fighting||IQ.classBossAtDestination(memory));
     await refreshCatalog(p.state);
     if(!p.state.name&&!p.state.atCharSelect&&!p.state.disconnected)return;
-    IQ.updateMetrics(memory,p.state,Date.now(),catalog);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);saveMemory();
+    IQ.updateMetrics(memory,p.state,Date.now(),catalog);Autonomy.update(memory,p.state,catalog,Date.now(),autonomyPolicy.goldReserve);
+    // A shield that could not be broken in time becomes a known gate in the
+    // world model, with the damage the build is short of.
+    if(memory.bossLearning?.wardGate){
+      const g=memory.bossLearning.wardGate;memory.bossLearning.wardGate=null;
+      try{worldKnowledge.gateBoss(g.boss,g);}catch{}
+    }
+    saveMemory();
     updateDNA(p.state,true);
     if(autonomyPolicy.proactive){
       worldKnowledge.observe(p.state,memory);

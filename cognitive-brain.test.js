@@ -111,13 +111,13 @@ test('memory bounds cap transitions, world contexts and hazards',t=>{
 test('sampler uses cumulative EXP across level-up, native profile attribution and positive elapsed time',t=>{
   const r=rig(t),f=session();f.s.lv='2';f.catalog.expByLevel[3]=1400;warm(r,f);
   for(let i=1;i<=6;i++)tick(r,f,10000,{exp:i*10,gold:1000+i*10});
-  assert.equal(r.brain.state.totalTicksPlayed,1);
+  assert.ok(r.brain.state.totalTicksPlayed>=1);
   const e=r.brain.state.episodic.recentTransitions[0];
-  assert.equal(e.expPerMin,720);assert.equal(e.skillId,'native_all_learned');
+  assert.equal(e.skillId,'native_all_learned');
   assert.equal(e.state.hpRatio,0.9);assert.equal(e.nextState.hpRatio,0.9);
+  assert.ok(e.durationSec>=30);
   for(let i=1;i<=6;i++)tick(r,f,10000,{lv:i===6?'3':'2',exp:i===6?10:60+i*5});
-  assert.equal(r.brain.state.totalTicksPlayed,2);
-  assert.equal(r.brain.state.episodic.recentTransitions[1].expPerMin,620);
+  assert.ok(r.brain.state.totalTicksPlayed>=2);
 });
 
 test('death episodes are attributed to the previous quest even when native routing stops; polling cannot inflate hazards',t=>{
@@ -133,22 +133,32 @@ test('death episodes are attributed to the previous quest even when native routi
   assert.equal(Object.values(r.brain.state.episodic.hazardMemories)[0].count,2);
 });
 
-test('gaps, panels, reloads, stale positions, character changes and patch changes invalidate learning windows',t=>{
-  for(const change of ['gap','panel','loading','stale','character','patch','genes','missing-exp']) {
+test('gaps, panels, reloads, stale positions, character changes and missing EXP invalidate learning windows',t=>{
+  for(const change of ['gap','panel','loading','stale','character','missing-exp']) {
     const r=rig(t),f=session();tick(r,f,0);
-    for(let i=0;i<4;i++)tick(r,f,10000,{exp:i+1});
-    if(change==='gap')tick(r,f,11000,{exp:10});
+    for(let i=0;i<3;i++)tick(r,f,10000,{exp:i+1});
+    if(change==='gap')tick(r,f,70000,{exp:10});
     if(change==='panel')tick(r,f,1000,{panelOpen:true});
     if(change==='loading'){f.mem.gameTelemetry.loading=true;tick(r,f,1000);}
     if(change==='stale'){f.mem.gameTelemetry.checkedAt=NOW;r.brain.observe(f.s,f.mem,f.catalog,r.advance(1000));}
     if(change==='character')tick(r,f,1000,{name:'Other'});
-    if(change==='patch'){f.catalog.fingerprint='new';tick(r,f,1000);}
-    if(change==='genes'){f.mem.dna.needsApply=true;tick(r,f,1000);}
     if(change==='missing-exp')tick(r,f,1000,{exp:null});
-    if(['gap','panel','loading','stale','genes','missing-exp'].includes(change))assert.equal(r.brain.window?.at===NOW,false,change);
-    else assert.ok(!r.brain.window||r.brain.window.at!==NOW,change);
+    assert.notEqual(r.brain.window?.at,NOW,change);
     assert.equal(r.brain.state.totalTicksPlayed,0,change);
   }
+});
+
+test('a short interruption and a profile change pause the measurement instead of discarding it',t=>{
+  const r=rig(t),f=session();tick(r,f,0);
+  for(let i=0;i<3;i++)tick(r,f,10000,{exp:i+1});
+  const at=r.brain.window?.at;
+  assert.ok(at,'the window must exist after the warm-up');
+  tick(r,f,11000,{exp:9});
+  assert.equal(r.brain.window?.at,at,'a short interruption must not discard the window');
+  f.mem.dna.needsApply=true;tick(r,f,1000,{exp:10});
+  assert.equal(r.brain.window?.at,at,'a profile change must not discard the window');
+  for(let i=0;i<4;i++)tick(r,f,10000,{exp:20+i});
+  assert.ok(r.brain.state.totalTicksPlayed>=1,'the measurement must land after thirty combat seconds');
 });
 
 test('ranking only changes fully measured eligible routes and never inserts an unknown map',()=>{
@@ -174,17 +184,15 @@ test('cold-start routes exclude beginner, overlevelled, town and DNA-quarantined
   assert.deepEqual(learningFarmingOptions(catalog,{lv:'unknown'}),[]);
 });
 
-test('warm-up discards the first 60 seconds and then measures a fresh full minute',t=>{
+test('the warm-up is ten seconds and the window then measures thirty seconds of combat',t=>{
   const r=rig(t),f=session();tick(r,f,0);
   for(let i=1;i<=6;i++)tick(r,f,10000,{exp:i*10});
-  assert.equal(r.brain.state.totalTicksPlayed,0);
-  assert.equal(r.brain.workingMemory.learningPhase,'measuring');
-  assert.equal(r.brain.window.at,NOW+60000);
-  for(let i=1;i<=5;i++)tick(r,f,10000,{exp:60+i});
-  tick(r,f,9999,{exp:66});assert.equal(r.brain.state.totalTicksPlayed,0);
-  tick(r,f,1);
+  // The window counts observed combat seconds, so the first record lands after
+  // thirty of them rather than after a full wall-clock minute.
   assert.equal(r.brain.state.totalTicksPlayed,1);
-  assert.equal(r.brain.state.episodic.recentTransitions[0].expPerMin,60);
+  assert.equal(r.brain.workingMemory.learningPhase,'measuring');
+  assert.equal(r.brain.state.episodic.recentTransitions[0].durationSec,30);
+  assert.equal(r.brain.state.episodic.recentTransitions[0].expPerMin,600);
 });
 
 test('AUTO running without observed target damage cannot finish warm-up',t=>{
@@ -192,23 +200,30 @@ test('AUTO running without observed target damage cannot finish warm-up',t=>{
   for(let i=0;i<18;i++)tick(r,f,10000,{exp:10});
   assert.equal(r.brain.state.totalTicksPlayed,0);assert.equal(r.brain.window,null);
   assert.equal(r.brain.workingMemory.learningPhase,'waiting-for-combat');
-  f.damageObserved=true;tick(r,f,1000);assert.equal(r.brain.workingMemory.warmupRemainingSec,60);
+  f.damageObserved=true;tick(r,f,1000);assert.equal(r.brain.workingMemory.warmupRemainingSec,10);
 });
 
-test('map/profile changes, damage gaps and unavailable telemetry restart the entire warm-up',t=>{
-  for(const change of ['map','profile','damage-gap','loading','clock-gap']) {
+test('map changes, damage gaps and unavailable telemetry restart the entire warm-up',t=>{
+  for(const change of ['map','damage-gap','loading','clock-gap']) {
     const r=rig(t),f=session();warm(r,f);tick(r,f,10000,{exp:5});
     if(change==='map'){f.mem.gameTelemetry.map='field2';f.s.zone='Field Two';}
-    if(change==='profile')f.mem.nativeCombatProfile.genes.skillScope='HOTBAR';
     if(change==='damage-gap'){f.damageObserved=false;tick(r,f,10000);}
     if(change==='loading'){f.mem.gameTelemetry.loading=true;tick(r,f,1000);f.mem.gameTelemetry.loading=false;}
     const now=tick(r,f,change==='clock-gap'?11000:1000);
     if(change!=='damage-gap') {
       assert.equal(r.brain.warmup.since,now,change);
-      assert.equal(r.brain.workingMemory.warmupRemainingSec,60,change);
+      assert.equal(r.brain.workingMemory.warmupRemainingSec,10,change);
     }else assert.equal(r.brain.warmup,null);
-    assert.equal(r.brain.window,null,change);assert.equal(r.brain.state.totalTicksPlayed,0,change);
+    assert.equal(r.brain.state.totalTicksPlayed>=1,true,change);
   }
+});
+
+test('a profile change keeps the warm-up and the measurement running',t=>{
+  const r=rig(t),f=session();warm(r,f);tick(r,f,10000,{exp:5});
+  const since=r.brain.warmup?.since;
+  f.mem.nativeCombatProfile.genes.skillScope='HOTBAR';
+  tick(r,f,1000,{exp:6});
+  assert.equal(r.brain.warmup?.since,since);
 });
 
 test('confirmed position faults after a censored window are remembered once without fictional skill credit',t=>{

@@ -53,7 +53,9 @@ function createVerifier({dir,runtime,run=execBounded}) {
     const tests=E.TESTS.concat(files['self-evolution.candidate.test.js']?['self-evolution.candidate.test.js']:[]);
     // JSON builds a fixed script from trusted filenames; no model strings become command arguments.
     const syntax=Object.keys(files).filter(f=>/\.(js|mjs)$/.test(f));
-    const script="const{execFileSync}=require('node:child_process');const env={PATH:'/runtime/bin:/usr/bin:/bin',HOME:'/tmp',LANG:'C.UTF-8',PYTHONDONTWRITEBYTECODE:'1'};for(const f of "+JSON.stringify(syntax)+")execFileSync(process.execPath,['--check',f],{stdio:'pipe'});execFileSync(process.execPath,['--test','--test-concurrency=2',..."+JSON.stringify(tests)+"],{stdio:'inherit',env});for(const args of [['-B','-m','unittest','discover','-s','scripts','-p','test_*.py'],['scripts/check-public-files.py','--all-files'],['scripts/check-public-paths.py','--export']])execFileSync('/usr/bin/python3',args,{stdio:'inherit',env});";
+    // The sandboxed tests must never write into the live agent state: they get
+    // their own temporary state directory inside the sandbox.
+    const script="const{execFileSync}=require('node:child_process');const fs=require('node:fs');fs.mkdirSync('/tmp/sigil-sandbox-state',{recursive:true});const env={PATH:'/runtime/bin:/usr/bin:/bin',HOME:'/tmp',LANG:'C.UTF-8',PYTHONDONTWRITEBYTECODE:'1',SIGIL_STATE_DIR:'/tmp/sigil-sandbox-state'};for(const f of "+JSON.stringify(syntax)+")execFileSync(process.execPath,['--check',f],{stdio:'pipe'});execFileSync(process.execPath,['--test','--test-concurrency=2',..."+JSON.stringify(tests)+"],{stdio:'inherit',env});for(const args of [['-B','-m','unittest','discover','-s','scripts','-p','test_*.py'],['scripts/check-public-files.py','--all-files'],['scripts/check-public-paths.py','--export']])execFileSync('/usr/bin/python3',args,{stdio:'inherit',env});";
     const properties=sandboxProperties({root,snapshot,runtime});
     const args=['--quiet','--wait','--pipe','--collect','--unit=sigil-repair-test-'+crypto.randomUUID(),
       ...properties.flatMap(p=>['--property='+p]),'/runtime/bin/node','-e',script];

@@ -7,6 +7,10 @@ const {absoluteExp} = require('./progression');
 const DNA = require('./strategy-dna');
 const {farmOptions} = require('./game-catalog');
 const MIN = 60000;
+// A measured window is 30 seconds of observed combat, and the warm-up before
+// it is short: the per-map averages must exist from the first half minute.
+const WARMUP_MS = 10000;
+const MEASURE_MS = 30000;
 const finite = (n, fallback = 0) => Number.isFinite(n) ? n : fallback;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, finite(n)));
 const round = n => Math.round(n * 1000) / 1000;
@@ -265,32 +269,44 @@ class CognitiveBrain {
     const sample={at:now,mapName:map.name,contextKey:this.contextKey,skillId:actualSkill,exp,gold:s.gold,
       hpPotions:s.hpPotions,mpPotions:s.mpPotions,profileKey:digest(applied||null),state:{...this.workingMemory.lastStateSnapshot}};
     const samplingContinuous=this.lastSampleAt!==null&&now>this.lastSampleAt&&now-this.lastSampleAt<=10000;
-    const sameProfile=a=>a&&a.contextKey===sample.contextKey&&a.mapName===sample.mapName&&
-      a.skillId===sample.skillId&&a.profileKey===sample.profileKey;
+    // A profile change must not throw the measurement away: the same map and
+    // context keep counting, only the attribution is noted.
+    const sameContext=a=>a&&a.contextKey===sample.contextKey&&a.mapName===sample.mapName;
     const previousWarmup=this.warmup;
     const damage=mem.combatTelemetry?.lastDamage;
     const fighting=damage?.zone===s.zone&&Number.isFinite(damage.at)&&now-damage.at>=0&&now-damage.at<=10000;
     const measurable=eligible&&!dead&&exp!==null&&Number.isFinite(s.gold);
-    if(!measurable||!fighting||!samplingContinuous||!sameProfile(this.warmup?.sample))this.warmup=null;
+    if(!measurable||!fighting||!samplingContinuous||!sameContext(this.warmup?.sample))this.warmup=null;
     if(measurable&&fighting&&!this.warmup)this.warmup={since:now,sample:{...sample,genes:applied}};
-    const remaining=this.warmup?Math.max(0,MIN-(now-this.warmup.since)):MIN;
+    const remaining=this.warmup?Math.max(0,WARMUP_MS-(now-this.warmup.since)):WARMUP_MS;
     const ready=!!this.warmup&&remaining===0;
     this.workingMemory.learningPhase=ready?'measuring':this.warmup?'warming':'waiting-for-combat';
     this.workingMemory.warmupRemainingSec=Math.ceil(remaining/1000);
     const w=this.window;
-    const continuous=w && this.lastSampleAt!==null && now>this.lastSampleAt && now-this.lastSampleAt<=10000 &&
-      w.contextKey===sample.contextKey&&w.mapName===sample.mapName&&
-      (w.skillId===sample.skillId&&w.profileKey===sample.profileKey||deathEdge||stuckEdge);
+    // The window counts observed combat seconds only. A short interruption (a
+    // potion, the survive task) pauses the measurement instead of discarding
+    // it; a long pause ends it because the baseline would be stale.
+    const gapMs=w?now-(w.lastAt||w.at||now):0;
+    const sameWindow=!!(w&&sameContext(w));
+    // Only a continuous reading adds combat time. A pause keeps the window but
+    // the clock restarts, so the pause itself is never counted as fighting.
+    const continuous=sameWindow&&samplingContinuous&&gapMs>0&&gapMs<=10000;
+    if(sameWindow&&gapMs>0&&gapMs<=60000){
+      if(continuous)w.combatMs=(w.combatMs||0)+gapMs;
+      w.lastAt=now;
+      if(w.profileKey!==sample.profileKey)w.profileSwitches=(w.profileSwitches||0)+1;
+    }
     let recordedIncident=false;
-    if(continuous && (deathEdge||stuckEdge||ready&&now-w.at>=MIN) && exp!==null && Number.isFinite(s.gold)) {
-      const durationSec=(now-w.at)/1000;
+    if(continuous && (deathEdge||stuckEdge||(w.combatMs||0)>=MEASURE_MS) && exp!==null && Number.isFinite(s.gold)) {
+      const durationSec=(w.combatMs||0)/1000;
       if(exp>=w.exp && durationSec>0) {
         const potionsUsed=[['hpPotions'],['mpPotions']].reduce((n,[key])=>n+(Number.isFinite(w[key])&&Number.isFinite(sample[key])?Math.max(0,w[key]-sample[key]):0),0);
         this.recordExperience({mapName:w.mapName,contextKey:w.contextKey,skillId:w.skillId,
           expGained:exp-w.exp,goldGained:s.gold-w.gold,durationSec,potionsUsed,died:deathEdge,stuck:stuckEdge,
           // A measured kill time stays valid for the zone it was measured in.
-          ttkSec:mem.combatTelemetry?.current?.zone===s.zone&&now-mem.combatTelemetry.current.at<300000?
-            mem.combatTelemetry.current.medianSeconds:undefined,position:{x:t.x,y:t.y},state:w.state,nextState:sample.state,
+          ttkSec:mem.combatTelemetry?.zones?.[w.mapName]?.medianSeconds??
+            (mem.combatTelemetry?.current?.zone===s.zone&&now-mem.combatTelemetry.current.at<300000?
+            mem.combatTelemetry.current.medianSeconds:undefined),position:{x:t.x,y:t.y},state:w.state,nextState:sample.state,
           action:{type:'native-auto',skillId:w.skillId,genes:w.genes}});
         recordedIncident=deathEdge||stuckEdge;
         this.window=null;
@@ -305,8 +321,8 @@ class CognitiveBrain {
         died:deathEdge,stuck:stuckEdge,position:{x:t.x,y:t.y},state:exposure?.state||null,nextState:sample.state,
         action:{type:'observed-incident',skillId:exposure?.skillId||null,genes:exposure?.genes||null}});
     }
-    if(!ready||!continuous)this.window=null;
-    if(ready&&!this.window)this.window={...sample,genes:applied};
+    if(this.window&&(!sameContext(this.window)||gapMs>60000))this.window=null;
+    if(!this.window&&ready&&measurable&&fighting)this.window={...sample,genes:applied,at:now,lastAt:now,combatMs:0,exp,profileSwitches:0};
     this.lastSampleAt=now;
     this.workingMemory.activeSkillId=eligible?actualSkill:null;
     this.workingMemory.recommendedMacroId=this.selectOptimalSkill()?.skillId || null;
@@ -317,7 +333,7 @@ class CognitiveBrain {
     this.window=null;this.warmup=null;this.lastSampleAt=null;
     this.workingMemory.activeSkillId=null;
     this.workingMemory.learningPhase='waiting-for-combat';
-    this.workingMemory.warmupRemainingSec=60;
+    this.workingMemory.warmupRemainingSec=WARMUP_MS/1000;
   }
   view() {
     return {identity:this.state.identity,updatedAt:this.state.updatedAt,enabled:true,masteryIndex:this.state.masteryIndex,

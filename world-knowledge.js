@@ -7,7 +7,7 @@ const id=x=>typeof x==='string'&&/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(x)&&!['con
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const PANELS=new Set('stats bag skills equip map auto cards ranch life minigame fest party guild mailbox chat market vend bstore tlog prem vip fashion rank lab pvp settings login bosses ach legends book newbie storage smith cbt runes pets cooking guide wings'.split(' '));
 const privateNavigation=x=>/(?:account|auth|login|password|setting|security|payment|billing|topup|trade|mail|chat|guild|party|pvp|market|delete|reset|rename)/i.test(x);
-function empty(){return {version:1,catalog:null,revisions:[],controls:{},opportunities:[],observations:{},observedYields:{},updatedAt:0};}
+function empty(){return {version:1,catalog:null,revisions:[],controls:{},opportunities:[],observations:{},observedYields:{},bossGates:{},updatedAt:0};}
 function valid(d){return d?.version===1&&Array.isArray(d.revisions)&&d.revisions.length<=12&&Array.isArray(d.opportunities)&&d.opportunities.length<=40&&d.controls&&Object.keys(d.controls).length<=256&&d.observations&&(!d.catalog||validateCatalog(d.catalog));}
 class WorldKnowledge {
   constructor({file,now=Date.now}={}){
@@ -18,6 +18,32 @@ class WorldKnowledge {
       const d=JSON.parse(fs.readFileSync(p,'utf8'));if(valid(d)){this.db=d;break;}
     }catch{}
     this.db.observedYields ||= {};
+  }
+  // A boss whose shield could not be broken in time is remembered as a gate:
+  // the shortfall in damage per second tells the bot what it has to farm for
+  // before trying that boss again.
+  gateBoss(boss,evidence={}){
+    if(!id(boss))return null;
+    const e=evidence||{},now=this.now();
+    this.db.bossGates ||= {};
+    const previous=this.db.bossGates[boss];
+    const factor=Math.max(1,Number(e.factor)||1);
+    const gate={boss,at:now,factor:Math.round(factor*100)/100,
+      requiredMatk:Math.round(Number(e.requiredMatk)||0),requiredPower:Math.round(Number(e.requiredPower)||0),
+      observedMatk:Math.round(Number(e.observedMatk)||0),observedPower:Math.round(Number(e.observedPower)||0),
+      reason:String(e.reason||'shield-not-broken-in-time').slice(0,120),
+      map:e.map?String(e.map).slice(0,60):null,attempts:(previous?.attempts||0)+1};
+    this.db.bossGates[boss]=gate;
+    this.db.bossGates=Object.fromEntries(Object.entries(this.db.bossGates).sort((a,b)=>b[1].at-a[1].at).slice(0,16));
+    this.dirty=true;this.save(true);
+    return gate;
+  }
+  bossGate(boss,measured={}){
+    const g=this.db.bossGates?.[boss];if(!g)return null;
+    const m=measured||{};
+    const matkOk=g.requiredMatk&&Number.isFinite(m.matk)&&m.matk>=g.requiredMatk;
+    const powerOk=g.requiredPower&&Number.isFinite(m.power)&&m.power>=g.requiredPower;
+    return matkOk||powerOk?null:g;
   }
   offer(reason,evidence,key=hash([reason,evidence])){
     if(this.db.opportunities.some(o=>o.key===key))return;
@@ -108,6 +134,7 @@ class WorldKnowledge {
     dropEvidence:'public-definition-probabilities; observed ROI is separate',
     sources:['public-client-definitions','visible-dom','allowlisted-public-telemetry'],
     observedYields:Object.values(d.observedYields).slice(0,10).map(r=>({...r,evidence:'net-inventory-gain; not a true drop probability'})),
-    opportunities:d.opportunities.slice(-10),observations:d.observations};}
+    opportunities:d.opportunities.slice(-10),observations:d.observations,
+    bossGates:Object.values(d.bossGates||{}).slice(0,8)};}
 }
 module.exports={WorldKnowledge,PANELS,id};
