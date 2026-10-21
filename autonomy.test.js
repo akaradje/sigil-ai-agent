@@ -201,7 +201,7 @@ test('equipped refinement batches two bounded steps without re-equipping after e
   await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(r,2);assert.equal(a.trip.powerActions,2);assert.equal(a.trip.powerSpent,800);assert.notEqual(a.gearPending,true);
 });
 test('completed surplus sales can release bounded bag capacity for power progression',async()=>{
-  const m={},a=A.init(m);a.bagUsage=[95,100];a.trip={kind:'shop',phase:'town',at:clock-240000,salePolicyVersion:2,salesDone:true,storageScanned:true};
+  const m={},a=A.init(m);a.bagUsage=[95,100];a.trip={kind:'shop',phase:'town',at:clock,salePolicyVersion:2,salesDone:true,storageScanned:true};
   const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{powerProgression:true,sellSurplus:true,crystalBudget:5000,goldReserve:100000},now:()=>clock,
     observe:async()=>state({zone:'Town',panel:'shop',hpPotions:30,mpPotions:30,panelText:'Return Scroll have 10\nFocus Tonic have 5',controls:[]}),click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await c.run('town');assert.equal(a.trip.kind,'capacity');assert.equal(a.trip.progressAt,clock);
@@ -352,7 +352,7 @@ test('EXP-focused farming is not blocked by an unavailable secondary crafting ma
 });
 
 test('leveling storage creates headroom without moving worn gear, items or unknown gear',async()=>{
-  const m={},a=A.init(m);a.trip={kind:'storage',at:clock-6*60000,progressAt:clock-60000,phase:'town'};a.bagUsage=[100,100];a.worn=[{uid:'worn'}];
+  const m={},a=A.init(m);a.trip={kind:'storage',at:clock,progressAt:clock,phase:'town'};a.bagUsage=[100,100];a.worn=[{uid:'worn'}];
   let usage=10;
   const spares=Array.from({length:12},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'}));
   const protectedGear=[{uid:'worn',dir:'in',text:'Void Staff'},{uid:'unknown',dir:'in',text:'Unidentified'}];
@@ -505,14 +505,16 @@ test('resource backoff leaves town for farming even while wing materials are sti
   await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.deepEqual(routes,['field']);assert.equal(a.trip,null);assert.equal(a.resume.mode,'farm');
 });
 
-test('optional forge time is bounded by the whole visit after sales and sustain are complete',async()=>{
+test('optional forge time cannot keep a town visit alive past the 90 second cap',async()=>{
   for(const salesDone of [true,false]){
     const m={},a=A.init(m);a.trip={kind:'forge',phase:'town',at:clock-6*60000,progressAt:clock-1000,salesDone,salePolicyVersion:2};const routes=[];
     const ctl=A.createController({mem:m,getCatalog:()=>catalog(),policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
       observe:async()=>state({zone:'Town',hpPotions:25,mpPotions:25}),click:async()=>{},key:async()=>routes.push('travel'),open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
     await ctl.run('town');
-    if(salesDone){assert.equal(a.trip,null);assert.equal(a.last.forge,clock);assert.equal(a.events.at(-1).type,'optional_forge_deferred');}
-    else {assert.ok(a.trip);assert.equal(a.last.forge,undefined);assert.equal(routes.length,1);}
+    // The optional forge never holds the hero: the visit is cut and the field wins.
+    assert.equal(a.trip,null);
+    assert.ok(a.events.some(e=>e.type==='town_timeout_abort'));
+    assert.equal(a.last.forge,undefined);
   }
 });
 
@@ -728,7 +730,7 @@ test('town sales drain more than eight weapons across bounded slices, preserve n
       if(c.label==='Sell'){sold.push(modal.uid);inventory=inventory.filter(g=>g.uid!==modal.uid);gold+=500;modal=null;selected=null;}
       if(c.go==='field')zone='Field';if(c.id==='autoBtn')hunting=true;},
     key:async()=>{},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
-  for(let i=0;i<30&&a.trip;i++){const before=sold.length;await controller.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.ok(sold.length-before<=2);t+=30000;}
+  for(let i=0;i<30&&a.trip;i++){const before=sold.length;await controller.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.ok(sold.length-before<=2);t+=5000;}
   assert.equal(sold.length,14);assert.equal(new Set(sold).size,14);assert.equal(a.sales.count,14);assert.equal(a.sales.gold,7000);
   assert.deepEqual(inventory.map(g=>g.uid),[...secondary.map(g=>g.uid),'card','locked','better','unknown']);assert.equal(a.resume.map,'field');assert.equal(a.trip,null);
   assert.equal(trip.secondaryInspections,8);assert.equal(Object.values(trip.keepReasons).filter(r=>r==='equipment with options').length,8);
@@ -785,4 +787,53 @@ test('boss potion restocking precedes optional sales and hands a supplied shop v
  click:async c=>{purchases.push(c.key);hpPotions+=10;gold-=2000;},open:async p=>{if(p==='bag')assert.fail('optional inventory cannot delay low potions');},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
  await ctl.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(hpPotions,17);assert.ok(a.trip);
  await ctl.run('town');assert.equal(hpPotions,27);assert.ok(a.trip);await ctl.run('town');assert.equal(a.trip,null);assert.deepEqual(purchases,['mega_potion','mega_potion']);assert.equal(gold,196000);
+});
+
+test('a town visit older than 90 seconds is cut off and the hero returns to the field',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  const trip={kind:'forge',phase:'town',at:clock-120000,returnMap:'field',returnMode:'farm',salesDone:false};
+  a.trip=trip;let auto='';
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'smith',autoHunt:auto,controls:[{bm:'world'},{wm:'field'},{go:'field'},{id:'autoBtn'}]}),
+    click:async x=>{if(x.id==='autoBtn')auto='on';},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.trip,null);assert.equal(a.resume.map,'field');
+  assert.equal(trip.salesDone,true);assert.equal(trip.forgeServiced,true);assert.equal(trip.forgeDone,true);
+  assert.equal(a.townCooldownUntil,clock+45*60000);
+  assert.ok(a.events.some(e=>e.type==='town_timeout_abort'));
+  assert.equal(auto,'on');
+});
+test('an unreadable refine outcome ends the town visit instead of looping on it',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  const trip={kind:'forge',phase:'town',at:clock,returnMap:'field',returnMode:'farm'};
+  a.trip=trip;
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:null,controls:[]}),
+    click:async()=>{},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  assert.equal(a.trip,null);
+  assert.equal(trip.salesDone,true);assert.equal(trip.forgeServiced,true);assert.equal(trip.forgeDone,true);
+  assert.ok(a.events.some(e=>e.type==='town_outcome_unreadable'));
+  assert.equal(a.townCooldownUntil,clock+45*60000);
+});
+test('a visit that just ended keeps the hero out of town for 45 minutes',()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.wingPriority=true;a.goal={slot:'wing',missing:[]};a.bagUsage=[10,100];
+  a.last.inventory=clock;a.last.equipment=clock;a.last.farm=clock;
+  const policy={enabled:true,wingPriority:true,levelingFocus:false,goldReserve:100000};
+  a.townCooldownUntil=clock+45*60000;
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),c,clock,policy),null);
+  assert.equal(A.chooseTask(m,state({hpPotions:6,mpPotions:30}),c,clock,policy),'town_forge');
+  a.townCooldownUntil=clock-1;
+  assert.equal(A.chooseTask(m,state({hpPotions:30,mpPotions:30}),c,clock,policy),'town_forge');
+});
+test('a new town visit is refused while the cooldown runs',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.townCooldownUntil=clock+45*60000;
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Field'}),click:async()=>{},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town_shop');
+  assert.equal(a.trip??null,null);
+  assert.ok(a.events.some(e=>e.type==='town_visit_deferred'));
 });

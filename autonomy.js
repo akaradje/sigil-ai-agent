@@ -7,10 +7,17 @@ const {combatSnapshot,rankFarmingOptions}=require('./game-intelligence');
 const {learningFarmingOptions}=require('./cognitive-brain');
 const Proactive=require('./proactive-planner');
 const MIN=60000;
+// Town circuit breaker: a visit is short and the next one waits. The hero
+// spends its time in the field, not in a shop loop that confirms nothing.
+const TOWN_MAX_MS=90*1000;      // hard cap for one town visit
+const TOWN_COOLDOWN_MS=45*MIN;  // no new town visit right after one
+const UNREADABLE_TOWN=/outcome not observed|observed control missing or ambiguous/i;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
 const level=s=>Number(String(s.lv||'').match(/\d+/)?.[0]||0);
 function init(mem) {
-  return mem.autonomy ||= {version:1,events:[],sequence:0,premium:{reserved:0,spent:0},inventory:null,worn:[],last:{},crafted:{},farmRates:{}};
+  const a=mem.autonomy ||= {version:1,events:[],sequence:0,premium:{reserved:0,spent:0},inventory:null,worn:[],last:{},crafted:{},farmRates:{}};
+  if(!Number.isFinite(a.townCooldownUntil))a.townCooldownUntil=0;
+  return a;
 }
 function event(a,type,detail,now=Date.now()) {
   a.events.push({id:++a.sequence,type,detail,at:now});a.events=a.events.slice(-80);
@@ -231,19 +238,25 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   a.powerProgression=!!policy.powerProgression;
   a.wingPriority=!!policy.wingPriority;
   policy={...policy,levelingFocus:a.levelingFocus};
+  // The town circuit breaker: a visit that just ended waits before the next
+  // one. Death, low sustain and a critically full bag stay exempt - those are
+  // safety, not shopping, and the hero must not be stranded in the field.
+  const sustainLow=(s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10);
+  const bagCritical=a.bagUsage&&a.bagUsage[1]>0&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95);
+  const townBlocked=()=>a.townCooldownUntil>now&&!s.dead&&!sustainLow&&!bagCritical;
   if(s.hp[0]/s.hp[1]<0.3)return s.hpPotions===0?(a.trip?'town':'town_rest'):null;
   if(!catalog)return null; // Keep the existing UI policy running during catalog outages.
   if(!a.cbt&&s.controls.some(c=>c.id==='cbtPill'))return 'cbt';
   const premiumReady=!['reserved','unknown'].includes(a.purchase?.status);
-  if(!policy.sellSurplus&&premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
+  if(!policy.sellSurplus&&premiumReady&&a.storageUsage&&a.storageUsage[0]>=a.storageUsage[1]-2&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN)&&!townBlocked())return 'capacity';
   if(a.trip)return 'town';
   // A supplied wing must claim the queue before returning to another farming loop.
-  if(a.wingPriority&&a.goal?.slot==='wing'&&!a.goal.missing?.length&&due('forge',MIN))return 'town_forge';
+  if(a.wingPriority&&a.goal?.slot==='wing'&&!a.goal.missing?.length&&due('forge',MIN)&&!townBlocked())return 'town_forge';
   if(a.resume)return 'autonomy_wait';
   if(a.levelingFocus&&a.farm&&!levelingTarget(catalog,a.farm.map,s,policy.levelingMaxGap))return 'farm';
   if(a.farm?.pendingProfile||a.farm?.pendingActivation)return 'autonomy_wait';
   if(policy.sellSurplus&&catalog.maps.some(m=>m.town&&norm(m.name)===norm(s.zone))&&
-    (!a.townVisit?.active||!a.townVisit.servicedAt))return 'town_shop';
+    (!a.townVisit?.active||!a.townVisit.servicedAt)&&!townBlocked())return 'town_shop';
   if(!policy.levelingFocus&&a.resourceHold?.active&&a.farm&&!a.farm.trial&&a.goal?.slot!=='weapon')return 'finish_farm';
   if(a.farm?.trial&&(a.farm.abort||s.hp[0]/s.hp[1]<0.4||(mem.deaths||[]).some(t=>t>=a.farm.started)))return 'finish_farm';
   if(a.farm?.trial&&now-a.farm.started>3*MIN) {
@@ -256,15 +269,15 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   const servicedTown=a.townVisit?.active&&a.townVisit.servicedAt&&catalog.maps.some(m=>m.town&&norm(m.name)===norm(s.zone));
   if(a.bagUsage&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*DNA.profile(mem).bagReturnThreshold)&&(!servicedTown||a.bagUsage[0]>=a.bagUsage[1])) {
     if(!policy.sellSurplus&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95)&&premiumReady&&a.premium.reserved<policy.crystalBudget&&due('capacity',10*MIN))return 'capacity';
-    return due(policy.sellSurplus?'town_shop':'town_storage',5*MIN)?(policy.sellSurplus?'town_shop':'town_storage'):a.farm?'autonomy_wait':null;
+    return !townBlocked()&&due(policy.sellSurplus?'town_shop':'town_storage',5*MIN)?(policy.sellSurplus?'town_shop':'town_storage'):a.farm?'autonomy_wait':null;
   }
-  if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&storageWorthScanning(a)&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN)))return 'town_shop';
-  if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN))return 'town_shop';
+  if(policy.sellSurplus&&storageNeedsScan(a,catalog,s,now)&&storageWorthScanning(a)&&(a.storageCleanup?.requestedAt||due('town_shop',20*MIN))&&!townBlocked())return 'town_shop';
+  if(policy.sellSurplus&&a.inventory&&surplusGear(catalog,{...s,inventoryComplete:true,inventoryGear:a.inventory.gear},a.worn).length>=30&&due('town_shop',20*MIN)&&!townBlocked())return 'town_shop';
   if((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))return due('town_shop',5*MIN)?'town_shop':null;
   if(policy.proactive&&Proactive.probeDue(mem,s,catalog,now))return 'combat_probe';
-  if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.length&&a.goal.missing.every(m=>m.id==='sigil_ore')&&due('forge',MIN))return 'town_forge';
-  if(a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')&&due('forge',MIN))return 'town_forge';
-  if((policy.powerProgression||!policy.levelingFocus)&&!a.resourceHold?.active&&due('forge',policy.powerProgression?30*MIN:15*MIN))return 'town_forge';
+  if(a.wingPriority&&a.goal?.slot==='wing'&&a.goal.missing?.length&&a.goal.missing.every(m=>m.id==='sigil_ore')&&due('forge',MIN)&&!townBlocked())return 'town_forge';
+  if(a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!policy.levelingFocus||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')&&due('forge',MIN)&&!townBlocked())return 'town_forge';
+  if((policy.powerProgression||!policy.levelingFocus)&&!a.resourceHold?.active&&due('forge',policy.powerProgression?30*MIN:15*MIN)&&!townBlocked())return 'town_forge';
   if((policy.levelingFocus||a.goal?.missing?.length||a.cap?.atCap)&&(policy.levelingFocus||!a.resourceHold?.active||a.goal?.slot==='weapon')&&!a.farm&&due('farm',10*MIN))return 'farm';
   if(!a.farm&&!s.jobQuestProgress&&due('farm',20*MIN)&&trialOption(mem,s,catalog,now,policy))return 'farm_trial';
   if(a.farm)return 'autonomy_wait';
@@ -313,6 +326,15 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     return getCatalog().maps.find(m=>!m.town&&norm(m.name)===norm(s.zone))?.id||a.farm?.map||a.returnMap||null;
   }
   async function beginTrip(kind,s) {
+    // The circuit breaker guards the entry point too, so no caller can walk
+    // into town while the cooldown runs. Rest, death, low sustain and a
+    // critically full bag stay exempt.
+    if(kind!=='rest'&&a.townCooldownUntil>now()&&!s.dead&&
+      !((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))&&
+      !(a.bagUsage&&a.bagUsage[1]>0&&a.bagUsage[0]>=Math.floor(a.bagUsage[1]*0.95))){
+      event(a,'town_visit_deferred',{kind,until:a.townCooldownUntil},now());
+      save();return;
+    }
     a.trip={kind,returnMap:returnPoint(s),returnMode:leveling()&&a.farm?'farm':s.autoQuestMode||a.farm?.returnMode||'mq',at:now(),phase:'town',bagAtArrival:a.bagUsage?.slice()};save();
     await pick(c=>c.aq==='stop',true);
     if(/\bon\b/.test((await state()).autoHunt||''))await pick(c=>c.id==='autoBtn');
@@ -352,6 +374,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     return next.id;
   }
   async function resume(trip) {
+    // Every finished visit starts the cooldown: the hero fights, it does not shop.
+    a.townCooldownUntil=now()+TOWN_COOLDOWN_MS;
     await close();
     const current=await state();
     if(onTownServiced)onTownServiced(current);
@@ -364,6 +388,27 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(trip.returnMap)await travel(trip.returnMap);
     if(trip.salesDone&&a.townVisit)a.townVisit.servicedAt=now();
     a.farm=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};a.trip=null;save();
+  }
+  // Best effort: the hero leaves town with AUTO hunting again instead of idling
+  // in the field until the next cycle picks the resume up.
+  async function restoreField() {
+    try {
+      const live=await state();
+      if(!/\bon\b/.test(live.autoHunt||''))await pick(c=>c.id==='autoBtn');
+      return /\bon\b/.test((await state()).autoHunt||'');
+    } catch { return false; }
+  }
+  // End a visit that cannot be confirmed. The trip is closed even when the walk
+  // back fails, and the return route stays queued for the next cycle.
+  async function abortTrip(trip,reason) {
+    trip.salesDone=true;trip.forgeServiced=true;trip.forgeDone=true;trip.phase='return';
+    try {
+      await resume(trip);
+    } catch(e) {
+      a.trip=null;a.resume={map:trip.returnMap,mode:trip.returnMode,at:now()};
+      a.blocked=reason+': '+e.message;
+    }
+    await restoreField();
   }
   async function buyCapacity() {
     const s=await state();
@@ -611,6 +656,14 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function town(s) {
     const trip=a.trip;
+    // Hard cap: a town visit may not hold the hero for more than 90 seconds,
+    // whatever step it is on. A visit that cannot finish leaves the field.
+    if(trip&&now()-(trip.at||now())>TOWN_MAX_MS){
+      a.blocked='Town trip timed out';
+      event(a,'town_timeout_abort',{kind:trip.kind,visitSeconds:Math.round((now()-trip.at)/1000)},now());
+      await abortTrip(trip,'Town trip timed out');
+      return;
+    }
     if(a.wingCraft&&a.wingCraft.status!=='equipped'){await finishWing();trip.progressAt=now();trip.forgeServiced=true;trip.phase='return';return;}
     const townMap=getCatalog().maps.find(m=>m.town&&norm(m.name)===norm(s.zone));
     if(policy.sellSurplus&&trip.salePolicyVersion!==2){trip.salePolicyVersion=2;trip.salesDone=false;delete trip.keepUIDs;delete trip.keepReasons;}
@@ -633,12 +686,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       a.trip=null;a.resume=null;a.farm=null;if(a.townVisit)a.townVisit.servicedAt=now();
       event(a,'boss_preparation_services_ready',{},now());save();return;
     }
-    if(now()-(trip.hygiene?.started||trip.progressAt||trip.at)>5*MIN){a.blocked='Town trip timed out';await resume(trip);return;}
     // Sales and sustain retain ownership. Optional forging cannot renew a visit indefinitely.
-    if(trip.kind==='forge'&&trip.phase!=='return'&&trip.salesDone===true&&now()-trip.at>5*MIN&&s.hpPotions>=20&&s.mpPotions>=20){
-      a.last.forge=now();trip.forgeServiced=true;trip.phase='return';
-      event(a,'optional_forge_deferred',{visitSeconds:Math.round((now()-trip.at)/1000)},now());
-    }
     if(!townMap){
       // A Return Scroll uses the saved home, which may be a field rather than a town.
       if(!trip.townTravelAt||now()-trip.townTravelAt>90000){
@@ -942,7 +990,21 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       a.last[task]=now();a.lastResult={task,ok:true,at:now()};save();
     } catch(e) {
       if(a.trip?.hygiene){a.trip.hygiene.failed=true;a.trip.phase='return';mem.sessionHygiene.deferred=e.message;}
-      if(task==='town'&&a.trip?.kind==='forge') {a.last.inventory=0;a.last.equipment=0;a.trip.phase='return';}
+      if(task==='town') {
+        const trip=a.trip;
+        // One unreadable outcome ends the visit: no second attempt on the same
+        // step, and no loop back into the shop for the same unreadable result.
+        if(trip&&UNREADABLE_TOWN.test(e.message)) {
+          trip.salesDone=true;trip.forgeServiced=true;trip.forgeDone=true;trip.phase='return';
+          a.failures||={};delete a.failures[task];
+          event(a,'town_outcome_unreadable',{kind:trip.kind,message:e.message},now());
+          await abortTrip(trip,'Town visit ended after an unreadable outcome');
+          a.lastResult={task,ok:true,at:now(),note:'visit ended after an unreadable outcome'};save();
+          log('autonomy '+task+': unreadable outcome, visit ended: '+e.message);
+          return a.lastResult;
+        }
+        if(trip?.kind==='forge') {a.last.inventory=0;a.last.equipment=0;trip.phase='return';}
+      }
       a.failures||={};a.failures[task]=now();a.lastResult={task,ok:false,error:e.message,at:now()};save();log('autonomy '+task+': '+e.message);
     } finally {probing=false;await close();save();}
     return a.lastResult;

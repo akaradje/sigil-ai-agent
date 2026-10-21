@@ -780,10 +780,12 @@ async function runCycle() {
     // A town trip that stopped making progress must not keep the hero in town
     // behind an open panel: close it and let the field work resume.
     const trip=memory.autonomy?.trip;
-    if(trip&&p.state.panelOpen&&Date.now()-(trip.townTravelAt||trip.at||Date.now())>1800000){
+    // A town visit may not hold the hero longer than the 90 s cap. Close the
+    // panel and leave the trip to the autonomy controller: it ends the visit
+    // and walks back to the field instead of dropping the return route.
+    if(trip&&p.state.panelOpen&&Date.now()-(trip.townTravelAt||trip.at||Date.now())>90000){
       try{await executor.close();}catch{}
-      memory.autonomy.trip=null;memory.autonomy.resume=null;memory.autonomy.blocked=null;
-      log('autonomy trip stalled with a panel open; closed it and resumed the field');
+      log('autonomy trip stalled with a panel open; closed it for the town timeout');
       saveMemory();
     }
     // Keep the AI status honest: a failure from an earlier outage must not stay
