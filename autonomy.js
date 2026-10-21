@@ -536,7 +536,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     const at=now();
     const since=intent.since||intent.at||at;
     if(!intent.since)intent.since=at;
-    if(at-since<5*MIN)return false;
+    if(at-since<MIN)return false;
     intent.status='abandoned';intent.abandonedAt=at;a.blocked=null;
     // The item stays in the bag and is kept for this trip, so the same sale is
     // not attempted again and the hero can leave the town.
@@ -547,6 +547,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     // The item is also remembered across trips: offering it again would keep
     // the hero in town for ever.
     a.saleBlocked={...(a.saleBlocked||{}),[intent.uid]:at};
+    // One unconfirmable sale ends the shopping round: the rest of the bag
+    // waits for a later visit instead of holding the hero in town.
+    if(trip)trip.salesDone=true;
     event(a,'sale_outcome_abandoned',{name:intent.name},at);
     save();return true;
   }
