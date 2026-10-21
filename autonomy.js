@@ -495,7 +495,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const inspectionLimit=a.wingPriority&&a.goal?.slot==='wing'&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3?4:8;
       const item=surplusGear(getCatalog(),before,a.worn)
         .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])||(x.rarity??99)-(y.rarity??99))
-        .find(g=>!trip.keepUIDs?.includes(g.uid)&&!saleBlockedRecently(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
+        .find(g=>!trip.keepUIDs?.includes(g.uid)&&!saleBlockedRecently(g.uid)&&!saleKeptRecently(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
       if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
       await pick(c=>c.act==='isel'&&c.key==='g:'+item.uid);
       if(!isWeapon(item))trip.secondaryInspections=(trip.secondaryInspections||0)+1;
@@ -505,7 +505,14 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const sale=detail.controls.concat(detail.offscreen||[]).filter(c=>c.act==='isellg'&&c.key===item.uid);
       const price=sale.length===1?Number(sale[0].label.replace(/,/g,'').match(/^(?:Sell|ขาย)\s+(\d+)\s*G$/i)?.[1]):0;
       const reason=surplusDetail(getCatalog(),detail,a.worn,item,selected)||(!price?'sale price unavailable':null);
-      if(reason){(trip.keepUIDs ||= []).push(item.uid);(trip.keepReasons ||= {})[item.uid]=reason;trip.progressAt=now();save();continue;}
+      if(reason){
+        (trip.keepUIDs ||= []).push(item.uid);
+        (trip.keepReasons ||= {})[item.uid]=reason;
+        // The same item is not offered again for hours: keeping it only for
+        // this trip would send the hero back to the shop on every visit.
+        a.saleKept={...(a.saleKept||{}),[item.uid]:{reason,at:now()}};
+        trip.progressAt=now();save();continue;
+      }
       await pick(c=>c.act==='isellg'&&c.key===item.uid);
       const confirm=await state();
       if(!/Sell (?:gear|equipment)|ขายอุปกรณ์/i.test(confirm.modalText)||!confirm.modalText.includes(gear.name)||
@@ -564,7 +571,15 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   function saleBlockedRecently(uid){
     const at=a.saleBlocked?.[uid];
     if(!at)return false;
-    if(now()-at>30*MIN){delete a.saleBlocked[uid];return false;}
+    if(now()-at>2*60*MIN){delete a.saleBlocked[uid];return false;}
+    return true;
+  }
+  // An item the game will not sell in its current state is remembered for
+  // hours, not only for the current visit.
+  function saleKeptRecently(uid){
+    const entry=a.saleKept?.[uid];
+    if(!entry)return false;
+    if(now()-entry.at>6*60*MIN){delete a.saleKept[uid];return false;}
     return true;
   }
   // True when a recent sale could not be confirmed, so the surplus round is
