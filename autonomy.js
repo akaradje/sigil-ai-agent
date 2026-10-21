@@ -670,7 +670,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       await resume(trip);return;
     }
     if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
-    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageWorthScanning(a)&&storageNeedsScan(a,getCatalog(),s,now())&&
+    // A nearly full bag needs the storage even when the last scan found nothing
+    // to sell: the items the shop refuses still have to leave the bag.
+    if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageWorthScanning(a)&&
+      (storageNeedsScan(a,getCatalog(),s,now())||(a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]-3))&&
       (!policy.powerProgression||a.storageCleanup?.requestedAt||trip.forgeServiced||now()-(a.last.forge||0)<=30*MIN))trip.kind='liquidate';
     const panel={forge:'smith',storage:'storage',liquidate:'storage',shop:'shop',rest:'church'}[trip.kind];
     if(s.panel!==panel) {
