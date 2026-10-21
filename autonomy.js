@@ -370,6 +370,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     }
   }
   async function forge(s) {
+    // Clean exit: the forge panel is closed again whatever the outcome.
+    try {
     const goal=a.goal,catalog=getCatalog();
     const readyWing=a.wingPriority&&goal?.slot==='wing'&&!goal.missing?.length;
     if(policy.powerProgression&&!readyWing&&!a.trip?.advancedChecked){
@@ -459,6 +461,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     if(policy.powerProgression)a.last.equipment=0;
     if(next.max)event(a,'refine_max',{name:row.name,cap:catalog.refineMax});
     return true;
+    } finally { await close().catch(()=>{}); }
   }
   async function settleSale(intent,trip) {
     for(let attempt=0;attempt<5;attempt++) {
@@ -477,6 +480,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     intent.status='uncertain';save();return false;
   }
   async function sellSurplus(trip) {
+    // Clean exit: the sale round may end early, fail or be cut short, but the
+    // panel it opened is always closed again.
+    try{
     await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
     if(['uncertain','confirming'].includes(a.saleIntent?.status)){
      if(boundUncertainSale(trip))a.saleIntent=null;
@@ -510,6 +516,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       catch(e){a.saleIntent.status=e.code==='ACTION_BUDGET'||e.message==='autonomy action budget exceeded'?'cancelled-before-input':'uncertain';save();throw e;}
       if(!await settleSale(a.saleIntent,trip))throw Error('Sale outcome uncertain');
     }
+    } finally { await close().catch(()=>{}); }
   }
   async function finishWing(){
     const w=a.wingCraft;if(!w||w.status==='equipped')return false;

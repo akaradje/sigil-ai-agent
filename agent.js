@@ -786,6 +786,15 @@ async function runCycle() {
       log('autonomy trip stalled with a panel open; closed it and resumed the field');
       saveMemory();
     }
+    // Combat pre-flight: a panel left open over a field map hides the fight and
+    // can swallow a potion click. Outside town the screen must be clean.
+    if(p.state.panelOpen&&catalog){
+      const zone=String(p.state.zone||'').replace(/\s+/g,' ').trim().toLowerCase();
+      const inTown=catalog.maps.some(m=>m.town&&String(m.name||'').replace(/\s+/g,' ').trim().toLowerCase()===zone);
+      if(!inTown){
+        try{await executor.close();log('pre-flight: closed a panel left open outside town');}catch{}
+      }
+    }
     if(memory.gameTelemetry?.positionFault&&!memory.uiHealth?.login) {
       if(Telemetry.recoveryDue(memory)) {
         const now=Date.now(),previous=memory.positionRecovery||{};
