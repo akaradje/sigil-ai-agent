@@ -9,10 +9,10 @@ const REPAIR_EDITABLE = Object.freeze(['game-intelligence.js', 'game-telemetry.j
 const EDITABLE = Object.freeze([...REPAIR_EDITABLE,'progression.js','character-development.js','strategy-dna.js']);
 const OPPORTUNITY_REASONS=new Set(['PUBLIC_CATALOG_EXPANDED','UNSUPPORTED_PUBLIC_SYSTEM','VERIFIED_GROWTH_PLATEAU','BEHIND_TOP_TEN','VERIFIED_CAP_STOCKPILE','VERIFIED_RESOURCE_STALL','VERIFIED_ACTIVITY_STALL']);
 const RUNTIME = Object.freeze(['agent.js', 'autonomy.js', 'game-catalog.js', 'game-intelligence.js',
-  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js', 'cognitive-brain.js', 'runtime-paths.js','world-knowledge.js','proactive-planner.js','activity-watchdog.js']);
+  'game-telemetry.js', 'progression.js', 'session-hygiene.js', 'strategy-dna.js', 'ui-resilience.js', 'server-availability.js', 'character-development.js', 'cognitive-brain.js', 'runtime-paths.js','world-knowledge.js','proactive-planner.js','activity-watchdog.js','gear-ratchet.js']);
 const TESTS = Object.freeze(['game-intelligence.test.js', 'autonomy.test.js', 'character-development.test.js', 'ui-resilience.test.js',
   'game-telemetry.test.js', 'progression.test.js', 'session-hygiene.test.js', 'strategy-dna.test.js',
-  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs', 'cognitive-brain.test.js', 'runtime-paths.test.js','world-knowledge.test.js','proactive-planner.test.js','self-publication.test.js','activity-watchdog.test.js']);
+  'telegram-alerts.test.js', 'viewer.test.js', 'self-evolution.test.js', 'self-deployment.test.js', 'self-healing-check.test.js', 'uptime-worker/monitor.test.mjs', 'cognitive-brain.test.js', 'runtime-paths.test.js','world-knowledge.test.js','proactive-planner.test.js','self-publication.test.js','activity-watchdog.test.js','gear-ratchet.test.js']);
 const SOURCES = Object.freeze([...new Set([...RUNTIME, ...TESTS, 'package.json', 'supervisor.js', 'telegram-alerts.js', 'viewer.js',
   'self-evolution.js', 'self-evolution-runner.js', 'self-deployment.js', 'self-healing-check.js', 'self-publication.js','uptime-worker/monitor.mjs', 'scripts/migrate-state.js','scripts/check-public-files.py','scripts/check-public-paths.py','scripts/test_check_public_files.py'])]);
 const ACTIVE = new Set(['REPAIRING', 'VERIFYING']);

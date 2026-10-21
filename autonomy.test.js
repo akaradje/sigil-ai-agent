@@ -61,10 +61,13 @@ test('wing success is measured only after the exact crafted wing is equipped, on
   const restored=JSON.parse(JSON.stringify(m));await A.createController({...args,mem:restored}).run('town');
   assert.equal(restored.autonomy.events.filter(e=>e.type==='wing_completed').length,1);
 });
-test('Epic and Legendary candidates stay out of automatic sales even with an inferior verdict',()=>{
+test('a legendary candidate is surplus when the worn gear in that slot is at least as strong',()=>{
   const c=catalog(),worn=[{uid:'w',slot:'weapon',text:'Void Staff'}];
   const base={uid:'x',text:'Void Staff',protected:false,equipped:false,better:false};
-  for(const rarity of [3,4])assert.deepEqual(A.surplusGear(c,state({inventoryComplete:true,inventoryGear:[{...base,rarity}]}),worn),[]);
+  for(const rarity of [2,3,4])assert.equal(A.surplusGear(c,state({inventoryComplete:true,inventoryGear:[{...base,rarity}]}),worn).length,1);
+  // The bar moves with the worn gear: a better worn piece keeps the same bag
+  // piece alive, a weaker one turns it into surplus.
+  assert.equal(A.surplusGear(c,state({inventoryComplete:true,inventoryGear:[{...base,rarity:3}]}),[{uid:'w',slot:'weapon',text:'Cinder Staff'}]).length,0);
 });
 test('ordinary option armor is sold only with the same base, no stat gain and native inferior evidence',()=>{
   const c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
@@ -73,7 +76,8 @@ test('ordinary option armor is sold only with the same base, no stat gain and na
   assert.equal(A.surplusDetail(c,s,worn,item,detail),null);
   assert.ok(A.surplusDetail(c,s,worn,item,detail+'\nMATK ▲ 1'));
   assert.ok(A.surplusDetail(c,s,worn,item,detail.replace('✦ DEF','🃏 Card\n✦ DEF')));
-  assert.ok(A.surplusDetail(c,s,worn,{...item,rarity:3},detail));
+  // The colour does not protect a piece the game proves is the worse one.
+  assert.equal(A.surplusDetail(c,s,worn,{...item,rarity:3},detail),null);
 });
 test('DNA can service a bag earlier but cannot buy capacity below the existing spending boundary',()=>{
   const m={},a=A.init(m);a.cbt={claimed:true};a.last.inventory=clock;a.last.equipment=clock;a.last.forge=clock;a.last.farm=clock;a.bagUsage=[90,100];

@@ -6,6 +6,7 @@ const DNA=require('./strategy-dna');
 const {combatSnapshot,rankFarmingOptions}=require('./game-intelligence');
 const {learningFarmingOptions}=require('./cognitive-brain');
 const Proactive=require('./proactive-planner');
+const Ratchet=require('./gear-ratchet');
 const MIN=60000;
 // Town circuit breaker: a visit is short and the next one waits. The hero
 // spends its time in the field, not in a shop loop that confirms nothing.
@@ -64,21 +65,13 @@ function gearForName(catalog,text) {
   return catalog.gear.filter(g=>value.includes(norm(g.name))||value.includes('/gear/'+g.id+'.png')).sort((a,b)=>b.name.length-a.name.length)[0]||null;
 }
 // Only identified, plain, unprotected surplus. A live sale dialog is checked again before input.
+// The line is a ratchet, not a colour: the bar is the gear the hero wears now, so
+// the old tier turns into surplus by itself and no rarity is excluded.
 function surplusGear(catalog,s,worn) {
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];
   if(!job||!s.inventoryComplete||!worn?.length)return [];
-  return (s.inventoryGear||[]).filter(item=>{
-    if(item.protected!==false||item.equipped||worn.some(w=>w.uid===item.uid)||item.rarity>=3)return false;
-    const gear=gearForName(catalog,item.art||item.text);if(!gear)return false;
-    if(gear.slot==='weapon'&&gear.fam&&gear.fam!==job.weapon)return true;
-    if(item.better||gear.lv>level(s)||gear.line&&!job.line.includes(gear.line))return false;
-    const current=gearForName(catalog,worn.find(w=>w.slot===gear.slot)?.text);
-    if(!current||current.tier<gear.tier||current.lv<gear.lv)return false;
-    if(gear.slot==='weapon')return true; // Live comparison decides options and refinement.
-    if(/\+\d+/.test(item.text))return false;
-    const keys=new Set([...Object.keys(gear.stats),...Object.keys(current.stats)]);
-    return [...keys].every(k=>(gear.stats[k]||0)<=(current.stats[k]||0));
-  });
+  const trash=new Set(Ratchet.ratchet(catalog,s,worn).trash.map(t=>t.uid));
+  return (s.inventoryGear||[]).filter(item=>trash.has(item.uid));
 }
 function surplusDetail(catalog,s,worn,item,selected) {
   if(!surplusGear(catalog,s,worn).some(g=>g.uid===item.uid))return 'not proven surplus';
@@ -89,7 +82,7 @@ function surplusDetail(catalog,s,worn,item,selected) {
     if(!/✦/u.test(selected))return null;
     const current=worn.find(w=>w.slot===gear.slot),own=gearForName(catalog,current?.text),heading=selected.split(/\r?\n/).find(l=>l.includes(gear.name))||'';
     const comparison=selected.split(/Compared with worn:|เทียบกับที่สวม:/i);
-    if(!Number.isInteger(item.rarity)||item.rarity<0||item.rarity>=3||own?.id!==gear.id||
+    if(!Number.isInteger(item.rarity)||item.rarity<0||own?.id!==gear.id||
       Number(heading.match(/\[(\d+)\]/)?.[1]||0)>Number(current.text.match(/\[(\d+)\]/)?.[1]||0)||
       /Cooldown|Skill.*damage|vs[ .:]|damage taken|คูลดาวน์|เผ่า|ขนาด/i.test(selected)||comparison.length!==2||
       !/▼\s*Worse than worn|แย่กว่าที่สวมอยู่/i.test(comparison[1])||/▲/.test(comparison[1])||!/▼\s*[1-9]/.test(comparison[1]))return 'equipment with options';
@@ -111,6 +104,9 @@ function storageDepositAllowed(catalog,s,control) {
   const item=s.storageGear?.find(g=>g.uid===control.uid&&g.dir==='in');
   const gear=catalog?.gear&&item&&gearForName(catalog,item.art||item.text);
   if(!gear)return false;
+  // A piece the ratchet calls surplus never goes into the storage: the storage
+  // keeps what is worth keeping, the shop takes what is not.
+  if(Ratchet.ratchet(catalog,s,s.worn||[]).trash.some(t=>t.uid===item.uid))return false;
   // Ordinary gear may go to the storage. A weapon may as well when it is not
   // the one in use and not of the character's own weapon family.
   if(gear.slot!=='weapon')return true;
