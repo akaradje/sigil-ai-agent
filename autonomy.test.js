@@ -882,3 +882,31 @@ test('a story route whose chapter is reachable is left running',async()=>{
   await ctl.run('autonomy_wait');
   assert.deepEqual(stops,[]);
 });
+
+test('the town visit sells the surplus before the forge step can take the visit',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  c.gear.push({id:'blade9',name:'Refine Blade',slot:'weapon',fam:'blade',tier:9,lv:70,stats:{atk:10},refinement:Array.from({length:16},(_,r)=>({ore:1,bonus:{atk:r*6}}))});
+  a.worn=[{uid:'w',slot:'weapon',text:'+4 Refine Blade'}];
+  a.trip={kind:'shop',phase:'town',at:clock,salesDone:false,salePolicyVersion:2,storageScanned:true};
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'shop',hpPotions:35,mpPotions:35,inventoryComplete:true,inventoryItems:{},inventoryGear:[],controls:[]}),
+    click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.trip.kind,'shop','the sale must run before the forge takes the visit');
+  assert.equal(a.trip.salesDone,true);
+  a.trip={kind:'shop',phase:'town',at:clock,salesDone:true,salePolicyVersion:2,storageScanned:true};
+  await ctl.run('town');
+  assert.equal(a.trip.kind,'forge','the forge runs once the bag is relieved');
+});
+test('a town visit older than the 70 second budget is cut off',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  const trip={kind:'forge',phase:'town',at:clock-80000,returnMap:'field',returnMode:'farm',salesDone:false};
+  a.trip=trip;let auto='';
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'smith',autoHunt:auto,controls:[{bm:'world'},{wm:'field'},{go:'field'},{id:'autoBtn'}]}),
+    click:async x=>{if(x.id==='autoBtn')auto='on';},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.trip,null);
+  assert.ok(a.events.some(e=>e.type==='town_timeout_abort'));
+  assert.equal(a.townCooldownUntil,clock+45*60000);
+});

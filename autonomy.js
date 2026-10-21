@@ -9,7 +9,7 @@ const Proactive=require('./proactive-planner');
 const MIN=60000;
 // Town circuit breaker: a visit is short and the next one waits. The hero
 // spends its time in the field, not in a shop loop that confirms nothing.
-const TOWN_MAX_MS=90*1000;      // hard cap for one town visit
+const TOWN_MAX_MS=70*1000;      // hard cap for one town visit, seen on the next 15-20 s tick
 const TOWN_COOLDOWN_MS=45*MIN;  // no new town visit right after one
 const UNREADABLE_TOWN=/outcome not observed|observed control missing or ambiguous/i;
 const norm=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
@@ -833,9 +833,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const live=await state();
         if(live.storageUsage&&live.storageUsage[0]<live.storageUsage[1]&&(live.storageGear||[]).some(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&gearForName(getCatalog(),g.text+' '+g.art)))return;
       }
-      if(!trip.hygiene&&a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')){trip.kind='forge';return;}
+      if(trip.salesDone===true&&!trip.hygiene&&a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
+      // Town visit order: potions first, then the surplus sale that empties the
+      // bag, and the forge last. A refine whose result cannot be read ends the
+      // visit, so it must not run before the bag is relieved.
       for(const [field,id] of [['hpPotions','mega_potion'],['mpPotions','mega_ether']]) {
         const current=await state();if(current[field]==null||current[field]>20)continue;
         const control=current.controls.find(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
@@ -863,8 +866,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(mem.bossLearning?.pending&&mem.bossLearning.plan&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&
         (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped'))return;
             // The damage-stat gear still has refinement steps: refining it raises the
-      // class damage now, and it must not wait behind the endless sale round.
-      if(policy.sellSurplus&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){
+      // class damage now, and it must not wait behind the sale round that empties
+      // the bag first.
+      if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){
         const w=(a.worn||[]).find(x=>x.slot==='weapon');
         const g=w&&gearForName(getCatalog(),w.text);
         const level=Number(String(w?.text||'').match(/\+(\d+)/)?.[1]||0);
@@ -895,7 +899,7 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
       trip.kind='capacity';trip.progressAt=now();return;
     }
-    if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&(!a.goal.missing?.length||a.goal.missing?.some(m=>m.id==='sigil_ore'))||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
+    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone===true&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&(!a.goal.missing?.length||a.goal.missing?.some(m=>m.id==='sigil_ore'))||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
     if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
     // Clean exit: the visit closes the panel it opened before going back out.
     await close().catch(()=>{});
