@@ -805,7 +805,15 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       // boss plan can take the healthy supplied visit on the next slice.
       if(mem.bossLearning?.pending&&mem.bossLearning.plan&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&
         (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped'))return;
-            // A nearly full bag needs headroom before the endless surplus sale round
+            // The damage-stat gear still has refinement steps: refining it raises the
+      // class damage now, and it must not wait behind the endless sale round.
+      if(policy.sellSurplus&&trip.kind==='shop'&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){
+        const w=(a.worn||[]).find(x=>x.slot==='weapon');
+        const g=w&&gearForName(getCatalog(),w.text);
+        const level=Number(String(w?.text||'').match(/\+(\d+)/)?.[1]||0);
+        if(g&&level<(g.refinement||[]).length){trip.kind='forge';trip.progressAt=now();save();return;}
+      }
+      // A nearly full bag needs headroom before the endless surplus sale round
       // takes the whole visit: the capacity purchase comes first.
       if(policy.sellSurplus&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&
         a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
