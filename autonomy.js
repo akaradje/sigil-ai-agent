@@ -498,9 +498,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     intent.status='uncertain';save();return false;
   }
   async function sellSurplus(trip) {
-    // Clean exit: the sale round may end early, fail or be cut short, but the
-    // panel it opened is always closed again.
-    try{
+    // The bag panel stays open for the rest of the visit: the shop work that
+    // follows needs it. The visit closes what it opened on the way out.
     await open('bag');await pick(c=>c.act==='ifilter'&&c.key==='all'&&!c.on,true);
     if(['uncertain','confirming'].includes(a.saleIntent?.status)){
      if(boundUncertainSale(trip))a.saleIntent=null;
@@ -541,7 +540,6 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       catch(e){a.saleIntent.status=e.code==='ACTION_BUDGET'||e.message==='autonomy action budget exceeded'?'cancelled-before-input':'uncertain';save();throw e;}
       if(!await settleSale(a.saleIntent,trip))throw Error('Sale outcome uncertain');
     }
-    } finally { await close().catch(()=>{}); }
   }
   async function finishWing(){
     const w=a.wingCraft;if(!w||w.status==='equipped')return false;
@@ -823,6 +821,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     }
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&(!a.goal.missing?.length||a.goal.missing?.some(m=>m.id==='sigil_ore'))||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
     if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
+    // Clean exit: the visit closes the panel it opened before going back out.
+    await close().catch(()=>{});
     if(trip.kind==='forge'||!policy.powerProgression)a.last.forge=now();trip.phase='return';
   }
   async function farm(s,trial=false) {
