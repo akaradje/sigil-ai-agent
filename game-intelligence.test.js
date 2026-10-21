@@ -590,3 +590,19 @@ test('failed boss requests get bounded retries without exhausting the verified-p
  assert.equal(IQ.bossReviewDue({...b,reviewOutcomes:[0,1,2].map(i=>({at:now-1000-i,status:'decision-verified'}))},now),false);
  assert.equal(IQ.bossReviewDue({...b,reviewAt:now-1000,defeatAt:now-500},now),true);
 });
+
+test('a shield that could not be broken in time records how far short the build is',()=>{
+ const m=IQ.freshMemory(),now=1800000000000,boss='Ignar',s={...healthy(),hp:[1500,1800],jobQuestProgress:'Hunt Ignar 0/1',target:boss,targetHpRatio:1,hpPotions:30};
+ m.classBossTrip={boss,key:'boss-map,500,500',fighting:true};
+ // The first sample of the shield carries no ratio yet: the worst case is used.
+ for(const [i,left,ratio] of [[0,13,null],[1,12,0.99],[6,7,0.57]]){
+   m.gameTelemetry={validated:true,map:'boss-map',checkedAt:now+i*1000};
+   IQ.observeClassBoss(m,{...s,bossMechanic:'WARD '+left+' s',bossWardRatio:ratio},now+i*1000);
+   if(i===1)m.bossLearning.active.ward.bursts=1;
+ }
+ const b=m.bossLearning;
+ assert.ok(b.wardGate,'the shield failure must be remembered');
+ assert.equal(b.wardGate.boss,'Ignar');
+ assert.ok(b.wardGate.factor>1,'the shortfall must be above one: '+b.wardGate.factor);
+ assert.ok(b.wardGate.requiredMatk>=b.wardGate.observedMatk);
+});

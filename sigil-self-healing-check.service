@@ -9,7 +9,10 @@ User=root
 WorkingDirectory=/opt/sigil-self-healing
 ExecStart=/opt/sigil-self-healing/runtime/bin/node /opt/sigil-self-healing/self-healing-check.js
 ExecStopPost=/opt/sigil-self-healing/runtime/bin/node /opt/sigil-self-healing/self-healing-check.js --finalize
-TimeoutStartSec=1200
+# The full exercise waits out a ten minute canary and then the independent
+# guard rollback, which together need more than the twenty minutes it used to
+# get: the run was killed before it could write its report.
+TimeoutStartSec=2700
 TimeoutStopSec=20
 KillMode=control-group
 UMask=0077

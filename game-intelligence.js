@@ -181,8 +181,14 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
         b.retreat=true;b.pending=true;f.abortReason='ward-deadline';
         // The shield could not be broken in time. Remember how far short this
         // build is, so the bot farms for the upgrade instead of trying again.
-        const needed=(w.firstLeft-w.left)+(Number.isFinite(w.estimatedBreakSeconds)?w.estimatedBreakSeconds:0);
-        const factor=w.firstLeft>0&&needed>0?needed/w.firstLeft:0;
+        // The first sample of a shield may carry no ratio yet: fall back to a
+        // full shield, which is the worst case the window assumes.
+        const start=w.firstRatio??1;
+        const elapsed=w.firstLeft-w.left;
+        const rate=elapsed>0&&Number.isFinite(start)&&Number.isFinite(w.ratio)?(start-w.ratio)/elapsed:0;
+        const total=Number.isFinite(w.estimatedBreakSeconds)&&w.estimatedBreakSeconds>0
+          ? elapsed+w.estimatedBreakSeconds : rate>0?start/rate : 0;
+        const factor=w.firstLeft>0&&total>0?total/w.firstLeft:0;
         if(factor>1){
           const stats=m.combatSummary?.stats||{},power=Number(m.combatSummary?.power)||0,matk=Number(stats.MATK)||0;
           b.wardGate={boss:f.boss,at:now,factor:Math.round(factor*100)/100,map,
