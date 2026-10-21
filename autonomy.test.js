@@ -838,15 +838,14 @@ test('a new town visit is refused while the cooldown runs',async()=>{
   assert.ok(a.events.some(e=>e.type==='town_visit_deferred'));
 });
 
-test('a completely full bag still reaches town while the cooldown runs',async()=>{
+test('a full bag waits for the cooldown like any other errand',async()=>{
   const m={},a=A.init(m),c=catalog();
   a.bagUsage=[130,130];a.townCooldownUntil=clock+45*60000;
   const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{goldReserve:100000},now:()=>clock,
-    observe:async()=>state({zone:'Town',controls:[{aq:'stop'},{id:'autoBtn'}]}),
-    click:async()=>{},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+    observe:async()=>state({zone:'Field'}),click:async()=>{},key:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
   await ctl.run('town_shop');
-  assert.ok(a.trip,'a full bag must still be able to reach town');
-  assert.ok(!a.events.some(e=>e.type==='town_visit_deferred'));
+  assert.equal(a.trip??null,null);
+  assert.ok(a.events.some(e=>e.type==='town_visit_deferred'));
 });
 
 test('a trip that ends while the hero is still leveling resumes the farm route, not the quest route',async()=>{

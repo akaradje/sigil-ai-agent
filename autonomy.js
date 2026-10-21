@@ -246,12 +246,10 @@ function chooseTask(mem,s,catalog,now=Date.now(),policy={}) {
   a.wingPriority=!!policy.wingPriority;
   policy={...policy,levelingFocus:a.levelingFocus};
   // The town circuit breaker: a visit that just ended waits before the next
-  // one. Death, low sustain and a completely full bag stay exempt - those are
-  // safety, not shopping, and the hero must not be stranded in the field. A
-  // bag that still has room waits for the cooldown like any other errand.
+  // one. Death and low sustain stay exempt - those are safety, not shopping,
+  // and the hero must not be stranded in the field with no potions.
   const sustainLow=(s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10);
-  const bagCritical=a.bagUsage&&a.bagUsage[1]>0&&a.bagUsage[0]>=a.bagUsage[1];
-  const townBlocked=()=>a.townCooldownUntil>now&&!s.dead&&!sustainLow&&!bagCritical;
+  const townBlocked=()=>a.townCooldownUntil>now&&!s.dead&&!sustainLow;
   if(s.hp[0]/s.hp[1]<0.3)return s.hpPotions===0?(a.trip?'town':'town_rest'):null;
   if(!catalog)return null; // Keep the existing UI policy running during catalog outages.
   if(!a.cbt&&s.controls.some(c=>c.id==='cbtPill'))return 'cbt';
@@ -335,11 +333,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   }
   async function beginTrip(kind,s) {
     // The circuit breaker guards the entry point too, so no caller can walk
-    // into town while the cooldown runs. Rest, death, low sustain and a
-    // completely full bag stay exempt.
+    // into town while the cooldown runs. Rest, death and low sustain stay
+    // exempt.
     if(kind!=='rest'&&a.townCooldownUntil>now()&&!s.dead&&
-      !((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))&&
-      !(a.bagUsage&&a.bagUsage[1]>0&&a.bagUsage[0]>=a.bagUsage[1])){
+      !((s.hpPotions!=null&&s.hpPotions<=10)||(s.mpPotions!=null&&s.mpPotions<=10))){
       event(a,'town_visit_deferred',{kind,until:a.townCooldownUntil},now());
       save();return;
     }
