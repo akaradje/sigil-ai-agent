@@ -157,12 +157,17 @@ function progressionGoal(catalog,state,a,reserve) {
   const job=catalog.jobs[String(state.job||'').toLowerCase()];if(!job)return null;
   const allowed=g=>g.lv<=level(state)&&(!g.jt||job.jobTier>=g.jt)&&(!g.line||job.line.includes(g.line))&&(!g.fam||g.slot!=='weapon'||g.fam===job.weapon);
   const own=a.worn.map(w=>({...w,gear:gearForName(catalog,w.text)})).filter(w=>w.gear);
+  // The stat a class actually cares about: a caster wants MATK, a fighter ATK.
+  const damageStat=(()=>{const w=catalog.gear.find(g=>g.fam===job.weapon&&g.slot==='weapon');return w&&w.stats&&w.stats.matk?'matk':'atk';})();
   const upgrades=[];
   for(const w of own.sort((a,b)=>(a.slot==='weapon'?-1:0)-(b.slot==='weapon'?-1:0))) {
     const cost=w.gear.upgrade,target=catalog.gear.find(g=>g.id===cost?.to);
     if(target&&allowed(target))upgrades.push({kind:'upgrade',uid:w.uid,target:target.id,name:target.name,slot:w.slot,cost,
-      missing:bottlenecks(cost,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
+      gain:target.stats||{},missing:bottlenecks(cost,a.inventory.items,Math.max(0,(state.gold||0)-reserve))});
   }
+  // The upgrade that raises the class damage stat comes first: it is the one
+  // that moves the character forward against a boss gate.
+  upgrades.sort((a,b)=>((b.gain||{})[damageStat]||0)-((a.gain||{})[damageStat]||0));
   if(!a.wingPriority&&upgrades.some(g=>!g.missing.length))return upgrades.find(g=>!g.missing.length);
   // Craft a missing highest-tier slot once, rather than repeatedly rolling items already owned.
   const crafts=[];
@@ -816,7 +821,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
     }
     if(policy.sellSurplus&&trip.kind==='shop'&&!trip.storageScanned&&a.storageCleanup?.requestedAt&&storageNeedsScan(a,getCatalog(),s,now())){trip.kind='liquidate';trip.progressAt=now();return;}
-    if(policy.powerProgression&&trip.kind==='shop'&&trip.salesDone&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+    if(policy.powerProgression&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
       trip.kind='capacity';trip.progressAt=now();return;
     }
     if(policy.powerProgression&&trip.kind==='shop'&&!trip.forgeServiced&&(a.wingPriority&&a.goal?.slot==='wing'&&(!a.goal.missing?.length||a.goal.missing?.some(m=>m.id==='sigil_ore'))||!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN)){trip.kind='forge';trip.progressAt=now();return;}
