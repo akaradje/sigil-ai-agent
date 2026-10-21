@@ -805,7 +805,13 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       // boss plan can take the healthy supplied visit on the next slice.
       if(mem.bossLearning?.pending&&mem.bossLearning.plan&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&
         (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped'))return;
-      if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
+            // A nearly full bag needs headroom before the endless surplus sale round
+      // takes the whole visit: the capacity purchase comes first.
+      if(policy.sellSurplus&&trip.kind==='shop'&&!trip.capacityServiced&&bagCapacityNeeded(a)&&
+        a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
+        trip.kind='capacity';trip.progressAt=now();save();return;
+      }
+if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       if(policy.powerProgression){
         const pets=mem.development?.snapshots?.ranch?.pets||[];
         for(const [id,name,minimum] of [['pet_treat','Pet Treat',pets.length?3:0],['focus_tonic','Focus Tonic',['Mage','Starweaver','Sage'].includes(s.job)?2:0]]){
