@@ -39,6 +39,13 @@ class WorldKnowledge {
     this.dirty=true;this.save(true);
     return gate;
   }
+  clearBossGate(boss){
+    const key=String(boss||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,64);
+    if(!this.db.bossGates?.[key])return false;
+    delete this.db.bossGates[key];
+    this.dirty=true;this.save(true);
+    return true;
+  }
   bossGate(boss,measured={}){
     const key=String(boss||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,64);
     const g=this.db.bossGates?.[key];if(!g)return null;

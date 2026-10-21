@@ -645,6 +645,14 @@ async function prepareClassBoss(s){
   // farms for it instead of spending another attempt.
   const gated=IQ.bossGated(s,memory,b.boss);
   if(gated){b.gatedAt=gated.at;return false;}
+  // The gate is open: the build reached the measured requirement, so the boss
+  // may be tried again.
+  const known=(memory.worldKnowledge?.bossGates||[]).find(x=>x&&x.boss===b.boss);
+  if(known){
+    Autonomy.event(Autonomy.init(memory),'boss_gate_open',{boss:known.boss,requiredMatk:known.requiredMatk,requiredPower:known.requiredPower,factor:known.factor});
+    try{worldKnowledge.clearBossGate(b.boss);memory.worldKnowledge=worldKnowledge.view();}catch{}
+    log('boss gate open: '+known.boss);
+  }
   // After a defeat the character farms before the next trial: real EXP and a
   // measured kill time need an uninterrupted stretch of combat, and the gear
   // only improves while the character plays.
@@ -805,7 +813,10 @@ async function runCycle() {
       const g=memory.bossLearning.wardGate;memory.bossLearning.wardGate=null;
       try{
         const gate=worldKnowledge.gateBoss(g.boss,g);
-        if(gate)log('boss gate: '+gate.boss+' needs '+(gate.requiredMatk||gate.requiredPower)+' ('+gate.factor+'x)');
+        if(gate){
+          log('boss gate: '+gate.boss+' needs '+(gate.requiredMatk||gate.requiredPower)+' ('+gate.factor+'x)');
+          Autonomy.event(Autonomy.init(memory),'boss_gate',{boss:gate.boss,requiredMatk:gate.requiredMatk,requiredPower:gate.requiredPower,factor:gate.factor,reason:gate.reason});
+        }
       }catch(e){log('boss gate failed: '+e.message);}
     }
     saveMemory();

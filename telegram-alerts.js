@@ -158,6 +158,8 @@ class AlertEngine {
       gear_crafted:e=>`⚒ ${e.kind==='upgrade'?'อัปขั้น':'คราฟต์'} ${e.name} สำเร็จ${e.topTier?' · เทียร์สูงสุดที่พบในข้อมูลแพตช์':''}`,
       wing_completed:e=>`🪽 สร้างและสวม ${e.name} สำเร็จ!\nพลังอุปกรณ์ ${e.before??'?'} → ${e.after??'?'}${Number.isFinite(e.delta)?` (${e.delta>=0?'+':''}${e.delta})`:' · ยืนยันส่วนเพิ่มเฉพาะปีกไม่ได้'}\nวัดจากหน้าอุปกรณ์จริงก่อน–หลังสวมปีก`,
       refine_max:e=>`✨ ${e.name} ตีบวกถึง +${e.cap} ตามเพดานปัจจุบันแล้ว`,
+      boss_gate:e=>`🛡 พักการตี ${e.boss}: โล่ของบอสเกินกำลังตอนนี้\nต้องพลังโจมตี ${e.requiredMatk||e.requiredPower} (ตอนนี้ ${e.observedMatk||'?'}) · ต้องเพิ่ม ${e.factor}x\nบอทจะไปฟาร์มสะสมพลังแล้วกลับมาลองใหม่เอง`,
+      boss_gate_open:e=>`⚔️ ปลดล็อกเกณฑ์ตี ${e.boss} แล้ว (ต้อง ${e.requiredMatk||e.requiredPower})\nบอทจะกลับไปท้าดวลบอสอัตโนมัติ`,
       capacity_bought:e=>`🎒 เพิ่มช่อง ${e.id} สำเร็จ ใช้ ${e.cost} คริสตัล`,
     };
     for(const e of (a.events||[]).filter(e=>Number.isSafeInteger(e.id)&&e.id>cursor).sort((x,y)=>x.id-y.id)) {
@@ -330,6 +332,15 @@ class AlertEngine {
         (s.quest && s.quest !== last.quest) || s.disconnected || s.paused) d.progressAt = now;
     this.condition('stall', !managed && !s.disconnected && !s.paused && now - d.progressAt >= 30 * MIN,
       now, 0, '⚠️ เลเวล/Job/ความคืบหน้าเควสไม่เปลี่ยนเกิน 30 นาที');
+    // A measured damage milestone: gear that moves MATK is worth one line.
+    const matk = Number(sample.agent?.strategy?.combatSummary?.stats?.MATK);
+    if (Number.isFinite(matk) && matk > 0) {
+      d.matkMilestones ||= { value: 0 };
+      if (d.matkMilestones.value && matk >= d.matkMilestones.value * 1.1) {
+        this.enqueue(`matk:${matk}`, `⚔️ พลังโจมตีเพิ่มเป็น ${matk} MATK (จาก ${d.matkMilestones.value})\nยิ่ง MATK สูง ยิ่งทุบโล่บอสได้เร็ว`);
+        d.matkMilestones.value = matk;
+      } else if (!d.matkMilestones.value) d.matkMilestones.value = matk;
+    }
     if (s.gold != null) {
       // Hysteresis prevents repeated alerts around the low-gold threshold.
       this.condition('gold', s.gold < (d.incidents.gold ? 8000 : 3000), now, MIN,
