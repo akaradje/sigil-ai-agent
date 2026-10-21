@@ -96,7 +96,13 @@ function storageDepositAllowed(catalog,s,control) {
   if(control.act!=='stmove'||control.dir!=='in')return true;
   const item=s.storageGear?.find(g=>g.uid===control.uid&&g.dir==='in');
   const gear=catalog?.gear&&item&&gearForName(catalog,item.art||item.text);
-  return !!gear&&gear.slot!=='weapon';
+  if(!gear)return false;
+  // Ordinary gear may go to the storage. A weapon may as well when it is not
+  // the one in use and not of the character's own weapon family.
+  if(gear.slot!=='weapon')return true;
+  if(s.worn?.some(w=>w.uid===control.uid))return false;
+  const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];
+  return !!job&&gear.fam!==job.weapon;
 }
 function storedSurplus(catalog,s,worn,entries=[]) {
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];if(!job)return [];
@@ -740,7 +746,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       for(let i=0;i<batch;i++) {
         const current=await state();
         if(current.storageUsage&&current.storageUsage[0]>=current.storageUsage[1])break;
-        const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);return !!gear&&(leveling()||gear.slot==='weapon'&&gear.fam!==job?.weapon);})());
+        // The control only accepts non-weapon gear, and the shop refuses some of
+        // it: those refused items are what keeps the bag full, so they are the
+        // ones that go to the storage.
+        const bagTight=a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]-3;
+        const refused=new Set(Object.keys(a.saleKept||{}));
+        const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);if(!gear)return false;if(gear.slot==='weapon')return leveling()||gear.fam!==job?.weapon;return leveling()||(bagTight&&refused.has(g.uid));})());
         if(!spare)break;
         await pick(c=>c.act==='stmove'&&c.uid===spare.uid&&c.dir==='in');
         if((await state()).storageGear.some(g=>g.dir==='in'&&g.uid===spare.uid))throw Error('storage deposit not confirmed');
