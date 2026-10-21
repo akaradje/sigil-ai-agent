@@ -291,7 +291,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   async function pick(pred,optional=false) {
     let s=await state(),matches=s.controls.filter(pred);
     if(!matches.length&&scroll){const hidden=(s.offscreen||[]).filter(pred);if(hidden.length===1){await scroll(hidden[0]);await sleep(300);s=await state();matches=s.controls.filter(pred);}}
-    if(matches.length!==1){if(optional)return false;throw Error('observed control missing or ambiguous');}
+    if(matches.length!==1){if(optional)return false;
+      // Name what was on screen: a missing control and an ambiguous one need
+      // different fixes, and the operator has to see which it was.
+      const seen=(s.controls||[]).map(c=>c.label||c.act||c.key).filter(Boolean).slice(0,14).join(' | ');
+      throw Error('observed control missing or ambiguous: matches='+matches.length+' panel='+(s.panel||'-')+' saw=['+seen+']');
+    }
     if(++actions>9)throw Error('autonomy action budget exceeded');
     await click(matches[0]);await sleep(900);return true;
   }
