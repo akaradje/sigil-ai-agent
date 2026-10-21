@@ -193,7 +193,7 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
           const stats=m.combatSummary?.stats||{},power=Number(m.combatSummary?.power)||0,matk=Number(stats.MATK)||0;
           b.wardGate={boss:f.boss,at:now,factor:Math.round(factor*100)/100,map,
             requiredMatk:Math.round(matk*factor),requiredPower:Math.round(power*factor),
-            observedMatk:matk,observedPower:power,reason:'shield-not-broken-in-time'};
+            observedMatk:matk,observedPower:power,reason:'PARTY_LOCKED_BOSS',detail:'shield-not-broken-in-time'};
         }
       }
     }

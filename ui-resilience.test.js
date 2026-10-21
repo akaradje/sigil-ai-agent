@@ -75,3 +75,26 @@ test('an expected position-recovery reload does not cause a false UI structure i
   assert.equal(m.uiHealth.safeIdle,true);assert.equal(m.autonomy.events.length,0);
   UI.update(m,{},92000);assert.equal(m.autonomy.events[0].type,'ui_changed');
 });
+
+test('a kill is measured when a different target takes over after damage',()=>{
+ const mem={};const now=1800000000000;
+ const s={name:'Hero',zone:'Field',target:'Bone Dragonling',targetHpRatio:1,targetHP:'100 / 100'};
+ UI.observeCombat(mem,s,now);
+ UI.observeCombat(mem,{...s,targetHpRatio:0.5,targetHP:'50 / 100'},now+1000);
+ UI.observeCombat(mem,{...s,target:'Mudcroak',targetIdentity:'m2',targetHpRatio:1,targetHP:'80 / 80'},now+4000);
+ assert.equal((mem.combatTelemetry.samples||[]).length,1);
+ assert.equal(mem.combatTelemetry.samples[0].seconds,4);
+ assert.equal(mem.combatTelemetry.samples[0].zone,'Field');
+ assert.equal(mem.combatTelemetry.zones.Field.count,1);
+ assert.equal(mem.combatTelemetry.zones.Field.medianSeconds,4);
+ // A target that was never damaged is not a kill, and a missing target is censored.
+ const mem2={};
+ UI.observeCombat(mem2,s,now);
+ UI.observeCombat(mem2,{...s,target:'Mudcroak',targetIdentity:'m2',targetHpRatio:1,targetHP:'80 / 80'},now+3000);
+ assert.equal((mem2.combatTelemetry.samples||[]).length,0);
+ const mem3={};
+ UI.observeCombat(mem3,s,now);
+ UI.observeCombat(mem3,{...s,targetHpRatio:0.5,targetHP:'50 / 100'},now+1000);
+ UI.observeCombat(mem3,{...s,target:'',targetHpRatio:null,targetHP:''},now+4000);
+ assert.equal((mem3.combatTelemetry.samples||[]).length,0);
+});

@@ -55,9 +55,17 @@ function observeCombat(mem,s,now=Date.now()) {
   const c=mem.combatTelemetry ||= {samples:[],zones:{}};
   const hp=String(s.targetHP||'').replace(/,/g,'').match(/(\d+)\s*\/\s*(\d+)/);
   const ratio=hp&&+hp[2]>0?+hp[1]/+hp[2]:s.targetHpRatio;
-  if(!s.name||s.dead||!s.target||!Number.isFinite(ratio)||ratio<0||ratio>1||s.panelOpen||s.mapOpen||s.menuOpen){c.active=null;return c;}
+  // A finished engagement is a measured kill time. The target bar never shows
+  // zero (the target simply disappears), so the kill is read from the target
+  // going away or changing after it took damage.
+  const kill=(p,at)=>{if(!p||!p.damaged)return;const seconds=(at-p.at)/1000;if(seconds>=0.5&&seconds<=120)c.samples.push({zone:p.zone,target:p.name,seconds,at});};
+  if(!s.target){c.active=null;return c;}
+  if(!s.name||s.dead||!Number.isFinite(ratio)||ratio<0||ratio>1||s.panelOpen||s.mapOpen||s.menuOpen){c.active=null;return c;}
   let p=c.active;
   if(!p||p.name!==s.target||p.identity!==(s.targetIdentity||null)||p.zone!==s.zone||now-p.last>3000||ratio>p.ratio+0.01){
+    // A different target after damage means the previous one was killed. A
+    // missing target stays censored: it can be a switch, a despawn or a gap.
+    if(p&&p.damaged&&p.name!==s.target)kill(p,now);
     p=c.active={name:s.target,identity:s.targetIdentity||null,zone:s.zone,at:now,last:now,ratio,full:ratio>=0.95,damaged:false};
   }else {
     if(ratio<p.ratio){p.damaged=true;c.lastDamage={zone:s.zone,at:now};}
