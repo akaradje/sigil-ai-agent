@@ -215,6 +215,18 @@ function observeClassBoss(m,s,now=Date.now(),catalog){
     m.classBossTrip=null;m.trainingUntil=0;if(m.classAdvancement)m.classAdvancement.phase='prepare';
   }
 }
+// A plan built from the build the game is showing right now. It is the honest
+// fallback for the moment the model cannot be reached: the hero keeps the
+// skills it already verified instead of standing still.
+function nativeBossPlan(b,now=Date.now()){
+  const skills=b?.audit?.skill?.controls?.filter(c=>c.act==='askill')||[];
+  if(!skills.length)return null;
+  const on=skills.filter(c=>c.on).map(c=>c.key);
+  const enable=[...new Set([...(on.length?on:skills.map(c=>c.key)),...(skills.some(c=>c.key==='energy_coat')?['energy_coat']:[])])];
+  const disable=skills.map(c=>c.key).filter(k=>!enable.includes(k));
+  return {diagnosis:'native build, the reviewed plan is unavailable',enableSkills:enable,disableSkills:disable,
+    craftWing:false,retreatHp:0.35,enforcedDefense:skills.some(c=>c.key==='stardust_shield')?['stardust_shield']:[],at:now};
+}
 function bossPlan(s,m,response,now=Date.now()){
   const b=bossLearning(m,s,now);let p;
   try{if(typeof response!=='string'||response.length>3500)return null;p=JSON.parse(response);}catch{return null;}
@@ -818,4 +830,4 @@ function createExecutor({observe,click,key,scroll,hold,sleep,log,save,mem}) {
   // a new short navigation transaction; run() keeps its shared internal limit.
   return {run,open:async panel=>{actions=0;return open(panel);},close};
 }
-module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,wardAbortOf,bossGated,classWorkflowOwned,classBossObjective,classQuestSteps,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};
+module.exports={PERCEPTION,readUI,n,rankDue,controllerFallbackReady,freshMemory,combatSnapshot,rememberCombat,updateMetrics,chooseTask,bossLearning,bossPreparationNeeded,observeClassBoss,bossPlan,nativeBossPlan,bossReviewEvidence,bossReviewDue,bossReady,bossBuildSignature,wardAbortOf,bossGated,classWorkflowOwned,classBossObjective,classQuestSteps,classObjectiveStalled,classReviewDue,classReviewTask,classBossAtDestination,matchControl,casterWeapon,createExecutor,bracketHold,rankFarmingOptions};

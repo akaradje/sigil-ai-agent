@@ -606,3 +606,18 @@ test('a shield that could not be broken in time records how far short the build 
  assert.ok(b.wardGate.factor>1,'the shortfall must be above one: '+b.wardGate.factor);
  assert.ok(b.wardGate.requiredMatk>=b.wardGate.observedMatk);
 });
+
+test('a native fallback plan is valid against the audited skills so the hero can fight without the model',()=>{
+ const now=1800000000000,m=IQ.freshMemory();const s={...healthy(),hp:[1800,1800],jobQuestProgress:'Hunt Ignar 0/1',target:'Ignar'};
+ const b=IQ.bossLearning(m,s);
+ b.audit={skill:{controls:[{act:'askill',key:'energy_coat',on:true},{act:'askill',key:'stardust_shield',on:true},
+   {act:'askill',key:'jupiter_thunder',on:false},{act:'askill',key:'lightning_bolt',on:false}]}};
+ const plan=IQ.nativeBossPlan(b,now);
+ assert.ok(plan,'a fallback plan needs the audited skills');
+ assert.ok(plan.enableSkills.includes('energy_coat'));
+ assert.ok(plan.enableSkills.includes('stardust_shield'));
+ assert.equal(plan.disableSkills.includes('energy_coat'),false);
+ const checked=IQ.bossPlan(s,m,JSON.stringify({diagnosis:plan.diagnosis,enableSkills:plan.enableSkills,disableSkills:plan.disableSkills,craftWing:plan.craftWing,retreatHp:plan.retreatHp}),now);
+ assert.ok(checked,'the fallback plan must pass the same validation as a reviewed plan');
+ assert.equal(IQ.bossLearning(m,s).audit.skill.controls.length,4);
+});

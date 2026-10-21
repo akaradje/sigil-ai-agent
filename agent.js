@@ -716,11 +716,13 @@ async function prepareClassBoss(s){
     // written after the last defeat, so the retry gate treats it as a fresh
     // attempt, and it is spaced out so the hero does not loop on one boss.
     if(b.defeatAt&&now-b.defeatAt>600000){
-      b.plan={diagnosis:'native build while the model is unavailable',enableSkills:[],disableSkills:[],
-        craftWing:false,retreatHp:0.35,at:now};
-      b.reviewStatus='native-fallback';
-      log('boss plan: native fallback, the reviewed plan is unavailable');
-      saveMemory();
+      const fallback=IQ.nativeBossPlan(b,now);
+      if(fallback){
+        b.plan=fallback;b.reviewStatus='native-fallback';
+        log('boss plan: native fallback, the reviewed plan is unavailable');
+        saveMemory();
+        return false;
+      }
     }
     return false; // Continue verified growth while the review is unavailable.
   }
