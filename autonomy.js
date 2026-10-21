@@ -206,7 +206,9 @@ function update(mem,state,catalog,now=Date.now(),reserve=100000) {
     a.inventory={at:now,items:{...state.inventoryItems},gear:state.inventoryGear||[],usage:state.bagUsage};
     if(state.bagUsage)a.bagUsage=state.bagUsage;
   }
-  if(state.panel==='equip'&&state.worn?.length)a.worn=state.worn.map(x=>({...x}));
+  // The worn gear is the bar the ratchet measures against, so it is read
+  // whenever the game shows it, not only while the equip panel is open.
+  if(state.worn?.length)a.worn=state.worn.map(x=>({...x}));
   if(state.panel==='storage'&&state.storageUsage)a.storageUsage=state.storageUsage;
   if(state.panel==='cbt'&&state.cbtClaimed!=null)a.cbt={claimed:state.cbtClaimed,at:now};
   if(!catalog)return a;
@@ -565,7 +567,8 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
       const isWeapon=g=>gearForName(getCatalog(),g.art||g.text)?.slot==='weapon';
       const inspectionLimit=a.wingPriority&&a.goal?.slot==='wing'&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3?4:8;
-      const item=surplusGear(getCatalog(),before,a.worn)
+      const worn=before.worn?.length?before.worn:a.worn;
+      const item=surplusGear(getCatalog(),before,worn)
         .sort((x,y)=>Number(isWeapon(y))-Number(isWeapon(x))||Number(!!a.storageOrigins?.[y.uid])-Number(!!a.storageOrigins?.[x.uid])||(x.rarity??99)-(y.rarity??99))
         .find(g=>!trip.keepUIDs?.includes(g.uid)&&!saleBlockedRecently(g.uid)&&!saleKeptRecently(g.uid)&&(isWeapon(g)||(trip.secondaryInspections||0)<inspectionLimit));
       if(!item){trip.salesDone=true;trip.progressAt=now();save();return;}
@@ -576,7 +579,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const selected=detail.panelText.split(/In Bag|ในกระเป๋า/i).at(-1);
       const sale=detail.controls.concat(detail.offscreen||[]).filter(c=>c.act==='isellg'&&c.key===item.uid);
       const price=sale.length===1?Number(sale[0].label.replace(/,/g,'').match(/^(?:Sell|ขาย)\s+(\d+)\s*G$/i)?.[1]):0;
-      const reason=surplusDetail(getCatalog(),detail,a.worn,item,selected)||(!price?'sale price unavailable':null);
+      const reason=surplusDetail(getCatalog(),detail,detail.worn?.length?detail.worn:worn,item,selected)||(!price?'sale price unavailable':null);
       if(reason){
         (trip.keepUIDs ||= []).push(item.uid);
         (trip.keepReasons ||= {})[item.uid]=reason;
