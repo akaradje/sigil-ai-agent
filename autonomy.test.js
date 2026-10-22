@@ -684,6 +684,54 @@ test('compatible weapons require the live inferior verdict and primary-stat loss
   assert.ok(A.surplusDetail(c,s,[{uid:'worn',slot:'weapon',text:'Void Blade'}],item,bladeDetail));
 });
 
+test('the town visit sells, then deposits what the shop refuses, and refines last',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
+  c.gear.find(g=>g.id==='staff5').refinement=Array.from({length:16},(_,r)=>({ore:1,bonus:{matk:r}}));
+  a.worn=[{uid:'w',slot:'weapon',text:'+5 Void Staff'}];
+  a.bagUsage=[130,130];
+  a.saleKept={x:{reason:'equipment with options',at:clock}};
+  a.trip={kind:'shop',phase:'town',at:clock,salesDone:true,salePolicyVersion:2,storageScanned:true};
+  let panel='shop',storageGear=[{uid:'x',dir:'in',text:'Test Armor'}],deposited=null;
+  const observe=async()=>state({zone:'Town',panel,storageGear,storageUsage:[10,100],storageComplete:true,hpPotions:25,mpPotions:25,gold:900000,
+    controls:panel==='storage'?storageGear.map(g=>({act:'stmove',uid:g.uid,dir:g.dir})):[]});
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,observe,
+    click:async x=>{if(x.act==='stmove'&&x.dir==='in'){deposited=x.uid;storageGear=storageGear.filter(g=>g.uid!==x.uid);}},
+    open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
+  // The sale is done: the bag is relieved before anything else is spent.
+  await ctl.run('town');
+  assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  assert.equal(a.trip.kind,'storage');
+  // The storage takes what the shop refused, and the refine is the last step.
+  panel='storage';
+  await ctl.run('town');
+  assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  assert.equal(deposited,'x');
+  assert.equal(a.trip.kind,'forge');
+});
+test('a purchase the screen cannot show is skipped, not a failed visit',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  a.trip={kind:'shop',phase:'town',at:clock,salesDone:false,salePolicyVersion:2,storageScanned:true};
+  const observe=async()=>state({zone:'Town',panel:'shop',hpPotions:15,mpPotions:15,gold:900000,controls:[]});
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,observe,
+    click:async()=>{},open:async()=>{},close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
+  await ctl.run('town');
+  assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  // Both potions are unreadable, so both purchases are skipped and the visit lives.
+  assert.equal(a.events.filter(e=>e.type==='purchase_skipped').length,2);
+  assert.equal(a.lastResult.note,undefined);
+});
+test('the storage takes a piece the shop refused to sell',()=>{
+  const c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
+  const s={storageGear:[{uid:'h',dir:'in',art:'/gear/armor.png'}],worn:[{uid:'w',slot:'armor',text:'+5 Test Armor'}],
+    inventoryGear:[{uid:'h',text:'Test Armor',protected:false,equipped:false,better:false,rarity:2}]};
+  const control={act:'stmove',dir:'in',uid:'h'};
+  // The ratchet calls it surplus, so the storage stays shut.
+  assert.equal(A.storageDepositAllowed(c,s,control),false);
+  // The shop refused to sell it: the bag would hold it for ever otherwise.
+  assert.equal(A.storageDepositAllowed(c,s,control,{h:{reason:'equipment with options',at:clock}}),true);
+  assert.equal(A.storageDepositAllowed(c,s,control,{other:{reason:'x',at:clock}}),false);
+});
 test('native storage guard rejects weapon, unknown and bulk deposits while allowing identified non-weapon gear',()=>{
   const c=catalog();c.gear.push({id:'hood',name:'Hood',slot:'head'});
   const s={storageGear:[{uid:'w',dir:'in',art:'/gear/blade5.png'},{uid:'h',dir:'in',art:'/gear/hood.png'},{uid:'x',dir:'in',text:'unknown'}]};

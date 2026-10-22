@@ -246,7 +246,7 @@ async function uiClick(c) {
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
   if(fresh.act==='ahot'||fresh.act==='aopt')delete memory.nativeCombatProfile;
-  if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
+  if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh,memory.autonomy?.saleKept))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
   if(dnaEnabled){
     updateDNA(st);const boundary=DNA.nativeControl(fresh,memory);
     if(!boundary.allowed)throw Error('DNA boundary rejects an untracked native profile change');

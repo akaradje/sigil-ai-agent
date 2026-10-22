@@ -98,21 +98,31 @@ function surplusDetail(catalog,s,worn,item,selected) {
     !new RegExp('\\b'+primary+'\\s*▼\\s*[1-9]\\d*').test(comparison))return 'not a verified inferior weapon';
   return null;
 }
-function storageDepositAllowed(catalog,s,control) {
+function storageDepositAllowed(catalog,s,control,kept) {
   if(control.act==='stall')return false;
   if(control.act!=='stmove'||control.dir!=='in')return true;
   const item=s.storageGear?.find(g=>g.uid===control.uid&&g.dir==='in');
   const gear=catalog?.gear&&item&&gearForName(catalog,item.art||item.text);
   if(!gear)return false;
   // A piece the ratchet calls surplus never goes into the storage: the storage
-  // keeps what is worth keeping, the shop takes what is not.
-  if(Ratchet.ratchet(catalog,s,s.worn||[]).trash.some(t=>t.uid===item.uid))return false;
+  // keeps what is worth keeping, the shop takes what is not. The one exception
+  // is a piece the shop refuses to sell: it would sit in the bag for ever, so
+  // the storage is the only place it can go until the hero wants it back.
+  if(Ratchet.ratchet(catalog,s,s.worn||[]).trash.some(t=>t.uid===item.uid)&&!kept?.[item.uid])return false;
   // Ordinary gear may go to the storage. A weapon may as well when it is not
   // the one in use and not of the character's own weapon family.
   if(gear.slot!=='weapon')return true;
   if(s.worn?.some(w=>w.uid===control.uid))return false;
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];
   return !!job&&gear.fam!==job.weapon;
+}
+// The worn weapon still has refinement steps: refining it raises the class
+// damage now, and the forge is the last step of the town visit.
+function weaponRefinePending(catalog,worn) {
+  const w=(worn||[]).find(x=>x.slot==='weapon');
+  const g=w&&gearForName(catalog,w.text);
+  const lv=Number(String(w?.text||'').match(/\+(\d+)/)?.[1]||0);
+  return !!(g&&lv<(g.refinement||[]).length);
 }
 function storedSurplus(catalog,s,worn,entries=[]) {
   const job=catalog?.jobs?.[String(s.job||'').toLowerCase()];if(!job)return [];
@@ -310,17 +320,29 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
   const leveling=()=>probing||a.farm?.probe||!!policy.levelingFocus&&!a.cap?.atCap;
   const targetFor=(map,s)=>levelingTarget(getCatalog(),map,s,policy.levelingMaxGap);
   async function state(){const s=await observe();update(mem,s,getCatalog(),now(),policy.goldReserve);return s;}
-  async function pick(pred,optional=false) {
+  async function pick(pred,optional=false,want='') {
     let s=await state(),matches=s.controls.filter(pred);
     if(!matches.length&&scroll){const hidden=(s.offscreen||[]).filter(pred);if(hidden.length===1){await scroll(hidden[0]);await sleep(300);s=await state();matches=s.controls.filter(pred);}}
     if(matches.length!==1){if(optional)return false;
       // Name what was on screen: a missing control and an ambiguous one need
-      // different fixes, and the operator has to see which it was.
+      // different fixes, and the operator has to see which it was. The wanted
+      // control is named too, so the failure says which step it came from.
       const seen=(s.controls||[]).map(c=>c.label||c.act||c.key).filter(Boolean).slice(0,14).join(' | ');
-      throw Error('observed control missing or ambiguous: matches='+matches.length+' panel='+(s.panel||'-')+' saw=['+seen+']');
+      throw Error('observed control missing or ambiguous: want='+(want||'?')+' matches='+matches.length+' panel='+(s.panel||'-')+' saw=['+seen+']');
     }
     if(++actions>9)throw Error('autonomy action budget exceeded');
     await click(matches[0]);await sleep(900);return true;
+  }
+  // A purchase the screen cannot show is skipped, not fatal. The visit has one
+  // job left, the bag, and a missing price or a button below the fold must not
+  // end it. A purchase that happens is still checked against the gold.
+  async function buy(pred,what) {
+    try { return await pick(pred,true,what); }
+    catch(e) {
+      if(/action budget/i.test(e.message))throw e;
+      event(a,'purchase_unreadable',{what,message:e.message},now());
+      return false;
+    }
   }
   async function travel(id) {
     await close();await key('m');await sleep(500);
@@ -742,7 +764,11 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       }
       await resume(trip);return;
     }
-    if(policy.sellSurplus&&trip.kind==='storage'){trip.kind='shop';trip.salesDone=false;}
+    // A storage visit is served by the shop round first: the shop takes what it
+    // will sell, the storage takes what the shop refuses. The deposit runs
+    // after the sale, so the trip must not fold back into the sale once it has
+    // served the storage.
+    if(policy.sellSurplus&&trip.kind==='storage'&&trip.salesDone!==true&&!trip.storageServiced){trip.kind='shop';trip.salesDone=false;}
     // A nearly full bag needs the storage even when the last scan found nothing
     // to sell: the items the shop refuses still have to leave the bag.
     if(policy.sellSurplus&&!a.wingPriority&&trip.kind==='shop'&&!trip.storageScanned&&storageWorthScanning(a)&&
@@ -844,6 +870,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const live=await state();
         if(live.storageUsage&&live.storageUsage[0]<live.storageUsage[1]&&(live.storageGear||[]).some(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&gearForName(getCatalog(),g.text+' '+g.art)))return;
       }
+      if(trip.salesDone===true&&!trip.hygiene&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN&&weaponRefinePending(getCatalog(),a.worn)){trip.kind='forge';return;}
       if(trip.salesDone===true&&!trip.hygiene&&a.goal&&a.goal.kind!=='stockpile'&&!a.goal.missing.length&&(policy.powerProgression||!leveling()||a.goal.slot==='weapon')&&(!a.resourceHold?.active||a.goal.slot==='weapon'||a.wingPriority&&a.goal.slot==='wing')){trip.kind='forge';return;}
     }
     if(trip.kind==='shop') {
@@ -854,8 +881,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
         const current=await state();if(current[field]==null||current[field]>20)continue;
         const control=current.controls.find(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
         const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
-        if(!price||current.gold-price<policy.goldReserve)throw Error('potion price/reserve not verified');
-        await pick(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
+        // A price the screen does not show is a skipped purchase, not a failed
+        // visit: the hero has potions and the bag still has to be relieved.
+        if(!price||current.gold-price<policy.goldReserve){event(a,'purchase_skipped',{what:id,reason:'price or reserve not verified'},now());continue;}
+        if(!await buy(c=>c.act==='buy'&&c.key===id&&c.amount==='10',id))continue;
         const after=await state();if(after[field]<=current[field])throw Error('potion restock not confirmed');
         a.restocked||={};a.restocked[field]=(a.restocked[field]||0)+after[field]-current[field];
       }
@@ -863,8 +892,7 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(scrolls&&Number(scrolls[1])<5) {
         const control=[...current.controls,...(current.offscreen||[])].find(c=>c.act==='buy'&&c.key==='return_scroll'&&c.amount==='10');
         const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
-        if(price&&current.gold-price>=policy.goldReserve) {
-          await pick(c=>c.act==='buy'&&c.key==='return_scroll'&&c.amount==='10');
+        if(price&&current.gold-price>=policy.goldReserve&&await buy(c=>c.act==='buy'&&c.key==='return_scroll'&&c.amount==='10','return_scroll')) {
           const after=await state(),owned=Number(after.panelText?.match(/Return Scroll\s+have\s+(\d+)/i)?.[1]);
           if(owned!==Number(scrolls[1])+10||after.gold!==current.gold-price)throw Error('Return Scroll restock not confirmed');
           a.restocked||={};a.restocked.return_scroll=(a.restocked.return_scroll||0)+10;
@@ -876,14 +904,12 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       // boss plan can take the healthy supplied visit on the next slice.
       if(mem.bossLearning?.pending&&mem.bossLearning.plan&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3&&
         (!mem.bossLearning.plan.craftWing||a.wingCraft?.status==='equipped'))return;
-            // The damage-stat gear still has refinement steps: refining it raises the
-      // class damage now, and it must not wait behind the sale round that empties
-      // the bag first.
-      if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN){
-        const w=(a.worn||[]).find(x=>x.slot==='weapon');
-        const g=w&&gearForName(getCatalog(),w.text);
-        const level=Number(String(w?.text||'').match(/\+(\d+)/)?.[1]||0);
-        if(g&&level<(g.refinement||[]).length){trip.kind='forge';trip.progressAt=now();save();return;}
+      // The bag is relieved before the forge: the shop has taken what it will
+      // sell, and what the shop refuses goes to the storage. A refine whose
+      // result cannot be read ends the visit, so the forge runs last.
+      if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.storageServiced&&
+        !(a.wingPriority&&a.goal?.slot==='wing')&&a.bagUsage?.[0]>=a.bagUsage?.[1]-3){
+        trip.kind='storage';trip.storageServiced=true;trip.progressAt=now();save();return;
       }
       // The sale comes before the headroom purchase: selling the surplus the
       // ratchet found is free, and only a bag that is still nearly full after
@@ -891,6 +917,11 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.capacityServiced&&bagCapacityNeeded(a)&&
         a.premium.reserved<policy.crystalBudget&&!['reserved','unknown'].includes(a.purchase?.status)){
         trip.kind='capacity';trip.progressAt=now();save();return;
+      }
+      // The damage-stat gear still has refinement steps: refining it raises the
+      // class damage now, and it is the last step of the visit.
+      if(policy.sellSurplus&&trip.kind==='shop'&&trip.salesDone===true&&!trip.forgeServiced&&!a.resourceHold?.active&&now()-(a.last.forge||0)>30*MIN&&weaponRefinePending(getCatalog(),a.worn)){
+        trip.kind='forge';trip.progressAt=now();save();return;
       }
 if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
       if(policy.powerProgression){
@@ -901,7 +932,7 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
           const control=[...live.controls,...(live.offscreen||[])].find(c=>c.act==='buy'&&c.key===id&&c.amount==='10');
           const price=Number(control?.label?.replace(/,/g,'').match(/(\d+)\s*G\b/)?.[1]);
           if(!price||price>20000||live.gold-price<policy.goldReserve)continue;
-          await pick(c=>c.act==='buy'&&c.key===id&&c.amount==='10');const after=await state(),count=Number(after.panelText.match(new RegExp(name+'\\s+(?:have|มี)\\s+(\\d+)','i'))?.[1]);
+          if(!await buy(c=>c.act==='buy'&&c.key===id&&c.amount==='10',id))continue;const after=await state(),count=Number(after.panelText.match(new RegExp(name+'\\s+(?:have|มี)\\s+(\\d+)','i'))?.[1]);
           if(count!==Number(owned[1])+10||after.gold!==live.gold-price)throw Error('Development supply purchase not acknowledged');
           a.restocked||={};a.restocked[id]=(a.restocked[id]||0)+10;
         }
