@@ -84,8 +84,13 @@ function surplusDetail(catalog,s,worn,item,selected) {
     const comparison=selected.split(/Compared with worn:|เทียบกับที่สวม:/i);
     if(!Number.isInteger(item.rarity)||item.rarity<0||own?.id!==gear.id||
       Number(heading.match(/\[(\d+)\]/)?.[1]||0)>Number(current.text.match(/\[(\d+)\]/)?.[1]||0)||
-      /Cooldown|Skill.*damage|vs[ .:]|damage taken|คูลดาวน์|เผ่า|ขนาด/i.test(selected)||comparison.length!==2||
-      !/▼\s*Worse than worn|แย่กว่าที่สวมอยู่/i.test(comparison[1])||/▲/.test(comparison[1])||!/▼\s*[1-9]/.test(comparison[1]))return 'equipment with options';
+      comparison.length!==2||
+      !/▼\s*Worse than worn|แย่กว่าที่สวมอยู่/i.test(comparison[1])||!/▼\s*[1-9]/.test(comparison[1]))return 'equipment with options';
+    // A spare copy of the piece the hero wears carries the same options: the
+    // worn one has them too, so an extra line is no reason to keep the spare.
+    // The slot-relative ratchet decides what is surplus.
+    if(!spareOfWorn(selected,current)&&
+      (/Cooldown|Skill.*damage|vs[ .:]|damage taken|คูลดาวน์|เผ่า|ขนาด/i.test(selected)||/▲/.test(comparison[1])))return 'equipment with options';
     return null;
   }
   if(gear.fam!==job.weapon)return null;
@@ -98,17 +103,44 @@ function surplusDetail(catalog,s,worn,item,selected) {
     !new RegExp('\\b'+primary+'\\s*▼\\s*[1-9]\\d*').test(comparison))return 'not a verified inferior weapon';
   return null;
 }
-function storageDepositAllowed(catalog,s,control,kept) {
+// A spare copy of the worn piece: the same gear, refined no further. The worn
+// one keeps every option the spare has, so the spare is pure surplus.
+function spareOfWorn(selected,current) {
+  const spare=Number(selected.match(/Refine\s*\+(\d+)\s*\/\s*\d+/i)?.[1]||0);
+  const worn=Number(current?.text?.match(/\+(\d+)/)?.[1]||0);
+  return spare<=worn;
+}
+// A material a recipe the hero can still use needs: it stays in the bag.
+function recipeMaterialFor(catalog,id,heroLevel) {
+  for(const candidate of catalog?.gear||[]) {
+    const mats=candidate.craft?.mats,up=candidate.upgrade?.mats;
+    for(const list of [mats,up]) {
+      if(!list||!Object.prototype.hasOwnProperty.call(list,id))continue;
+      if(candidate.lv<=heroLevel)continue;
+      return true;
+    }
+  }
+  return false;
+}
+function storageDepositAllowed(catalog,s,control,ctx={}) {
   if(control.act==='stall')return false;
   if(control.act!=='stmove'||control.dir!=='in')return true;
+  // A material stack may go to the storage when the craft in hand does not ask
+  // for it and no recipe the hero can still use needs it.
+  if(!control.uid) {
+    const id=control.key;
+    if(!id)return false;
+    if((ctx.goalMats||[]).includes(id))return false;
+    if(recipeMaterialFor(catalog,id,ctx.heroLevel||0))return false;
+    return true;
+  }
   const item=s.storageGear?.find(g=>g.uid===control.uid&&g.dir==='in');
   const gear=catalog?.gear&&item&&gearForName(catalog,item.art||item.text);
   if(!gear)return false;
   // A piece the ratchet calls surplus never goes into the storage: the storage
-  // keeps what is worth keeping, the shop takes what is not. The one exception
-  // is a piece the shop refuses to sell: it would sit in the bag for ever, so
-  // the storage is the only place it can go until the hero wants it back.
-  if(Ratchet.ratchet(catalog,s,s.worn||[]).trash.some(t=>t.uid===item.uid)&&!kept?.[item.uid])return false;
+  // keeps what is worth keeping, the shop takes what is not. Junk in the
+  // storage takes the shared slots the materials need.
+  if(Ratchet.ratchet(catalog,s,s.worn||[]).trash.some(t=>t.uid===item.uid))return false;
   // Ordinary gear may go to the storage. A weapon may as well when it is not
   // the one in use and not of the character's own weapon family.
   if(gear.slot!=='weapon')return true;
@@ -315,6 +347,9 @@ function trialOption(mem,s,catalog,now=Date.now(),policy={}) {
 
 function createController({mem,observe,click,key,scroll,open,close,sleep,save,log,getCatalog,policy,developAtSmith,onTownServiced,now=Date.now}) {
   let actions=0;
+  // A town errand is a bounded burst: the visit has a hard time budget, so the
+  // queue inside it is worked through while that budget lasts.
+  let actionLimit=9,burst=false;
   let probing=false;
   const a=init(mem);
   const leveling=()=>probing||a.farm?.probe||!!policy.levelingFocus&&!a.cap?.atCap;
@@ -330,8 +365,16 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       const seen=(s.controls||[]).map(c=>c.label||c.act||c.key).filter(Boolean).slice(0,14).join(' | ');
       throw Error('observed control missing or ambiguous: want='+(want||'?')+' matches='+matches.length+' panel='+(s.panel||'-')+' saw=['+seen+']');
     }
-    if(++actions>9)throw Error('autonomy action budget exceeded');
-    await click(matches[0]);await sleep(900);return true;
+    if(++actions>actionLimit)throw Error('autonomy action budget exceeded');
+    await click(matches[0],burst);await sleep(900);return true;
+  }
+  // The errand budget left in this visit. A queue is worked through while it
+  // lasts, so the visit ends on time instead of on the next agent tick.
+  function errandLeftMs(trip) {
+    if(!trip)return 0;
+    const since=trip.errandAt||trip.townTravelAt||trip.at||now();
+    const budget=trip.errandAt?TOWN_MAX_MS:TOWN_MAX_MS*3;
+    return budget-(now()-since);
   }
   // A purchase the screen cannot show is skipped, not fatal. The visit has one
   // job left, the bag, and a missing price or a button below the fold must not
@@ -584,8 +627,9 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
      if(boundUncertainSale(trip))a.saleIntent=null;
      else if(!await settleSale(a.saleIntent,trip))throw Error('Uncertain sale requires review');
    }
-    for(let i=0;i<2;i++) {
-      if(actions>6)return; // Leave room for select, dialog and confirmation this slice.
+    for(let i=0;i<60;i++) {
+      if(actions>actionLimit-4)return; // Leave room for select, dialog and confirmation.
+      if(errandLeftMs(trip)<8000)return;
       const before=await state();if(before.inventoryComplete!==true)throw Error('Complete inventory required before surplus inspection');
       const isWeapon=g=>gearForName(getCatalog(),g.art||g.text)?.slot==='weapon';
       const inspectionLimit=a.wingPriority&&a.goal?.slot==='wing'&&a.bagUsage?.[0]<=a.bagUsage?.[1]-3?4:8;
@@ -845,27 +889,41 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
       trip.storageScanned=true;trip.kind='shop';trip.salesDone=false;return;
     }
     if(trip.kind==='storage') {
-      // Leveling may store any identified spare gear. Deposits are reversible;
-      // worn gear, materials and potions are never selected or bulk-moved.
-      const job=getCatalog().jobs[String(s.job).toLowerCase()];
-      const batch=leveling()?Math.min(6,Math.max(1,9-actions)):3;
+      // The storage keeps what is worth keeping: the best future piece per
+      // slot and the materials no live recipe needs. Junk goes to the shop.
+      const goalMats=(a.goal?.missing||[]).map(m=>m.id);
+      const keep=Ratchet.ratchet(getCatalog(),{job:s.job,lv:level(s),inventoryGear:a.inventory?.gear||[]},a.worn||[]).keep;
+      const future=new Set(keep.filter(k=>k.reason==='one future piece per slot').map(k=>k.uid));
+      const batch=Math.max(3,Math.min(24,actionLimit-actions-4));
       for(let i=0;i<batch;i++) {
+        if(actions>actionLimit-3)break;
+        if(errandLeftMs(trip)<6000)break;
         const current=await state();
         if(current.storageUsage&&current.storageUsage[0]>=current.storageUsage[1])break;
-        // The control only accepts non-weapon gear, and the shop refuses some of
-        // it: those refused items are what keeps the bag full, so they are the
-        // ones that go to the storage.
-        const bagTight=a.bagUsage&&a.bagUsage[0]>=a.bagUsage[1]-3;
-        const refused=new Set(Object.keys(a.saleKept||{}));
-        const spare=(current.storageGear||[]).find(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&(()=>{const gear=gearForName(getCatalog(),g.text+' '+g.art);if(!gear)return false;if(gear.slot==='weapon')return leveling()||gear.fam!==job?.weapon;return leveling()||(bagTight&&refused.has(g.uid));})());
-        if(!spare)break;
-        await pick(c=>c.act==='stmove'&&c.uid===spare.uid&&c.dir==='in');
-        if((await state()).storageGear.some(g=>g.dir==='in'&&g.uid===spare.uid))throw Error('storage deposit not confirmed');
+        // A material stack first: one action each and the bag keeps its space.
+        const cells=[...(current.controls||[]),...(current.offscreen||[])].filter(c=>c.act==='stmove'&&c.key&&c.dir==='in');
+        const material=cells.find(c=>{
+          const entry=getCatalog().items?.[c.key];
+          // A consumable stays in the bag: the hero needs it there.
+          if(entry&&(entry.use||entry.card))return false;
+          return !goalMats.includes(c.key)&&!recipeMaterialFor(getCatalog(),c.key,level(s));
+        });
+        const futureGear=(current.storageGear||[]).find(g=>g.dir==='in'&&future.has(g.uid)&&!a.worn.some(w=>w.uid===g.uid));
+        if(material) {
+          await pick(c=>c.act==='stmove'&&c.key===material.key&&c.dir==='in');
+          const after=await state();
+          if([...(after.controls||[]),...(after.offscreen||[])].some(c=>c.act==='stmove'&&c.key===material.key&&c.dir==='in'))throw Error('storage deposit not confirmed');
+          a.blocked=null;a.last.inventory=0;trip.deposits=(trip.deposits||0)+1;trip.progressAt=now();
+          continue;
+        }
+        if(!futureGear)break;
+        await pick(c=>c.act==='stmove'&&c.uid===futureGear.uid&&c.dir==='in');
+        if((await state()).storageGear.some(g=>g.dir==='in'&&g.uid===futureGear.uid))throw Error('storage deposit not confirmed');
         a.blocked=null;a.last.inventory=0;trip.deposits=(trip.deposits||0)+1;
         trip.progressAt=now();
         if(a.bagUsage)a.bagUsage=[Math.max(0,a.bagUsage[0]-1),a.bagUsage[1]];
       }
-      a.blocked=trip.deposits?null:'No verified spare non-caster gear to deposit';
+      a.blocked=trip.deposits?null:'No verified spare gear to store';
       if(leveling()&&trip.deposits&&a.bagUsage&&a.bagUsage[0]>Math.floor(a.bagUsage[1]*0.7)) {
         const live=await state();
         if(live.storageUsage&&live.storageUsage[0]<live.storageUsage[1]&&(live.storageGear||[]).some(g=>g.dir==='in'&&!a.worn.some(w=>w.uid===g.uid)&&gearForName(getCatalog(),g.text+' '+g.art)))return;
@@ -972,6 +1030,10 @@ if(policy.sellSurplus&&trip.salesDone!==true){await sellSurplus(trip);return;}
   }
   async function run(task) {
     actions=0;
+    // The town errand is the one place where a burst of inputs is bounded by a
+    // time budget instead of a per-tick queue.
+    burst=task==='town';
+    actionLimit=burst?40:9;
     try {
       let s=await state();
       if(task==='cbt') {

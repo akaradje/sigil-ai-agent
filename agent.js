@@ -45,6 +45,11 @@ const STATUS_PORT = Number(process.env.AGENT_PORT || 4801);
 const TICK_MS = 15000;
 const ACTION_GAP = 1800;
 const MAX_ACTIONS_PER_MIN = 14;
+// A town errand is a bounded burst: the visit has a hard time budget, so the
+// queue inside it is worked through while that budget lasts. Every click is
+// still matched against a fresh observation before it is sent.
+const BURST_ACTION_GAP = 1100;
+const MAX_BURST_ACTIONS_PER_MIN = 40;
 const MAX_TOOL_CALLS = 5;
 
 // ------------------------------------------------------------------ env
@@ -131,12 +136,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let lastAction = 0;
 const actionTimes = [];
-async function gate(cleanup=false) {
-  const wait = Math.max(0, lastAction + ACTION_GAP - Date.now());
+async function gate(cleanup=false,burst=false) {
+  const gap=burst?BURST_ACTION_GAP:ACTION_GAP;
+  const cap=burst?MAX_BURST_ACTIONS_PER_MIN:MAX_ACTIONS_PER_MIN;
+  const wait = Math.max(0, lastAction + gap - Date.now());
   if (wait) await sleep(wait);
   const cutoff = Date.now() - 60000;
   while (actionTimes.length && actionTimes[0] < cutoff) actionTimes.shift();
-  if (actionTimes.length >= MAX_ACTIONS_PER_MIN-(cleanup?0:2)) {
+  if (actionTimes.length >= cap-(cleanup?0:2)) {
     const more = actionTimes[0] + 60000 - Date.now();
     if (more>2000) throw Object.assign(new Error('action budget cooling down'),{code:'ACTION_BUDGET'});
     if (more > 0) await sleep(more);
@@ -234,8 +241,8 @@ function updateDNA(s,observe=false) {
 }
 let actionInFlight=false,cleanupBusy=false,panelSince=0,lastStrategic=0,fastBossMode=false;
 async function uiKey(k) { await gate(k==='Escape');await req('/type?key='+encodeURIComponent(k)); }
-async function uiClick(c) {
-  await gate();
+async function uiClick(c,burst=false) {
+  await gate(false,burst);
   const st=(await perceive(false)).state;
   UI.assertReady(memory.uiHealth);
   let matches=st.controls.filter(x=>c.id?x.id===c.id:c.act?x.act===c.act&&x.key===c.key&&x.k===c.k&&x.v===c.v&&(!c.branch||x.branch===c.branch)&&(!c.amount||x.amount===c.amount):c.open?x.open===c.open:c.aq?x.aq===c.aq:c.go?x.go===c.go:c.bm?x.bm===c.bm:c.wm?x.wm===c.wm:c.place?x.place===c.place:x.label===c.label);
@@ -246,7 +253,7 @@ async function uiClick(c) {
   if(matches.length!==1)throw Error('control changed while waiting; re-observe');
   const fresh=matches[0];
   if(fresh.act==='ahot'||fresh.act==='aopt')delete memory.nativeCombatProfile;
-  if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh,memory.autonomy?.saleKept))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
+  if(autonomyPolicy.sellSurplus&&!Autonomy.storageDepositAllowed(catalog,st,fresh,{goalMats:(memory.autonomy?.goal?.missing||[]).map(x=>x.id),heroLevel:Number(String(st.lv||'').match(/\d+/)?.[0]||0)}))throw Error('Surplus-sale policy prevents weapon or bulk storage deposits');
   if(dnaEnabled){
     updateDNA(st);const boundary=DNA.nativeControl(fresh,memory);
     if(!boundary.allowed)throw Error('DNA boundary rejects an untracked native profile change');

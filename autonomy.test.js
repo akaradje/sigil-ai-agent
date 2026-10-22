@@ -69,12 +69,15 @@ test('a legendary candidate is surplus when the worn gear in that slot is at lea
   // piece alive, a weaker one turns it into surplus.
   assert.equal(A.surplusGear(c,state({inventoryComplete:true,inventoryGear:[{...base,rarity:3}]}),[{uid:'w',slot:'weapon',text:'Cinder Staff'}]).length,0);
 });
-test('ordinary option armor is sold only with the same base, no stat gain and native inferior evidence',()=>{
+test('ordinary option armor is sold with the same base and native inferior evidence, and a card is never sold',()=>{
   const c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
   const item={uid:'x',text:'Test Armor',protected:false,rarity:2},worn=[{uid:'w',slot:'armor',text:'+5 Test Armor [1]'}],s=state({inventoryComplete:true,inventoryGear:[item]});
   const detail='Test Armor [1]\nRefine +0/15\n✦ DEF +5\nCompared with worn:\n▼ Worse than worn\nDEF ▼ 10';
   assert.equal(A.surplusDetail(c,s,worn,item,detail),null);
-  assert.ok(A.surplusDetail(c,s,worn,item,detail+'\nMATK ▲ 1'));
+  // A copy of the worn piece carries the same options: the shop takes it.
+  assert.equal(A.surplusDetail(c,s,worn,item,detail+'\nMATK ▲ 1'),null);
+  // A refined spare is not a copy of the worn one: the options still protect it.
+  assert.ok(A.surplusDetail(c,s,worn,item,(detail+'\nMATK ▲ 1').replace('Refine +0/15','Refine +7/15')));
   assert.ok(A.surplusDetail(c,s,worn,item,detail.replace('✦ DEF','🃏 Card\n✦ DEF')));
   // The colour does not protect a piece the game proves is the worse one.
   assert.equal(A.surplusDetail(c,s,worn,{...item,rarity:3},detail),null);
@@ -355,19 +358,28 @@ test('EXP-focused farming is not blocked by an unavailable secondary crafting ma
   await c.run('farm');assert.equal(a.lastResult.ok,true);assert.equal(a.farm.map,'field');
 });
 
-test('leveling storage creates headroom without moving worn gear, items or unknown gear',async()=>{
-  const m={},a=A.init(m);a.trip={kind:'storage',at:clock,progressAt:clock,phase:'town'};a.bagUsage=[100,100];a.worn=[{uid:'worn'}];
-  let usage=10;
-  const spares=Array.from({length:12},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'}));
-  const protectedGear=[{uid:'worn',dir:'in',text:'Void Staff'},{uid:'unknown',dir:'in',text:'Unidentified'}];
+test('leveling storage keeps the best future piece and free materials, never worn gear or junk',async()=>{
+  const m={},a=A.init(m),c=catalog();
+  c.gear.push({id:'staff6',name:'Elder Staff',slot:'weapon',fam:'staff',tier:6,lv:70,stats:{matk:70}});
+  a.trip={kind:'storage',at:clock,progressAt:clock,phase:'town'};a.bagUsage=[100,100];
+  a.worn=[{uid:'worn',slot:'weapon',text:'+4 Void Staff'}];
+  a.inventory={at:clock,items:{},gear:[{uid:'future',text:'Elder Staff',protected:false},{uid:'spare0',text:'Void Staff',protected:false}]};
+  c.items.potion={name:'Potion',use:{hp:60}};
+  const materials=[{act:'stmove',key:'shard',dir:'in'},{act:'stmove',key:'potion',dir:'in'}];
+  const gearCells=[{uid:'future',dir:'in',text:'Elder Staff'},{uid:'worn',dir:'in',text:'+4 Void Staff'},{uid:'spare0',dir:'in',text:'Void Staff'},{uid:'unknown',dir:'in',text:'Unidentified'}];
   const moved=[];
-  const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
-    observe:async()=>state({zone:'Town',panel:'storage',storageUsage:[usage,100],storageGear:[...protectedGear,...spares],
-      controls:[{act:'stmove',key:'potion',dir:'in'},...protectedGear,...spares].map(g=>({...g,act:'stmove'}))}),
-    click:async control=>{assert(control.uid.startsWith('spare'));moved.push(control.uid);spares.splice(spares.findIndex(g=>g.uid===control.uid),1);usage++;},
+  const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
+    observe:async()=>state({zone:'Town',panel:'storage',storageUsage:[10,100],storageGear:gearCells,
+      controls:[...materials,...gearCells].map(g=>({...g,act:'stmove'}))}),
+    click:async control=>{moved.push(control.uid||control.key);
+      const i=materials.findIndex(g=>g.key===control.key);if(i>=0)materials.splice(i,1);
+      const j=gearCells.findIndex(g=>g.uid===control.uid);if(j>=0)gearCells.splice(j,1);},
     close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
-  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(moved.length,6);assert.equal(a.bagUsage[0],94);assert.equal(a.trip.phase,'town');assert.equal(a.trip.progressAt,clock);
-  a.bagUsage=[72,100];await c.run('town');assert.equal(moved.length,12);assert.equal(a.bagUsage[0],66);assert.equal(a.trip.phase,'return');
+  await ctl.run('town');
+  assert.equal(a.lastResult.ok,true,a.lastResult.error);
+  // A material no recipe needs first, then the best future piece per slot. A
+  // consumable stays in the bag.
+  assert.deepEqual(moved,['shard','future']);
 });
 
 test('town restock confirms scroll quantity and gold debit before counting fast returns',async()=>{
@@ -547,13 +559,15 @@ test('a cancelled farm teleport retries the verified map after a bounded wait wi
 
 test('town service interacts with the verified NPC prompt instead of repeatedly walking to it',async()=>{
   const m={},a=A.init(m);a.trip={kind:'storage',at:clock,phase:'town'};a.bagUsage=[95,100];let panel=null,used=10;
-  const gear=Array.from({length:3},(_,i)=>({uid:'spare'+i,dir:'in',text:'Void Staff'})),clicked=[];
+  // The storage takes what is worth keeping: a material no recipe needs. Junk
+  // gear never goes there.
+  const cells=['honey','leaf','spore'].map(k=>({act:'stmove',key:k,dir:'in',text:k})),clicked=[];
   const c=A.createController({mem:m,getCatalog:()=>catalog(),policy:{levelingFocus:true,goldReserve:100000},now:()=>clock,
-    observe:async()=>state({zone:'Town',panel,autoHunt:'',storageUsage:panel?[used,100]:null,storageGear:panel?gear:[],
-      controls:panel?gear.map(g=>({...g,act:'stmove'})):[{id:'interactBtn',label:'Talk to Storage 120-slot storage shared by all characters F'}]}),
-    click:async control=>{clicked.push(control);if(control.id==='interactBtn')panel='storage';else {gear.splice(gear.findIndex(g=>g.uid===control.uid),1);used++;}},
+    observe:async()=>state({zone:'Town',panel,autoHunt:'',storageUsage:panel?[used,100]:null,storageGear:[],
+      controls:panel?cells.map(g=>({...g})):[{id:'interactBtn',label:'Talk to Storage 120-slot storage shared by all characters F'}]}),
+    click:async control=>{clicked.push(control);if(control.id==='interactBtn')panel='storage';else {cells.splice(cells.findIndex(g=>g.key===control.key),1);used++;}},
     key:async()=>assert.fail('NPC already reached'),close:async()=>{},sleep:async()=>{},save:()=>{},log:()=>{}});
-  await c.run('town');assert.equal(a.lastResult.ok,true);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],92);
+  await c.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.equal(clicked[0].id,'interactBtn');assert.equal(a.trip.deposits,3);assert.equal(a.bagUsage[0],95);
 });
 
 function saleHarness({wrongDialog=false,missingCredit=false,blocked=false,delayedCredit=false,fromStorage=false}={}) {
@@ -684,29 +698,27 @@ test('compatible weapons require the live inferior verdict and primary-stat loss
   assert.ok(A.surplusDetail(c,s,[{uid:'worn',slot:'weapon',text:'Void Blade'}],item,bladeDetail));
 });
 
-test('the town visit sells, then deposits what the shop refuses, and refines last',async()=>{
+test('the town visit sells, then stores what is worth keeping, and refines last',async()=>{
   const m={},a=A.init(m),c=catalog();
-  c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
   c.gear.find(g=>g.id==='staff5').refinement=Array.from({length:16},(_,r)=>({ore:1,bonus:{matk:r}}));
   a.worn=[{uid:'w',slot:'weapon',text:'+5 Void Staff'}];
   a.bagUsage=[130,130];
-  a.saleKept={x:{reason:'equipment with options',at:clock}};
   a.trip={kind:'shop',phase:'town',at:clock,salesDone:true,salePolicyVersion:2,storageScanned:true};
-  let panel='shop',storageGear=[{uid:'x',dir:'in',text:'Test Armor'}],deposited=null;
-  const observe=async()=>state({zone:'Town',panel,storageGear,storageUsage:[10,100],storageComplete:true,hpPotions:25,mpPotions:25,gold:900000,
-    controls:panel==='storage'?storageGear.map(g=>({act:'stmove',uid:g.uid,dir:g.dir})):[]});
+  let panel='shop',cells=[{act:'stmove',key:'honey',dir:'in',text:'Honey Drop'}],deposited=null;
+  const observe=async()=>state({zone:'Town',panel,storageUsage:[10,100],storageComplete:true,hpPotions:25,mpPotions:25,gold:900000,
+    controls:panel==='storage'?cells.map(g=>({...g})):[]});
   const ctl=A.createController({mem:m,getCatalog:()=>c,policy:{sellSurplus:true,goldReserve:100000},now:()=>clock,observe,
-    click:async x=>{if(x.act==='stmove'&&x.dir==='in'){deposited=x.uid;storageGear=storageGear.filter(g=>g.uid!==x.uid);}},
+    click:async x=>{if(x.act==='stmove'&&x.dir==='in'){deposited=x.key;cells=cells.filter(g=>g.key!==x.key);}},
     open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
   // The sale is done: the bag is relieved before anything else is spent.
   await ctl.run('town');
   assert.equal(a.lastResult.ok,true,a.lastResult.error);
   assert.equal(a.trip.kind,'storage');
-  // The storage takes what the shop refused, and the refine is the last step.
+  // The storage takes what is worth keeping, and the refine is the last step.
   panel='storage';
   await ctl.run('town');
   assert.equal(a.lastResult.ok,true,a.lastResult.error);
-  assert.equal(deposited,'x');
+  assert.equal(deposited,'honey');
   assert.equal(a.trip.kind,'forge');
 });
 test('a purchase the screen cannot show is skipped, not a failed visit',async()=>{
@@ -721,16 +733,30 @@ test('a purchase the screen cannot show is skipped, not a failed visit',async()=
   assert.equal(a.events.filter(e=>e.type==='purchase_skipped').length,2);
   assert.equal(a.lastResult.note,undefined);
 });
-test('the storage takes a piece the shop refused to sell',()=>{
+test('the storage takes materials no live recipe needs and never junk gear',()=>{
   const c=catalog();c.gear.push({id:'armor',name:'Test Armor',slot:'armor',tier:5,lv:55,stats:{def:30}});
   const s={storageGear:[{uid:'h',dir:'in',art:'/gear/armor.png'}],worn:[{uid:'w',slot:'armor',text:'+5 Test Armor'}],
     inventoryGear:[{uid:'h',text:'Test Armor',protected:false,equipped:false,better:false,rarity:2}]};
   const control={act:'stmove',dir:'in',uid:'h'};
-  // The ratchet calls it surplus, so the storage stays shut.
-  assert.equal(A.storageDepositAllowed(c,s,control),false);
-  // The shop refused to sell it: the bag would hold it for ever otherwise.
-  assert.equal(A.storageDepositAllowed(c,s,control,{h:{reason:'equipment with options',at:clock}}),true);
-  assert.equal(A.storageDepositAllowed(c,s,control,{other:{reason:'x',at:clock}}),false);
+  // The ratchet calls it surplus, so the storage stays shut: junk fills the
+  // shared slots the materials need.
+  assert.equal(A.storageDepositAllowed(c,s,control,{}),false);
+  // A material no recipe the hero can still use needs may go to the storage.
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'in',key:'shard'},{}),false);
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'in',key:'shard'},{heroLevel:99}),true);
+  // The craft in hand keeps its material.
+  assert.equal(A.storageDepositAllowed(c,s,{act:'stmove',dir:'in',key:'shard'},{heroLevel:99,goalMats:['shard']}),false);
+});
+test('a spare copy of the worn piece is sold: the slot-relative ratchet decides',()=>{
+  const c=catalog();c.gear.push({id:'shield',name:'Test Shield',slot:'shield',tier:5,lv:55,stats:{def:38,mdef:8}});
+  const item={uid:'x',text:'Test Shield',protected:false,rarity:2},worn=[{uid:'w',slot:'shield',text:'+6 Test Shield [1]'}];
+  const s=state({inventoryComplete:true,inventoryGear:[item]});
+  const detail='Test Shield [1]\nRefine +0/15\n✦ DEF +5\nDamage taken from Plant cut +10%\nCompared with worn:\n▼ Worse than worn\nCharacter totals if worn: ATK▼11 MATK▲63 DEF▼33 HP▼90';
+  // The same gear, refined no further: the worn one keeps every option, so the
+  // spare is surplus and the shop takes it.
+  assert.equal(A.surplusDetail(c,s,worn,item,detail),null);
+  // A refined spare is not a copy of the worn one: the options still matter.
+  assert.ok(A.surplusDetail(c,s,worn,item,detail.replace('Refine +0/15','Refine +7/15')));
 });
 test('native storage guard rejects weapon, unknown and bulk deposits while allowing identified non-weapon gear',()=>{
   const c=catalog();c.gear.push({id:'hood',name:'Hood',slot:'head'});
@@ -782,7 +808,12 @@ test('town sales drain more than eight weapons across bounded slices, preserve n
       if(c.label==='Sell'){sold.push(modal.uid);inventory=inventory.filter(g=>g.uid!==modal.uid);gold+=500;modal=null;selected=null;}
       if(c.go==='field')zone='Field';if(c.id==='autoBtn')hunting=true;},
     key:async()=>{},open:async p=>{panel=p;},close:async()=>{panel=null;},sleep:async()=>{},save:()=>{},log:()=>{}});
-  for(let i=0;i<30&&a.trip;i++){const before=sold.length;await controller.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);assert.ok(sold.length-before<=2);t+=5000;}
+  let maxSlice=0;
+  for(let i=0;i<30&&a.trip;i++){const before=sold.length;await controller.run('town');assert.equal(a.lastResult.ok,true,a.lastResult.error);
+    // One visit works through the queue while its budget lasts, bounded by the
+    // action budget of the visit.
+    assert.ok(sold.length-before<=13);maxSlice=Math.max(maxSlice,sold.length-before);t+=5000;}
+  assert.ok(maxSlice>2,'the surplus queue is worked through in one visit');
   assert.equal(sold.length,14);assert.equal(new Set(sold).size,14);assert.equal(a.sales.count,14);assert.equal(a.sales.gold,7000);
   assert.deepEqual(inventory.map(g=>g.uid),[...secondary.map(g=>g.uid),'card','locked','better','unknown']);assert.equal(a.resume.map,'field');assert.equal(a.trip,null);
   assert.equal(trip.secondaryInspections,8);assert.equal(Object.values(trip.keepReasons).filter(r=>r==='equipment with options').length,8);
