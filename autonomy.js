@@ -669,7 +669,10 @@ function createController({mem,observe,click,key,scroll,open,close,sleep,save,lo
     // time, so the budget starts when the hero reaches town. A visit that
     // cannot finish leaves the field.
     const errandSince=trip&&(trip.errandAt||trip.townTravelAt||trip.at||now());
-    if(trip&&now()-errandSince>TOWN_MAX_MS){
+    // Before the counter is open the hero is still walking, and walking is not
+    // the errand: the errand budget only starts once the work panel is open.
+    const budget=trip&&!trip.errandAt?TOWN_MAX_MS*3:TOWN_MAX_MS;
+    if(trip&&now()-errandSince>budget){
       a.blocked='Town trip timed out';
       event(a,'town_timeout_abort',{kind:trip.kind,visitSeconds:Math.round((now()-trip.at)/1000),errandSeconds:Math.round((now()-errandSince)/1000)},now());
       await abortTrip(trip,'Town trip timed out');
